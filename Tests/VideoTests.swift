@@ -463,7 +463,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        wait(for: [expectation], timeout: 5)
+        await fulfillment(of: [expectation], timeout: 5)
     }*/
 
     func testVideos() async {
@@ -477,7 +477,7 @@ class MediaToolSwiftTests: XCTestCase {
                 let destination = URL(fileURLWithPath: "./Tests/media/temp/\(config.output.filename)")
                 let expectation = XCTestExpectation(description: "Video processing")
 
-                await VideoTool.convert(
+                _ = await VideoTool.convert(
                     source: source,
                     destination: destination,
                     fileType: config.output.fileType,
@@ -501,11 +501,11 @@ class MediaToolSwiftTests: XCTestCase {
             }
         }
 
-        wait(for: expectations, timeout: 20)
+        await fulfillment(of: expectations, timeout: 20)
 
         for file in configurations {
             let path = "./Tests/media/\(file.filename)"
-            let source = URL(fileURLWithPath: path)
+            // let source = URL(fileURLWithPath: path)
 
             for config in file.configs {
                 // Test results
@@ -528,15 +528,19 @@ class MediaToolSwiftTests: XCTestCase {
                 let videoDesc = videoTrack.formatDescriptions.first as! CMFormatDescription
 
                 // 1. Video codec
-                // let formatName = videoDesc.extensions[.formatName]!.propertyListRepresentation as! String
+                #if os(OSX)
                 let mediaSubType = CMFormatDescriptionGetMediaSubType(videoDesc)
                 let mediaSubTypeString = NSFileTypeForHFSTypeCode(mediaSubType)
+                // #else
+                // let formatName = videoDesc.extensions[.formatName]!.propertyListRepresentation as! String
+                // #endif
                 if config.output.videoCodec == AVVideoCodecType.hevcWithAlpha {
                     // Fix for HEVC with alpha (AVVideoCodecType.hevcWithAlpha is 'muxa' not 'hvc1')
                     XCTAssertEqual(mediaSubTypeString, "'hvc1'")
                 } else {
                     XCTAssertEqual(mediaSubTypeString, "'\(config.output.videoCodec.rawValue)'")
                 }
+                #endif
 
                 // 2. File size
                 let fileSize = try! FileManager.default.attributesOfItem(atPath: destination.path)[FileAttributeKey.size] as! UInt64
@@ -610,7 +614,7 @@ class MediaToolSwiftTests: XCTestCase {
         let destinationOne = URL(fileURLWithPath: "./Tests/media/temp/exported_oludeniz_metadata.mov")
         let expectationOne = XCTestExpectation(description: "Compression & metadata")
         expectations.append(expectationOne)
-        let taskOne = await VideoTool.convert(
+        _ = await VideoTool.convert(
             source: source,
             destination: destinationOne,
             customMetadata: customMetadata,
@@ -676,7 +680,7 @@ class MediaToolSwiftTests: XCTestCase {
         let destinationTwo = URL(fileURLWithPath: "./Tests/media/temp/exported_oludeniz_no_metadata.mov")
         let expectationTwo = XCTestExpectation(description: "Compression & no metadata")
         expectations.append(expectationTwo)
-        let taskTwo = await VideoTool.convert(
+        _ = await VideoTool.convert(
             source: source,
             destination: destinationTwo,
             skipSourceMetadata: true,
@@ -720,7 +724,7 @@ class MediaToolSwiftTests: XCTestCase {
             }
         })
 
-        wait(for: expectations, timeout: 20)
+        await fulfillment(of: expectations, timeout: 20)
     }
 
     func testCancellation() async {
@@ -759,7 +763,7 @@ class MediaToolSwiftTests: XCTestCase {
             task.cancel()
         }
 
-        wait(for: [expectation], timeout: 10)
+        await fulfillment(of: [expectation], timeout: 10)
 
         // Check the state
         XCTAssertEqual(status, .cancelled)
@@ -779,7 +783,7 @@ class MediaToolSwiftTests: XCTestCase {
         // Should fail if exists
         let expectationOne = XCTestExpectation(description: "Compression & overwrite")
         expectations.append(expectationOne)
-        await VideoTool.convert(
+        _ = await VideoTool.convert(
             source: sourceOne,
             destination: destinationOne,
             overwrite: false,
@@ -797,7 +801,7 @@ class MediaToolSwiftTests: XCTestCase {
         let destinationTwo = URL(fileURLWithPath: "./Tests/media/temp/exported_oludeniz_delete.mov")
         let expectationTwo = XCTestExpectation(description: "Compression & delete")
         expectations.append(expectationTwo)
-        await VideoTool.convert(
+        _ = await VideoTool.convert(
             source: sourceTwo,
             destination: destinationTwo,
             overwrite: true,
@@ -821,7 +825,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        wait(for: expectations, timeout: 10)
+        await fulfillment(of: expectations, timeout: 10)
     }
 
     func testAudio() async {
@@ -893,7 +897,7 @@ class MediaToolSwiftTests: XCTestCase {
 
         let destination = URL(fileURLWithPath: "./Tests/media/temp/exported_\(filename)_\(uid)_audio.mov")
         let expectation = XCTestExpectation(description: "Compression & Audio")
-        await VideoTool.convert(
+        _ = await VideoTool.convert(
             source: source,
             destination: destination,
             audioSettings: settings,
@@ -912,7 +916,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        wait(for: [expectation], timeout: 10)
+        await fulfillment(of: [expectation], timeout: 10)
 
         // Compare resulting file with provided data
         let asset = AVAsset(url: destination)
