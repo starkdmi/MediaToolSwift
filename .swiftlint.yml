@@ -1,0 +1,29 @@
+disabled_rules:
+  - cyclomatic_complexity
+  - function_body_length
+  - unneeded_break_in_switch
+
+included: 
+  - Sources
+excluded:
+  - Sources/Classes/ObjCExceptionCatcher
+  - Tests
+  - Example
+ 
+force_cast: warning
+
+line_length: 256
+
+type_body_length:
+  warning: 500 
+  error: 800
+
+file_length:
+  warning: 1000
+  error: 1250
+
+identifier_name:
+  excluded:
+    - itu709_2
+    - itu2020_hlg
+    - itu2020_pq
