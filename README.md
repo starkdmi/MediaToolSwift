@@ -69,8 +69,8 @@ task.cancel()
 Complex example can be found in [this](./Example/) directory.
 
 ## Requirements
-* iOS 15.0+
-* macOS 12.0+
+* iOS 13.0+
+* macOS 11.0+
 
 ## Installation
 ### Swift Package Manager

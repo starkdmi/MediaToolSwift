@@ -26,11 +26,19 @@ public extension AVAsset {
     /// - Returns: List of metadata items
     func getMetadata() async -> [AVMetadataItem] {
         var metadata: [AVMetadataItem] = []
-        if let formats = try? await self.load(.availableMetadataFormats) {
-            for format in formats {
-                if let data = try? await self.loadMetadata(for: format) {
-                    metadata.append(contentsOf: data)
+        if #available(iOS 15, macOS 12, *) {
+            if let formats = try? await self.load(.availableMetadataFormats) {
+                for format in formats {
+                    if let data = try? await self.loadMetadata(for: format) {
+                        metadata.append(contentsOf: data)
+                    }
                 }
+            }
+        } else {
+            // Fallback on earlier versions
+            for format in self.availableMetadataFormats {
+                let data = self.metadata(forFormat: format)
+                metadata.append(contentsOf: data)
             }
         }
         return metadata

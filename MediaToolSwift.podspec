@@ -9,7 +9,7 @@ Pod::Spec.new do |spec|
   spec.license      = "GPLv3"
   spec.author       = "Dmitry Starkov"
   spec.source       = { :git => "https://github.com/starkdmi/MediaToolSwift.git", :tag => "#{spec.version}" }
-  spec.platforms    = { :ios => "15.0", :osx => "12.0" }
+  spec.platforms    = { :ios => "13.0", :osx => "11.0" }
   spec.source_files = "Sources/**/*.swift", "Sources/Classes/ObjCExceptionCatcher/**/*.{h,m}"
   spec.public_header_files = "Sources/Classes/ObjCExceptionCatcher/**/*.h"
   spec.frameworks   = "Foundation"
