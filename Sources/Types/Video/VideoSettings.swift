@@ -27,20 +27,20 @@ public struct CompressionVideoSettings {
         self.hardwareAcceleration = hardwareAcceleration
     }
 
-    /// Video codec used for compression, use [nil] for source video codec
+    /// Video codec used for compression, use `nil` for source video codec
     let codec: AVVideoCodecType? // h264, hevc, hevcWithAlpha, ...
 
-    /// Bitrate, CompressionVideoBitrate.custom(Int) requires value in bits, ignored by Prores and JPEG
-    let bitrate: CompressionVideoBitrate // .auto, .encoder, .custom(2000000)
+    /// Bitrate, `.value(Int)` requires value in bits, ignored by ProRes and JPEG
+    let bitrate: CompressionVideoBitrate // .auto, .encoder, .value(2_000_000)
 
-    /// Quality used only when [bitrate] set to `.encoder`, range: [0.0, 1.0]
-    /// Not all the codecs support [quality] to be set
+    /// Quality used only when `bitrate` set to `.encoder`, range: [0.0, 1.0]
+    /// Not all the codecs support `quality` to be set
     let quality: Double?
 
     /// Size to fit video in while preserving aspect ratio, width and height may be rounded to be divisible by 2
     let size: CGSize? // CGSize(width: 1280.0, height: 1280.0)
 
-    /// Frame rate will not increase resulting video frame rate, set [bitrate] to .auto for lower file size when [frameRate] is set
+    /// Frame rate will not increase resulting video frame rate, set `bitrate` to .auto for lower file size when `frameRate` is set
     /// Warning: Use with caution, frame rate adjustment isn't well documented and uses code for skipping frames manually
     let frameRate: Int?
 
@@ -49,7 +49,7 @@ public struct CompressionVideoSettings {
     let preserveAlphaChannel: Bool
 
     /// Profile used by video encoder
-    /// Prores profiles are specified by [codec] not the [profile] property
+    /// Prores profiles are specified by `codec` not the `profile` property
     let profile: CompressionVideoProfile?
 
     /// Color Primary

@@ -16,7 +16,7 @@ public extension AVAsset {
 
     /// Get first track shortcut
     /// - Parameter type: Media type
-    /// - Returns: First track of [type] or nil
+    /// - Returns: First track of `type` or nil
     func getFirstTrack(withMediaType type: AVMediaType) async -> AVAssetTrack? {
         return await self.getTracks(withMediaType: type)?.first
     }

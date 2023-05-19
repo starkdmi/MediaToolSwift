@@ -2,7 +2,7 @@ import AVFoundation
 
 /// Available audio codecs
 public enum CompressionAudioCodec {
-    /// Audio codec set internally by [AVAssetWriter]
+    /// Audio codec set internally by `AVAssetWriter`
     case `default`
 
     /// AAC

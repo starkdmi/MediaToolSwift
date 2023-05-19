@@ -11,8 +11,9 @@ let package = Package(
         .library(name: "MediaToolSwift", targets: ["MediaToolSwift"])
     ],
     dependencies: [
-        // To build docs for Github Pages use:
+        // To build documentation for Github Pages use:
         // swift package --allow-writing-to-directory ./docs generate-documentation --target MediaToolSwift --disable-indexing --transform-for-static-hosting --hosting-base-path MediaToolSwift --output-path ./docs
+        // To preview documentation: swift package --disable-sandbox preview-documentation
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.2.0")
     ],
     targets: [
