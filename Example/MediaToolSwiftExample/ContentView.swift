@@ -121,10 +121,10 @@ struct ContentView: View {
 
                                 Picker("Resolution", selection: $resolution) {
                                     Text("Original").tag(CGSize.zero)
-                                    Text("4K (UHD)").tag(CGSize(width: 3840, height: 3840)) // 3840x2160
-                                    Text("1080p (Full HD)").tag(CGSize(width: 1920, height: 1920)) // 1920x1080
-                                    Text("720p (HD)").tag(CGSize(width: 1280, height: 1280)) // 1280x720
-                                    Text("480p (SD)").tag(CGSize(width: 640, height: 640))// 640x480
+                                    Text("4K (UHD)").tag(CGSize.uhd)
+                                    Text("1080p (Full HD)").tag(CGSize.fhd)
+                                    Text("720p (HD)").tag(CGSize.hd)
+                                    Text("480p (SD)").tag(CGSize.sd)
                                 }.pickerStyle(.menu).frame(maxWidth: 200)
                             }
 
@@ -136,14 +136,14 @@ struct ContentView: View {
                                 Picker("Bitrate", selection: $bitrate) {
                                     Text("Auto").tag(CompressionVideoBitrate.auto)
                                     Text("Encoder").tag(CompressionVideoBitrate.encoder)
-                                    Text("Custom").tag(CompressionVideoBitrate.custom(0))
+                                    Text("Custom").tag(CompressionVideoBitrate.value(0))
                                 }
                                 #if os(OSX)
                                 .pickerStyle(.inline)
                                 #endif
                             }
 
-                            if case .custom = bitrate {
+                            if case .value = bitrate {
                                 CustomSlider(value: $customBitrate, range: 100...10000,
                                              title: "Bitrate",
                                              leading: "100",
@@ -403,8 +403,8 @@ struct ContentView: View {
         print("Destination: \(destination.path)")
 
         var videoBitrate = bitrate
-        if case .custom = bitrate {
-            videoBitrate = .custom(Int(customBitrate) * 1000)
+        if case .value = bitrate {
+            videoBitrate = .value(Int(customBitrate) * 1000)
         }
 
         let videoSettings = CompressionVideoSettings(
@@ -428,12 +428,12 @@ struct ContentView: View {
                 destination: destination,
                 fileType: fileType,
                 videoSettings: videoSettings,
-                audioSettings: audioSettings,
                 skipAudio: skipAudio,
+                audioSettings: audioSettings,
                 // By default XCode remove the metadata from output file, to prevent:
                 // Go to Build Settings tab, Under the "Other C Flags" section, add the following flag: -fno-strip-metadata
                 skipSourceMetadata: false,
-                copyAppleOSFileMetadata: true,
+                copyExtendedFileMetadata: true,
                 overwrite: overwrite,
                 callback: { state in
                     switch state {
