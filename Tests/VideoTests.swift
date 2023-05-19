@@ -127,15 +127,15 @@ let configurations: [ConfigList] = [
         configs: [
             Config(
                 videoSettings: CompressionVideoSettings(
-                    codec: .h264
+                    codec: .hevc
                 ),
                 output: Parameters(
                     filename: "exported_chromecast.mp4",
-                    filesize: 3_100_000,
+                    filesize: 2_100_000,
                     resolution: CGSize(width: 1280.0, height: 720.0),
-                    videoCodec: .h264,
+                    videoCodec: .hevc,
                     fileType: .mp4,
-                    bitrate: 1_450_000,
+                    bitrate: 880_000,
                     frameRate: 24, // 23.98
                     duration: 15.02,
                     hasAlpha: false
@@ -253,6 +253,7 @@ let configurations: [ConfigList] = [
             Config(
                 videoSettings: CompressionVideoSettings(
                     codec: .proRes4444,
+                    bitrate: .encoder,
                     preserveAlphaChannel: true
                 ),
                 output: Parameters(
@@ -305,7 +306,7 @@ let configurations: [ConfigList] = [
         ),
         configs: [
             Config(
-                videoSettings: CompressionVideoSettings(),
+                videoSettings: CompressionVideoSettings(bitrate: .value(4_000_000)),
                 output: Parameters(
                     filename: "exported_oludeniz_default.mov",
                     filesize: nil, // ~= 3_875_000
@@ -614,6 +615,7 @@ class MediaToolSwiftTests: XCTestCase {
         _ = await VideoTool.convert(
             source: source,
             destination: destinationOne,
+            skipAudio: true,
             customMetadata: customMetadata,
             overwrite: true,
             callback: { state in
@@ -680,6 +682,7 @@ class MediaToolSwiftTests: XCTestCase {
         _ = await VideoTool.convert(
             source: source,
             destination: destinationTwo,
+            skipAudio: true,
             skipSourceMetadata: true,
             copyExtendedFileMetadata: false,
             overwrite: true,
@@ -801,6 +804,7 @@ class MediaToolSwiftTests: XCTestCase {
         _ = await VideoTool.convert(
             source: sourceTwo,
             destination: destinationTwo,
+            skipAudio: true,
             overwrite: true,
             deleteSourceFile: true,
             callback: { state in
@@ -897,6 +901,7 @@ class MediaToolSwiftTests: XCTestCase {
         _ = await VideoTool.convert(
             source: source,
             destination: destination,
+            videoSettings: CompressionVideoSettings(bitrate: .value(1_000_000)),
             skipAudio: skipAudio,
             audioSettings: settings,
             overwrite: true,
