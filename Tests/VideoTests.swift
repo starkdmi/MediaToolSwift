@@ -356,7 +356,7 @@ let configurations: [ConfigList] = [
             Config(
                 videoSettings: CompressionVideoSettings(
                     codec: .h264,
-                    bitrate: .custom(2_000_000),
+                    bitrate: .value(2_000_000),
                     size: CGSize(width: 720.0, height: 720.0),
                     frameRate: 24
                 ),
@@ -447,8 +447,8 @@ class MediaToolSwiftTests: XCTestCase {
             destination: destination,
             fileType: .mov,
             videoSettings: CompressionVideoSettings(codec: .hevcWithAlpha, size: CGSize(width: 4000.0, height: 3000.0), frameRate: 30, preserveAlphaChannel: false),
-            audioSettings: CompressionAudioSettings(codec: .aac, bitrate: 96_000),
             // skipAudio: true,
+            audioSettings: CompressionAudioSettings(codec: .aac, bitrate: 96_000),
             overwrite: true,
             callback: { state in
                 switch state {
@@ -504,9 +504,6 @@ class MediaToolSwiftTests: XCTestCase {
         await fulfillment(of: expectations, timeout: 20)
 
         for file in configurations {
-            let path = "./Tests/media/\(file.filename)"
-            // let source = URL(fileURLWithPath: path)
-
             for config in file.configs {
                 // Test results
                 // 1. video
@@ -684,7 +681,7 @@ class MediaToolSwiftTests: XCTestCase {
             source: source,
             destination: destinationTwo,
             skipSourceMetadata: true,
-            copyAppleOSFileMetadata: false,
+            copyExtendedFileMetadata: false,
             overwrite: true,
             callback: { state in
                 switch state {
@@ -900,8 +897,8 @@ class MediaToolSwiftTests: XCTestCase {
         _ = await VideoTool.convert(
             source: source,
             destination: destination,
-            audioSettings: settings,
             skipAudio: skipAudio,
+            audioSettings: settings,
             overwrite: true,
             callback: { state in
                 switch state {

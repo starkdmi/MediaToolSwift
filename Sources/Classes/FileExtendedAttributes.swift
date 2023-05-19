@@ -15,12 +15,12 @@ class FileExtendedAttributes {
     static let assetTypeKey = "com.apple.assetsd.assetType"
     static let durationKey = "com.apple.assetsd.duration"
 
-    /// Set OS file metadata related to media on Apple platform
+    /// Set extended file metadata related to media on Apple platform
     /// - Parameters:
     ///   - source: Original file path string
     ///   - destination: Destination file path string
     ///   - fileType: Video file container type
-    static func setAppleMetadata(source: URL, destination: URL, copy: Bool, fileType: CompressionFileType) {
+    static func setExtendedMetadata(source: URL, destination: URL, copy: Bool, fileType: CompressionFileType) {
         // Apple file system metadata
         let attributes: [String: Any] = [
             Self.assetTypeKey: "video/\(fileType == .mp4 ? "mp4" : "quicktime")".data(using: .utf8)!
@@ -28,7 +28,7 @@ class FileExtendedAttributes {
             // Self.durationKey: Data(bytes: &durationInSeconds, count: MemoryLayout<Double>.size) // Bytes
         ]
         if copy {
-            Self.copyAppleMetadata(
+            Self.copyExtendedMetadata(
                 from: source.path,
                 to: destination.path,
                 customAttributes: attributes
@@ -38,12 +38,12 @@ class FileExtendedAttributes {
         }
     }
 
-    /// Copy selected keys from OS file metadata related to media on Apple platform
+    /// Copy selected keys from extended file metadata related to media on Apple platform
     /// - Parameters:
     ///   - source: Original file path string
     ///   - destination: Destination file path string
     ///   - customAttributes: List of extended attributes to be added to file, use with caution
-    static func copyAppleMetadata(from source: String, to destination: String, customAttributes: [String: Any] = [:]) {
+    static func copyExtendedMetadata(from source: String, to destination: String, customAttributes: [String: Any] = [:]) {
         // Read source file metadata
         // Can also be read by `xattr -l file.mp4`
         guard let dictionary = try? FileManager.default.attributesOfItem(atPath: source) else {

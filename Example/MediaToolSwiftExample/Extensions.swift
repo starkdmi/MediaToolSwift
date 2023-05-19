@@ -22,7 +22,7 @@ extension CompressionVideoBitrate: Hashable {
         switch self {
         case .auto: hasher.combine(-1)
         case .encoder: hasher.combine(-2)
-        case .custom(let value): hasher.combine(value)
+        case .value(let value): hasher.combine(value)
         }
     }
 }

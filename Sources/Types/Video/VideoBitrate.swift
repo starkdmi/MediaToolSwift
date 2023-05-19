@@ -3,11 +3,11 @@ public enum CompressionVideoBitrate: Equatable {
     /// Bitrate calculated based on resolution, frame rate and codec
     case auto
 
-    /// Bitrate automatically set by [AVAssetWriter] internally
+    /// Bitrate automatically set by `AVAssetWriter` internally
     case encoder
 
     /// User specified bitrate in bits
-    case custom(Int)
+    case value(Int)
 
     /// Equatable conformation
     public static func == (lhs: CompressionVideoBitrate, rhs: CompressionVideoBitrate) -> Bool {
@@ -16,7 +16,7 @@ public enum CompressionVideoBitrate: Equatable {
             return true
         case (.encoder, .encoder):
             return true
-        case (.custom(let lhsValue), .custom(let rhsValue)):
+        case (.value(let lhsValue), .value(let rhsValue)):
             return lhsValue == rhsValue
         default:
             return false

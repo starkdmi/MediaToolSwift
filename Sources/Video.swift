@@ -21,7 +21,7 @@ public class VideoTool {
     ///   - source: Input video URL
     ///   - destination: Output video URL
     ///   - fileType: Video file contrainer type: MPEG-4, QuickTime and iTunes
-    ///   - videoSettings: Video related settings including:
+    ///   - videoSettings: Video related settings including
     ///      - codec: Video codec used by encoder: H.264, H.265/HEVC, ProRes and JPEG
     ///      - bitrate: Output video bitrate, used only by H.264 and H.265/HEVC codecs
     ///      - quality: Video quality in rage from 0.0 to 1.0, ignored while bitrate is set 
@@ -32,18 +32,18 @@ public class VideoTool {
     ///      - color: Color primaries
     ///      - maxKeyFrameInterval: Maximum interval between keyframes
     ///      - hardwareAcceleration: Hardware acceleration option, macOS only, enabled by default
-    ///   - audioSettings: Audio related settings including:
+    ///   - optimizeForNetworkUse: Allows video file to be streamed over network
+    ///   - skipAudio: Disable audio, output file will be muted
+    ///   - audioSettings: Audio related settings including
     ///      - codec: Audio codec used by encoder: AAC, Opus, FLAC, Linear PCM
     ///      - bitrate: Audio bitrate, used by aac and opus codecs only
     ///      - quality: Audio quality, AAC and FLAC only: low, medium, high
     ///      - sampleRate: Sample rate in Hz
-    ///   - skipAudio: Disable audio, output file will be muted
-    ///   - optimizeForNetworkUse: Allows video file to be streamed over network
     ///   - skipSourceMetadata: Skip source video file metadata including timed metadata track and asset metadata
-    ///   - customMetadata: Provide custom metadata to be added to asset metadata, ignores [skipSourceMetadata]
-    ///   - copyAppleOSFileMetadata: Copy Apple file system metadata tags used for media from source
+    ///   - customMetadata: Provide custom metadata to be added to asset metadata, ignores `skipSourceMetadata`
+    ///   - copyExtendedFileMetadata: Copy extended file system metadata tags used for media from source
     ///   - cacheDirectory: Directory for AVAssetWriter to save temporary files before copying to destination
-    ///   - overwrite: Replace destination file if exists, for [false] error will be raised when file already exists
+    ///   - overwrite: Replace destination file if exists, for `false` error will be raised when file already exists
     ///   - deleteSourceFile: Delete source file on success 
     ///   - callback: Compression process state notifier, including error handling and completion
     /// - Returns: Task with option to control the compression process
@@ -52,12 +52,12 @@ public class VideoTool {
         destination: URL,
         fileType: CompressionFileType = .mov,
         videoSettings: CompressionVideoSettings = CompressionVideoSettings(),
-        audioSettings: CompressionAudioSettings? = nil,
-        skipAudio: Bool = false,
         optimizeForNetworkUse: Bool = true,
+        skipAudio: Bool = false,
+        audioSettings: CompressionAudioSettings? = nil,
         skipSourceMetadata: Bool = false,
         customMetadata: [AVMetadataItem] = [],
-        copyAppleOSFileMetadata: Bool = true,
+        copyExtendedFileMetadata: Bool = true,
         cacheDirectory: URL? = nil,
         overwrite: Bool = false,
         deleteSourceFile: Bool = false,
@@ -111,7 +111,7 @@ public class VideoTool {
             return task
         }
 
-        // By skipping [shouldOptimizeForNetworkUse] temp file will not be created (!)
+        // By skipping `shouldOptimizeForNetworkUse` temp file will not be created (!)
         writer.shouldOptimizeForNetworkUse = optimizeForNetworkUse
 
         // Frame rate
@@ -319,11 +319,11 @@ public class VideoTool {
                 // Wasn't cancelled and reached OR all operation was completed
                 reader.cancelReading()
                 writer.finishWriting(completionHandler: {
-                    // Apple file system metadata
-                    FileExtendedAttributes.setAppleMetadata(
+                    // Extended file metadata
+                    FileExtendedAttributes.setExtendedMetadata(
                         source: source,
                         destination: destination,
-                        copy: copyAppleOSFileMetadata,
+                        copy: copyExtendedFileMetadata,
                         fileType: fileType
                     )
 
@@ -452,7 +452,7 @@ public class VideoTool {
         if videoCodec == .h264 || videoCodec == .hevc || videoCodec == .hevcWithAlpha {
             // Setting bitrate for jpeg and prores codecs is not allowed
             switch videoSettings.bitrate {
-            case .custom(let value):
+            case .value(let value):
                 videoCompressionSettings[AVVideoAverageBitRateKey] = value
                 break
             case .auto:

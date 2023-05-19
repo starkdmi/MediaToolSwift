@@ -29,8 +29,8 @@ public enum CompressionVideoProfile {
     case hevcMain42210
 
     /// User specified profile
-    /// Values like [AVVideoProfileLevelH264HighAutoLevel] as well as VideoToolBox's [kVTProfileLevel_HEVC_High_AutoLevel] allowed
-    case custom(String)
+    /// Values like `AVVideoProfileLevelH264HighAutoLevel` as well as VideoToolBox's `kVTProfileLevel_HEVC_High_AutoLevel` allowed
+    case value(String)
 }
 
 public extension CompressionVideoProfile {
@@ -60,7 +60,7 @@ public extension CompressionVideoProfile {
             }
             return profile
         // Custom
-        case .custom(let value):
+        case .value(let value):
             return value
         }
     }
