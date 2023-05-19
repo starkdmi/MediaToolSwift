@@ -88,9 +88,15 @@ public class VideoTool {
             return task
         }
 
+        // Confirm the file type is set to correct value by comparing with destination file extension
+        if destination.pathExtension != fileType.rawValue {
+            callback(.failed(CompressionError(description: "Invalid combination of file type and destination file extension")))
+            return task
+        }
+
         let writer: AVAssetWriter
         do {
-            writer = try AVAssetWriter(outputURL: destination, fileType: fileType.rawValue)
+            writer = try AVAssetWriter(outputURL: destination, fileType: fileType.value)
         } catch let error {
             callback(.failed(error))
             return task

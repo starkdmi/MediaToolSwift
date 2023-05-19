@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// Video file container
-public enum CompressionFileType {
+public enum CompressionFileType: String {
     /// MPEG-4
     case mp4
 
@@ -12,7 +12,7 @@ public enum CompressionFileType {
     case m4v
 
     /// AVFileType associated with enum case
-    public var rawValue: AVFileType {
+    public var value: AVFileType {
         switch self {
         case .mp4:
             return AVFileType.mp4
