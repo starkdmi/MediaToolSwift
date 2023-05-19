@@ -392,14 +392,7 @@ struct ContentView: View {
             return
         }
 
-        let ext: String
-        switch fileType {
-        case .mov: ext = "mov"; break
-        case .mp4: ext = "mp4"; break
-        case .m4v: ext = "m4v"; break
-        }
-
-        let destination = URL(fileURLWithPath: "\(directory.path)/\(url.lastPathComponent).\(ext)")
+        let destination = URL(fileURLWithPath: "\(directory.path)/\(url.lastPathComponent).\(fileType.rawValue)")
         print("Destination: \(destination.path)")
 
         var videoBitrate = bitrate
