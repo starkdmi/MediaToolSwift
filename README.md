@@ -36,9 +36,8 @@ __Example:__
 let task = await VideoTool.convert(
     source: URL(fileURLWithPath: "input.mp4"),
     destination: URL(fileURLWithPath: "output.mov"),
-    // Video container (mov, mp4, m4v)
-    fileType: .mov,
     // Video
+    fileType: .mov, // mov, mp4, m4v
     videoSettings: CompressionVideoSettings(
         codec: .hevc, 
         bitrate: .value(2_000_000),
