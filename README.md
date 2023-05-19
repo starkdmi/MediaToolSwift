@@ -39,16 +39,16 @@ let task = await VideoTool.convert(
     // Video
     fileType: .mov, // mov, mp4, m4v
     videoSettings: CompressionVideoSettings(
-        codec: .hevc, 
-        bitrate: .value(2_000_000),
-        size: .hd
+        codec: .hevc,
+        bitrate: .value(2_000_000), // optional
+        size: .hd // CGSize to aspect fit in
         // quality, fps, alpha channel, profile, color primary, atd.
     ),
     optimizeForNetworkUse: true,
     // Audio
     skipAudio: false,
     audioSettings: CompressionAudioSettings(
-        codec: .opus, 
+        codec: .opus,
         bitrate: 96_000
         // quality, sample rate, volume, atd.
     ),
@@ -90,7 +90,7 @@ Complex example can be found in [this](./Example/) directory.
 * macOS 11.0+
 
 ## Documentation
-Hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
+Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
 
 ## Installation
 ### Swift Package Manager
