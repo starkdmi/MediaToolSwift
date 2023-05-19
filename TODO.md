@@ -17,6 +17,8 @@ __Codecs__
 VP9, AV1
 ```
 
+__Thumbnails and Video Preview__ - [Apple Documentation](https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/creating_images_from_a_video_asset)
+
 ## Audio
 | Convert | Cut | Speed | Waveform | Info |
 | :---: | :---: | :---: | :---: | :---: |
