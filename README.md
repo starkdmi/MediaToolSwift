@@ -110,3 +110,6 @@ pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', 
 ## Problem Solving
 ### Metadata Stripping
 By default Xcode remove the metadata from output file, to prevent go to Build Settings tab, Under the __Other C Flags__ section, add the following flag: ```-fno-strip-metadata```
+
+### Redunant Compression
+In case the video and audio won't be modified based on source file and output settings the compression will fail with ```CompressionError.redunantCompression```

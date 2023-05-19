@@ -67,14 +67,14 @@ public class VideoTool {
 
         // Check source file existence
         if !FileManager.default.fileExists(atPath: source.path) {
-            callback(.failed(CompressionError(description: "Source file at \(source.path) not found")))
+            callback(.failed(CompressionError.sourceFileNotFound))
             return task
         }
 
         // Check destination file existence and overwrite setting
         let destinationExists: Bool = FileManager.default.fileExists(atPath: destination.path)
         if destinationExists && !overwrite {
-            callback(.failed(CompressionError(description: "File at \(destination.path) already exists, use `overwrite` flag to overwrite")))
+            callback(.failed(CompressionError.destinationFileExists))
             return task
         }
 
@@ -90,7 +90,7 @@ public class VideoTool {
 
         // Confirm the file type is set to correct value by comparing with destination file extension
         if destination.pathExtension != fileType.rawValue {
-            callback(.failed(CompressionError(description: "Invalid combination of file type and destination file extension")))
+            callback(.failed(CompressionError.invalidFileType))
             return task
         }
 
@@ -128,7 +128,7 @@ public class VideoTool {
         // Append video to reader
         guard reader.canAdd(videoVariables.videoOutput) else {
             // To get more info about initialization problem can be called in ObjC exception catcher
-            callback(.failed(CompressionError(description: "Couldn't add video to reader")))
+            callback(.failed(CompressionError.failedToReadVideo))
             return task
         }
         reader.add(videoVariables.videoOutput)
@@ -143,7 +143,7 @@ public class VideoTool {
 
         // Append video to writer
         guard writer.canAdd(videoVariables.videoInput) else {
-            callback(.failed(CompressionError(description: "Couldn't add video to writer")))
+            callback(.failed(CompressionError.failedToWriteVideo))
             return task
         }
         writer.add(videoVariables.videoInput)
@@ -171,21 +171,21 @@ public class VideoTool {
 
         // Prevent the compression when video and audio settings are same as the source file
         if !videoVariables.shouldCompress && !audioVariables.shouldCompress {
-            callback(.failed(CompressionError(description: "Compression is redunant - video and audio won't be modified during the compression")))
+            callback(.failed(CompressionError.redunantCompression))
             return task
         }
 
         if !audioVariables.skipAudio {
             // Append audio to reader
             guard reader.canAdd(audioVariables.audioOutput!) else {
-                callback(.failed(CompressionError(description: "Couldn't add audio to reader")))
+                callback(.failed(CompressionError.failedToReadAudio))
                 return task
             }
             reader.add(audioVariables.audioOutput!)
 
             // Append audio to writer
             guard writer.canAdd(audioVariables.audioInput!) else {
-                callback(.failed(CompressionError(description: "Couldn't add audio to writer")))
+                callback(.failed(CompressionError.failedToWriteAudio))
                 return task
             }
             writer.add(audioVariables.audioInput!)
@@ -198,7 +198,7 @@ public class VideoTool {
         if metadataVariables.hasMetadata {
             // Append metadata to reader
             guard reader.canAdd(metadataVariables.metadataOutput!) else {
-                callback(.failed(CompressionError(description: "Couldn't add metadata to reader")))
+                callback(.failed(CompressionError.failedToReadMetadata))
                 return task
             }
             reader.add(metadataVariables.metadataOutput!)
@@ -364,7 +364,7 @@ public class VideoTool {
 
         // Get first video track, an error is raised if none found 
         guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
-            throw CompressionError(description: "Video track not found")
+            throw CompressionError.videoTrackNotFound
         }
 
         // MARK: Reader
@@ -389,7 +389,7 @@ public class VideoTool {
                 .jpeg
             ]
             guard supportedVideoCodecs.contains(sourceVideoCodec) else {
-                throw CompressionError(description: "Video codec '\(videoCodec!.rawValue)' is not supported")
+                throw CompressionError.invalidVideoCodec
             }
 
             // Use source video codec
