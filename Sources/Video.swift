@@ -412,10 +412,8 @@ public class VideoTool {
                 switch videoCodec! {
                 case .hevc:
                     videoCodec = .hevcWithAlpha
-                    break
                 case .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy:
                     videoCodec = .proRes4444
-                    break
                 default:
                     break
                 }
@@ -460,7 +458,6 @@ public class VideoTool {
             switch videoSettings.bitrate {
             case .value(let value):
                 videoCompressionSettings[AVVideoAverageBitRateKey] = value
-                break
             case .auto:
                 var codecMultiplier: Float = 1.0
                 if videoCodec == .hevc || videoCodec == .hevcWithAlpha {
@@ -472,7 +469,6 @@ public class VideoTool {
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
                 let rate = (totalPixels * codecMultiplier * fps) / 8
                 videoCompressionSettings[AVVideoAverageBitRateKey] = rate
-                break
             case .encoder:
                 break
             }
@@ -541,8 +537,7 @@ public class VideoTool {
                 colorPrimary = AVVideoColorPrimaries_SMPTE_C
                 matrix = AVVideoYCbCrMatrix_ITU_R_601_4
                 transferFunction = AVVideoTransferFunction_ITU_R_709_2
-                break
-            // SD (PAL) 
+            // SD (PAL)
             case .ebu3213:
                 #if os(OSX)
                 colorPrimary = AVVideoColorPrimaries_EBU_3213
@@ -552,35 +547,29 @@ public class VideoTool {
                 #endif
                 matrix = AVVideoYCbCrMatrix_ITU_R_601_4
                 transferFunction = AVVideoTransferFunction_ITU_R_709_2
-                break
             // HD | P3
             case .p3D65:
                 colorPrimary = AVVideoColorPrimaries_P3_D65
                 matrix = AVVideoYCbCrMatrix_ITU_R_709_2
                 transferFunction = AVVideoTransferFunction_ITU_R_709_2
-                break
             // HDTV - ITU-R BT.709
             case .itu709_2:
                 colorPrimary = AVVideoColorPrimaries_ITU_R_709_2
                 matrix = AVVideoYCbCrMatrix_ITU_R_709_2
                 transferFunction = AVVideoTransferFunction_ITU_R_709_2
-                break
             // UHDTV - BT.2020
             case .itu2020:
                 colorPrimary = AVVideoColorPrimaries_ITU_R_2020
                 matrix = AVVideoYCbCrMatrix_ITU_R_2020
                 transferFunction = AVVideoTransferFunction_ITU_R_709_2
-                break
             case .itu2020_hlg:
                 colorPrimary = AVVideoColorPrimaries_ITU_R_2020
                 matrix = AVVideoYCbCrMatrix_ITU_R_2020
                 transferFunction = AVVideoTransferFunction_ITU_R_2100_HLG
-                break
             case .itu2020_pq:
                 colorPrimary = AVVideoColorPrimaries_ITU_R_2020
                 matrix = AVVideoYCbCrMatrix_ITU_R_2020
                 transferFunction = AVVideoTransferFunction_SMPTE_ST_2084_PQ
-                break
             }
             videoParameters[AVVideoColorPropertiesKey] = [
                 AVVideoColorPrimariesKey: colorPrimary,
@@ -596,10 +585,8 @@ public class VideoTool {
         switch mediaSubType {
         case kCMVideoCodecType_VP9:
             VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9)
-            break
         case kCMVideoCodecType_AV1:
             VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_AV1)
-            break
         default:
             break
         }
@@ -796,7 +783,6 @@ public class VideoTool {
                     if let quality = audioSettings.quality {
                         audioParameters![AVEncoderAudioQualityKey] = quality.rawValue
                     }
-                    break
                 case .opus:
                     // Opus
                     audioParameters = [
@@ -810,7 +796,6 @@ public class VideoTool {
                         // Fallback to range [2, 510] is done automatically
                         audioParameters![AVEncoderBitRateKey] = bitrate
                     }
-                    break
                 case .flac:
                     // Flac
                     audioParameters = [
@@ -821,7 +806,6 @@ public class VideoTool {
                     if let quality = audioSettings.quality {
                         audioParameters![AVEncoderAudioQualityKey] = quality.rawValue
                     }
-                    break
                 case .lpcm:
                     // Linear PCM 
                     audioParameters = [
@@ -833,10 +817,8 @@ public class VideoTool {
                         AVLinearPCMIsBigEndianKey: isBigEndian ?? false,
                         AVLinearPCMIsNonInterleaved: false
                     ]
-                    break
                 case .default:
                     variables.shouldCompress = false
-                    break
                 }
 
                 // Compare source audio settings with output to possibly skip the compression

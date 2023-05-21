@@ -433,11 +433,9 @@ struct ContentView: View {
                     case .started:
                         print("Started")
                         self.progress = 0.0
-                        break
                     case .progress(let progress):
                         // print("Progress: \(progress.fractionCompleted)")
                         self.progress = progress.fractionCompleted
-                        break
                     case .completed(let url):
                         print("Done: \(url.absoluteString)")
                         self.progress = nil
@@ -448,7 +446,6 @@ struct ContentView: View {
                         self.isPaused = false
                         sourcePlayer.play()
                         outputPlayer.play()
-                        break
                     case .failed(let error):
                         self.progress = nil
                         if let error = error as? CompressionError {
@@ -461,13 +458,11 @@ struct ContentView: View {
                             self.error = CompressionError(description: error.localizedDescription)
                             isErrorAlertPresented = true
                         }
-                        break
                     case .cancelled:
                         print("Cancelled")
                         self.progress = nil
                         self.error = CompressionError(description: "Cancelled")
                         isErrorAlertPresented = true
-                        break
                     }
                 }
             )

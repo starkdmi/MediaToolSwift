@@ -455,10 +455,8 @@ class MediaToolSwiftTests: XCTestCase {
                 switch state {
                 case .completed, .cancelled:
                     Self.fulfill(expectation)
-                    break
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
-                    break
                 default:
                     break
                 }
@@ -489,11 +487,9 @@ class MediaToolSwiftTests: XCTestCase {
                         switch state {
                         case .completed, .cancelled:
                             Self.fulfill(expectation)
-                            break
                         case .failed(let error):
                             print(error)
                             XCTFail(error.localizedDescription)
-                            break
                         default:
                             break
                         }
@@ -666,10 +662,8 @@ class MediaToolSwiftTests: XCTestCase {
 
                         Self.fulfill(expectationOne)
                     }
-                    break
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
-                    break
                 default:
                     break
             }
@@ -715,10 +709,8 @@ class MediaToolSwiftTests: XCTestCase {
 
                         Self.fulfill(expectationTwo)
                     }
-                    break
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
-                    break
                 default:
                     break
             }
@@ -749,10 +741,8 @@ class MediaToolSwiftTests: XCTestCase {
                 switch state {
                 case .completed, .cancelled:
                     Self.fulfill(expectation)
-                    break
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
-                    break
                 default:
                     break
                 }
@@ -817,10 +807,8 @@ class MediaToolSwiftTests: XCTestCase {
 
                         Self.fulfill(expectationTwo)
                     }
-                    break
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
-                    break
                 default:
                     break
                 }
@@ -909,10 +897,8 @@ class MediaToolSwiftTests: XCTestCase {
                 switch state {
                 case .completed, .cancelled:
                     Self.fulfill(expectation)
-                    break
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
-                    break
                 default:
                     break
                 }

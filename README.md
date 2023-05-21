@@ -64,19 +64,14 @@ let task = await VideoTool.convert(
         switch state {
         case .started:
             print("Started")
-            break
         case .progress(let progress):
             print("Progress: \(progress.fractionCompleted)")
-            break
         case .completed(let url):
             print("Done: \(url.path)")
-            break
         case .failed(let error):
             print("Error: \(error.localizedDescription)")
-            break
         case .cancelled:
             print("Cancelled")
-            break
         }
 })
 
