@@ -5,7 +5,7 @@ public struct CompressionAudioSettings {
     /// Public initializer with default settings
     public init(
         codec: CompressionAudioCodec = .default,
-        bitrate: Int? = nil,
+        bitrate: CompressionAudioBitrate = .auto,
         quality: AVAudioQuality? = nil,
         sampleRate: Int? = nil
         // volume: Float = 1.0
@@ -20,9 +20,11 @@ public struct CompressionAudioSettings {
     /// Audio codec used for compression
     let codec: CompressionAudioCodec
 
-    /// Bitrate in bits, used only by AAC and Opus
-    /// Warning: Providing bitrate which is invalid for selected codec will crash the application execution
-    let bitrate: Int?
+    /// Audio bitrate, used only by AAC and Opus
+    /// Enum case `.value(Int)` requires value in bits
+    /// Values in range from 64000 to 320000 are valid for AAC audio codec
+    /// Values in range from 2000 to 510000 are valid for Opus audio codec
+    let bitrate: CompressionAudioBitrate
 
     /// Audio quality, used by AAC and FLAC
     let quality: AVAudioQuality?

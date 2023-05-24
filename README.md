@@ -49,7 +49,7 @@ let task = await VideoTool.convert(
     skipAudio: false,
     audioSettings: CompressionAudioSettings(
         codec: .opus,
-        bitrate: 96_000
+        bitrate: .value(96_000)
         // quality, sample rate, volume, atd.
     ),
     // Metadata

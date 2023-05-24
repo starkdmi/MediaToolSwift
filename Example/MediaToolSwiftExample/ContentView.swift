@@ -411,7 +411,7 @@ struct ContentView: View {
 
         let audioSettings = CompressionAudioSettings(
             codec: audioCodec,
-            bitrate: audioBitrate < (audioCodec == .aac ? 64.0 : 6.0) ? nil : Int(audioBitrate) * 1000
+            bitrate: audioBitrate < (audioCodec == .aac ? 64.0 : 6.0) ? .auto : .value(Int(audioBitrate) * 1000)
         )
 
         Task {

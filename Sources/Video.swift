@@ -3,12 +3,6 @@ import Foundation
 import CoreMedia
 import VideoToolbox
 
-#if os(iOS)
-import UIKit
-#elseif os(OSX)
-import Cocoa
-#endif
-
 // To support both SwiftPM and CocoaPods
 #if canImport(ObjCExceptionCatcher)
 import ObjCExceptionCatcher
@@ -711,7 +705,12 @@ public class VideoTool {
                 bitsPerChannel = Int(basicDescription?.mBitsPerChannel ?? 0)
                 if bitsPerChannel == nil || bitsPerChannel == 0 {
                     // Calculate bits per channel based on bitrate, channels amount and audio quality
-                    let bitrate = audioSettings.bitrate ?? 128_000
+                    let bitrate: Int
+                    if case .value(let value) = audioSettings.bitrate {
+                        bitrate = value
+                    } else {
+                        bitrate = 128_000
+                    }
                     let quality = (audioSettings.quality ?? .high).rawValue
 
                     // Formula: bitrate / (8 * channels * quality)
@@ -770,7 +769,7 @@ public class VideoTool {
                         // AVEncoderBitRateKey: audioSettings.bitrate ?? 128_000
                         // AVEncoderAudioQualityKey: (audioSettings.quality ?? .high).rawValue
                     ]
-                    if var bitrate = audioSettings.bitrate {
+                    if case .value(var bitrate) = audioSettings.bitrate {
                         // Setting wrong bitrate for AAC will crash the execution
                         // MPEG4AAC valid bitrate range is [64, 320]
                         if bitrate < 64000 {
@@ -791,7 +790,7 @@ public class VideoTool {
                         AVNumberOfChannelsKey: channelsPerFrame ?? 2
                         // AVEncoderBitRateKey: audioSettings.bitrate ?? 96000
                     ]
-                    if let bitrate = audioSettings.bitrate {
+                    if case .value(let bitrate) = audioSettings.bitrate {
                         // Invalid bitrate will not break the execution for Opus
                         // Fallback to range [2, 510] is done automatically
                         audioParameters![AVEncoderBitRateKey] = bitrate

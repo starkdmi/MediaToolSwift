@@ -449,7 +449,7 @@ class MediaToolSwiftTests: XCTestCase {
             fileType: .mov,
             videoSettings: CompressionVideoSettings(codec: .hevcWithAlpha, size: CGSize(width: 4000.0, height: 3000.0), frameRate: 30, preserveAlphaChannel: false),
             // skipAudio: true,
-            audioSettings: CompressionAudioSettings(codec: .aac, bitrate: 96_000),
+            audioSettings: CompressionAudioSettings(codec: .aac, bitrate: .value(96_000)),
             overwrite: true,
             callback: { state in
                 switch state {
@@ -864,7 +864,7 @@ class MediaToolSwiftTests: XCTestCase {
         // Custom settings
         await audio("oludeniz.MOV", uid: 5, settings: CompressionAudioSettings(
             codec: .opus,
-            bitrate: 500_000,
+            bitrate: .value(500_000),
             sampleRate: 24_000
         ), data: AudioData(
             format: kAudioFormatOpus,
