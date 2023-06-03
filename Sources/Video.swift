@@ -572,7 +572,7 @@ public class VideoTool {
             ]
         }
 
-        // Enable non-default video encoders if required by input video file format
+        // Enable non-default video decoders if required by input video file format
         #if os(OSX)
         let mediaSubType = CMFormatDescriptionGetMediaSubType(videoDesc)
         // let mediaSubTypeString = NSFileTypeForHFSTypeCode(mediaSubType)
@@ -607,7 +607,7 @@ public class VideoTool {
                     return
                 }
 
-                // Update frmae timing and write
+                // Update frame timing and write
                 autoreleasepool {
                     // Get sample timing info 
                     var timingInfo: CMSampleTimingInfo = CMSampleTimingInfo()
@@ -822,7 +822,7 @@ public class VideoTool {
 
                 // Compare source audio settings with output to possibly skip the compression
                 let defaultSettings = CompressionAudioSettings()
-                if audioFormatID == audioSettings.codec.rawValue, // output format equals to source audio format
+                if audioFormatID == audioSettings.codec.formatId, // output format equals to source audio format
                    audioSettings.bitrate == defaultSettings.bitrate, // default settings is used for bitrate
                    !((audioFormatID == kAudioFormatMPEG4AAC || audioFormatID == kAudioFormatFLAC) && audioSettings.quality != defaultSettings.quality), // default settings is used for quality (aac and flac only)
                    audioSettings.sampleRate == defaultSettings.sampleRate // default settings is used for sample rate

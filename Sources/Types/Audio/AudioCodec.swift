@@ -1,9 +1,9 @@
 import AVFoundation
 
 /// Available audio codecs
-public enum CompressionAudioCodec {
+public enum CompressionAudioCodec: Int {
     /// Audio codec set internally by `AVAssetWriter`
-    case `default`
+    case `default` = 0
 
     /// AAC
     case aac
@@ -18,7 +18,7 @@ public enum CompressionAudioCodec {
     case lpcm
 
     /// AudioFormatID associated with enum case
-    public var rawValue: AudioFormatID? {
+    public var formatId: AudioFormatID? {
         switch self {
         case .default:
             return nil
