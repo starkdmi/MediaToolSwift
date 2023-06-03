@@ -38,6 +38,7 @@ public struct CompressionVideoSettings {
     let quality: Double?
 
     /// Size to fit video in while preserving aspect ratio, width and height may be rounded to be divisible by 2
+    /// For best results, always use even number values for width and height when encoding to H.264 or any other format that uses 4:2:0 downsampling
     let size: CGSize? // CGSize(width: 1280.0, height: 1280.0)
 
     /// Frame rate will not increase resulting video frame rate, set `bitrate` to .auto for lower file size when `frameRate` is set
