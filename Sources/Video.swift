@@ -753,7 +753,14 @@ public class VideoTool {
             if let audioSettings = audioSettings {
                 // Audio settings 
                 // https://developer.apple.com/documentation/avfoundation/audio_settings
-                switch audioSettings.codec {
+
+                var codec = audioSettings.codec
+                if codec == .default, let sourceCodec = CompressionAudioCodec(formatId: audioFormatID), sourceCodec != .default {
+                    codec = sourceCodec
+                    variables.shouldCompress = false
+                }
+
+                switch codec {
                 case .aac:
                     // AAC
                     var channelLayout = AudioChannelLayout()
@@ -817,12 +824,13 @@ public class VideoTool {
                         AVLinearPCMIsNonInterleaved: false
                     ]
                 case .default:
+                    sourceFormatHint = audioDesc
                     variables.shouldCompress = false
                 }
 
                 // Compare source audio settings with output to possibly skip the compression
                 let defaultSettings = CompressionAudioSettings()
-                if audioFormatID == audioSettings.codec.formatId, // output format equals to source audio format
+                if audioFormatID == codec.formatId, // output format equals to source audio format
                    audioSettings.bitrate == defaultSettings.bitrate, // default settings is used for bitrate
                    !((audioFormatID == kAudioFormatMPEG4AAC || audioFormatID == kAudioFormatFLAC) && audioSettings.quality != defaultSettings.quality), // default settings is used for quality (aac and flac only)
                    audioSettings.sampleRate == defaultSettings.sampleRate // default settings is used for sample rate

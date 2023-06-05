@@ -17,7 +17,23 @@ public enum CompressionAudioCodec: Int {
     /// Linear PCM
     case lpcm
 
-    /// AudioFormatID associated with enum case
+    /// Initialize using `AudioFormatID` value
+    init?(formatId: AudioFormatID) {
+        switch formatId {
+        case kAudioFormatMPEG4AAC:
+            self.init(rawValue: 1)
+        case kAudioFormatOpus:
+            self.init(rawValue: 2)
+        case kAudioFormatFLAC:
+            self.init(rawValue: 3)
+        case kAudioFormatLinearPCM:
+            self.init(rawValue: 4)
+        default:
+            self.init(formatId: 0)
+        }
+    }
+
+    /// `AudioFormatID` associated with enum case
     public var formatId: AudioFormatID? {
         switch self {
         case .default:

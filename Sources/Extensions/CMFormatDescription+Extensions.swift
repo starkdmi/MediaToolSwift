@@ -61,4 +61,10 @@ public extension CMFormatDescription {
         )
         return AVVideoCodecType(rawValue: fourCCString)
     }
+
+    /// Audio format stored in format description
+    var audioFormat: AudioFormatID {
+        let mediaSubType = CMFormatDescriptionGetMediaSubType(self)
+        return AudioFormatID(mediaSubType)
+    }
 }

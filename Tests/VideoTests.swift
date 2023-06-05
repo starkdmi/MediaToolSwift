@@ -822,8 +822,8 @@ class MediaToolSwiftTests: XCTestCase {
         await audio("oludeniz.MOV", uid: 0, settings: CompressionAudioSettings(
             codec: .default
         ), data: AudioData(
-            format: kAudioFormatLinearPCM,
-            bitrate: 2_116_000,
+            format: kAudioFormatMPEG4AAC,
+            bitrate: nil,
             sampleRate: 44_100,
             channels: 2
         ))
@@ -933,7 +933,7 @@ class MediaToolSwiftTests: XCTestCase {
                     let precision = Float64(bitrate) * 0.05
                     XCTAssert(bps > Float64(bitrate) - precision && bps < Float64(bitrate) + precision)
                 } else {
-                    XCTFail("Can't calculate bitrate for audio #\(uid)")
+                    XCTFail("Can't calculate bitrate for audio #\(uid) \(sampleRate) \(bitsPerChannel) \(channelsPerFrame)")
                 }
             }
 
