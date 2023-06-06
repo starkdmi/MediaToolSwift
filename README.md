@@ -7,7 +7,8 @@ __Video compressor focused on:__
 - HDR content
 - Alpha channel
 - Metadata (File metadata, Timed metadata, Extended attributes)
-- Resizing with aspect ratio
+- Hardware Acceleration
+- Proportional resize
 - Frame rate adjustment
 - Progress and cancellation
 
