@@ -374,6 +374,39 @@ let configurations: [ConfigList] = [
                 )
             )
         ]
+    ),
+
+    // HDR, portrait (Google Pixel 7)
+    ConfigList(
+        filename: "google_pixel_hdr.mp4",
+        url: nil,
+        input: Parameters(
+            filename: "google_pixel_hdr.mp4",
+            filesize: 43_376_890,
+            resolution: CGSize(width: 2160.0, height: 3840.0),
+            videoCodec: .hevc,
+            fileType: .mp4,
+            bitrate: 43_299_000,
+            frameRate: 30, // 29.99
+            duration: 7.97,
+            hasAlpha: false
+        ),
+        configs: [
+            Config(
+                videoSettings: CompressionVideoSettings(bitrate: .value(4_000_000)),
+                output: Parameters(
+                    filename: "exported_google_pixel_hdr.mov",
+                    filesize: nil, // ~= 17_000_000
+                    resolution: CGSize(width: 2160.0, height: 3840.0),
+                    videoCodec: .hevcWithAlpha,
+                    fileType: .mov,
+                    bitrate: nil, // ~- 15_715_000
+                    frameRate: 30,
+                    duration: 7.97,
+                    hasAlpha: false
+                )
+            ),
+        ]
     )
 
     // INFO: VP9 and AV1 are not supported yet
@@ -446,23 +479,20 @@ class MediaToolSwiftTests: XCTestCase {
 
     /*func testOne() async {
         let expectation = XCTestExpectation(description: "Test video file")
-        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destination = Self.tempDirectory.appendingPathComponent("oludeniz_one.mov")
+        let source = Self.mediaDirectory.appendingPathComponent("google_pixel_hdr.mp4")
+        let destination = Self.tempDirectory.appendingPathComponent("google_pixel_hdr.mp4")
         
         _ = await VideoTool.convert(
             source: source,
             destination: destination,
-            fileType: .mov,
+            fileType: .mp4,
             videoSettings: CompressionVideoSettings(
                 codec: .hevcWithAlpha,
-                size: CGSize(width: 4000.0, height: 3000.0),
-                frameRate: 30,
-                preserveAlphaChannel: false
+                size: .uhd
             ),
             // skipAudio: true,
             audioSettings: CompressionAudioSettings(
-                codec: .aac,
-                bitrate: .value(96_000)
+                codec: .flac
             ),
             overwrite: true,
             callback: { state in
@@ -476,7 +506,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        await fulfillment(of: [expectation], timeout: 5)
+        await fulfillment(of: [expectation], timeout: 15)
     }*/
 
     func testVideos() async {
