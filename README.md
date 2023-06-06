@@ -92,14 +92,14 @@ Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/
 To install library with Swift Package Manager, add the following code to your __Package.swift__ file:
 ```
 dependencies: [
-    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.0.2"))
+    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.0.3"))
 ]
 ```
 
 ### CocoaPods
 To install library with CocoaPods, add the following line to your __Podfile__ file:
 ```
-pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.2'
+pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.3'
 ```
 
 ## Problem Solving
