@@ -83,7 +83,7 @@ public class VideoTool {
         }
 
         // Confirm the file type is set to correct value by comparing with destination file extension
-        if destination.pathExtension != fileType.rawValue {
+        if destination.pathExtension.lowercased() != fileType.rawValue {
             callback(.failed(CompressionError.invalidFileType))
             return task
         }
@@ -274,6 +274,7 @@ public class VideoTool {
                             error = writer.error
                             input.markAsFinished()
                             group.leave()
+                            return
                         }
                     }
                 }
@@ -756,6 +757,7 @@ public class VideoTool {
 
                 var codec = audioSettings.codec
                 if codec == .default, let sourceCodec = CompressionAudioCodec(formatId: audioFormatID), sourceCodec != .default {
+                    // Use source audio format
                     codec = sourceCodec
                     variables.shouldCompress = false
                 }
