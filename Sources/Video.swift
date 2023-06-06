@@ -67,7 +67,7 @@ public class VideoTool {
 
         // Check destination file existence and overwrite setting
         let destinationExists: Bool = FileManager.default.fileExists(atPath: destination.path)
-        if destinationExists && !overwrite {
+        if destinationExists, !overwrite {
             callback(.failed(CompressionError.destinationFileExists))
             return task
         }
@@ -111,7 +111,7 @@ public class VideoTool {
             return task
         }
 
-        // By skipping `shouldOptimizeForNetworkUse` temp file will not be created (!)
+        // By skipping `shouldOptimizeForNetworkUse` temp file may not be created by `AVAssetWriter`
         writer.shouldOptimizeForNetworkUse = optimizeForNetworkUse
 
         // Frame rate
@@ -164,7 +164,7 @@ public class VideoTool {
         }
 
         // Prevent the compression when video and audio settings are same as the source file
-        if !videoVariables.shouldCompress && !audioVariables.shouldCompress {
+        if !videoVariables.shouldCompress, !audioVariables.shouldCompress {
             callback(.failed(CompressionError.redunantCompression))
             return task
         }
@@ -242,7 +242,7 @@ public class VideoTool {
             group.enter()
             processes += 1
             input.requestMediaDataWhenReady(on: queue) {
-                while input.isReadyForMoreMediaData && !task.isCancelled {
+                while input.isReadyForMoreMediaData, !task.isCancelled {
                     // Progress
                     if input.mediaType == .video {
                         progress.completedUnitCount = Int64(frames)
@@ -268,14 +268,12 @@ public class VideoTool {
                     // Write
                     if let handler = sampleHandler {
                         handler(sample)
-                    } else {
-                        if !input.append(sample), writer.status == .failed {
-                            // Writing fails
-                            error = writer.error
-                            input.markAsFinished()
-                            group.leave()
-                            return
-                        }
+                    } else if !input.append(sample), writer.status == .failed {
+                        // Writing fails
+                        error = writer.error
+                        input.markAsFinished()
+                        group.leave()
+                        return
                     }
                 }
 
@@ -311,11 +309,11 @@ public class VideoTool {
                 writer.cancelWriting()
                 callback(.failed(error))
             } else if !task.isCancelled || success == processes {
-                // Confirm the progress is 1.0 (optional)
-                /*if progress.completedUnitCount != totalFrames {
-                    progress.completedUnitCount = totalFrames
+                // Confirm the progress is 1.0
+                if progress.completedUnitCount != frames {
+                    progress.completedUnitCount = Int64(frames)
                     callback(.progress(progress))
-                }*/
+                }
 
                 // Wasn't cancelled and reached OR all operation was completed
                 reader.cancelReading()
@@ -328,7 +326,7 @@ public class VideoTool {
                         fileType: fileType
                     )
 
-                    if deleteSourceFile && source.path != destination.path {
+                    if deleteSourceFile, source.path != destination.path {
                         // Delete input video file
                         try? FileManager.default.removeItem(at: source)
                     }
@@ -340,11 +338,11 @@ public class VideoTool {
                 // Wait for sample in progress to complete, 0.5 sec is more than enough
                 usleep(500_000)
 
-                // This method should not be called concurrently with any calls to - output.copyNextSampleBuffer()
-                // But the documentation is unclear - https://developer.apple.com/documentation/avfoundation/avassetreader/1390258-cancelreading
+                // This method should not be called concurrently with any calls to `output.copyNextSampleBuffer()`
+                // The documentation of that is unclear - https://developer.apple.com/documentation/avfoundation/avassetreader/1390258-cancelreading
                 reader.cancelReading()
 
-                // This method alsoshould not be called concurrently with - input.append()
+                // This method also should not be called concurrently with `input.append()`
                 writer.cancelWriting()
                 callback(.cancelled)
             }
@@ -393,7 +391,7 @@ public class VideoTool {
 
         // HDR videos can't have an alpha channel
         var preserveAlphaChannel = videoSettings.preserveAlphaChannel
-        if preserveAlphaChannel && videoDesc.isHDRVideo {
+        if preserveAlphaChannel, videoDesc.isHDRVideo {
             preserveAlphaChannel = false
         }
 
@@ -566,6 +564,7 @@ public class VideoTool {
                 matrix = AVVideoYCbCrMatrix_ITU_R_2020
                 transferFunction = AVVideoTransferFunction_SMPTE_ST_2084_PQ
             }
+
             videoParameters[AVVideoColorPropertiesKey] = [
                 AVVideoColorPrimariesKey: colorPrimary,
                 AVVideoYCbCrMatrixKey: matrix,
