@@ -319,7 +319,7 @@ let configurations: [ConfigList] = [
                     hasAlpha: false
                 )
             ),
-            /*Config(
+            Config(
                 videoSettings: CompressionVideoSettings(
                     codec: .proRes4444,
                     bitrate: .encoder,
@@ -337,7 +337,7 @@ let configurations: [ConfigList] = [
                     duration: 7.6,
                     hasAlpha: false
                 )
-            ),*/
+            ),
             Config(
                 videoSettings: CompressionVideoSettings(
                     size: CGSize(width: 1280.0, height: 1280.0)
@@ -393,36 +393,42 @@ func downloadFile(url: String, path: String) async throws {
 }
 
 class MediaToolSwiftTests: XCTestCase {
+    
+    static let testsDirectory = URL(fileURLWithPath: #file).deletingLastPathComponent()
+    static let mediaDirectory = testsDirectory.appendingPathComponent("media")
+    static let tempDirectory = mediaDirectory.appendingPathComponent("temp")
+    
+    static var setUpCalled = false
 
     override func setUp() {
+        guard !Self.setUpCalled else { return }
         super.setUp()
 
         Task {
             // Fetch all video files
             for config in configurations {
                 if let url = config.url {
-                    let path: String = "./Tests/media/\(config.filename)"
+                    let path: String = Self.mediaDirectory.appendingPathComponent(config.filename).path
                     if !FileManager.default.fileExists(atPath: path) {
                         try! await downloadFile(url: url, path: path)
                     }
                 }
             }
         }
-
-        let tempDirectory = URL(fileURLWithPath: "./Tests/media/temp")
+                
         var isDirectory: ObjCBool = true
-        if !FileManager.default.fileExists(atPath: tempDirectory.path, isDirectory: &isDirectory) {
-            try! FileManager.default.createDirectory(atPath: tempDirectory.path, withIntermediateDirectories: false)
+        if !FileManager.default.fileExists(atPath: Self.tempDirectory.path, isDirectory: &isDirectory) {
+            try! FileManager.default.createDirectory(atPath: Self.tempDirectory.path, withIntermediateDirectories: false)
         }
+        
+        Self.setUpCalled = true
     }
 
     override func tearDown() {
-        let tempDirectory = URL(fileURLWithPath: "./Tests/media/temp")
-
         // Delete system AVAssetWriter temp files
         do {
-            let files = try! FileManager.default.contentsOfDirectory(at: tempDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
-            for file in files where file.pathExtension == "" {
+            let files = try! FileManager.default.contentsOfDirectory(at: Self.tempDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+            for file in files where !(file.pathExtension == "mov" || file.pathExtension == "mp4" || file.pathExtension == "m4v") {
                 try FileManager.default.removeItem(at: file)
             }
         } catch { }
@@ -440,16 +446,24 @@ class MediaToolSwiftTests: XCTestCase {
 
     /*func testOne() async {
         let expectation = XCTestExpectation(description: "Test video file")
-        let source = URL(fileURLWithPath: "./Tests/media/oludeniz.MOV")
-        let destination = URL(fileURLWithPath: "./Tests/media/temp/oludeniz.mov")
-
-        await VideoTool.convert(
+        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
+        let destination = Self.tempDirectory.appendingPathComponent("oludeniz_one.mov")
+        
+        _ = await VideoTool.convert(
             source: source,
             destination: destination,
             fileType: .mov,
-            videoSettings: CompressionVideoSettings(codec: .hevcWithAlpha, size: CGSize(width: 4000.0, height: 3000.0), frameRate: 30, preserveAlphaChannel: false),
+            videoSettings: CompressionVideoSettings(
+                codec: .hevcWithAlpha,
+                size: CGSize(width: 4000.0, height: 3000.0),
+                frameRate: 30,
+                preserveAlphaChannel: false
+            ),
             // skipAudio: true,
-            audioSettings: CompressionAudioSettings(codec: .aac, bitrate: .value(96_000)),
+            audioSettings: CompressionAudioSettings(
+                codec: .aac,
+                bitrate: .value(96_000)
+            ),
             overwrite: true,
             callback: { state in
                 switch state {
@@ -469,11 +483,10 @@ class MediaToolSwiftTests: XCTestCase {
         var expectations: [XCTestExpectation] = []
 
         for file in configurations {
-            let path = "./Tests/media/\(file.filename)"
-            let source = URL(fileURLWithPath: path)
+            let source = Self.mediaDirectory.appendingPathComponent(file.filename)
 
             for config in file.configs {
-                let destination = URL(fileURLWithPath: "./Tests/media/temp/\(config.output.filename)")
+                let destination = Self.tempDirectory.appendingPathComponent(config.output.filename)
                 let expectation = XCTestExpectation(description: "Video processing")
 
                 _ = await VideoTool.convert(
@@ -511,8 +524,8 @@ class MediaToolSwiftTests: XCTestCase {
                 // 6? duration in seconds
                 // 7? has alpha channel
 
-                let destination = URL(fileURLWithPath: "./Tests/media/temp/\(config.output.filename)")
-
+                let destination = Self.tempDirectory.appendingPathComponent(config.output.filename)
+                
                 // Init video asset
                 let asset = AVAsset(url: destination)
                 guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
@@ -593,8 +606,7 @@ class MediaToolSwiftTests: XCTestCase {
     func testMetadata() async {
         var expectations: [XCTestExpectation] = []
 
-        let path = "./Tests/media/oludeniz.MOV"
-        let source = URL(fileURLWithPath: path)
+        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
 
         let metadataItem = AVMutableMetadataItem()
         metadataItem.key = AVMetadataKey.commonKeyTitle as NSString
@@ -605,7 +617,7 @@ class MediaToolSwiftTests: XCTestCase {
         let customMetadata: [AVMetadataItem] = [metadataItem]
 
         // Add custom metadata, check existing for correctness
-        let destinationOne = URL(fileURLWithPath: "./Tests/media/temp/exported_oludeniz_metadata.mov")
+        let destinationOne = Self.tempDirectory.appendingPathComponent("exported_oludeniz_metadata.mov")
         let expectationOne = XCTestExpectation(description: "Compression & metadata")
         expectations.append(expectationOne)
         _ = await VideoTool.convert(
@@ -670,7 +682,7 @@ class MediaToolSwiftTests: XCTestCase {
         })
 
         // Test no metadata saved
-        let destinationTwo = URL(fileURLWithPath: "./Tests/media/temp/exported_oludeniz_no_metadata.mov")
+        let destinationTwo = Self.tempDirectory.appendingPathComponent("exported_oludeniz_no_metadata.mov")
         let expectationTwo = XCTestExpectation(description: "Compression & no metadata")
         expectations.append(expectationTwo)
         _ = await VideoTool.convert(
@@ -720,10 +732,9 @@ class MediaToolSwiftTests: XCTestCase {
     }
 
     func testCancellation() async {
-        let path = "./Tests/media/oludeniz.MOV"
-        let source = URL(fileURLWithPath: path)
+        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
 
-        let destination = URL(fileURLWithPath: "./Tests/media/temp/exported_oludeniz_cancel.mov")
+        let destination = Self.tempDirectory.appendingPathComponent("exported_oludeniz_cancel.mov")
         let expectation = XCTestExpectation(description: "Compression & cancellation")
         var status: CompressionState?
         let task = await VideoTool.convert(
@@ -767,8 +778,8 @@ class MediaToolSwiftTests: XCTestCase {
         var expectations: [XCTestExpectation] = []
 
         // Copy file
-        let sourceOne = URL(fileURLWithPath: "./Tests/media/oludeniz.MOV")
-        let destinationOne = URL(fileURLWithPath: "./Tests/media/temp/exported_oludeniz_overwrite.mov")
+        let sourceOne = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
+        let destinationOne = Self.tempDirectory.appendingPathComponent("exported_oludeniz_overwrite.mov")
         try? FileManager.default.copyItem(at: sourceOne, to: destinationOne)
         // Should fail if exists
         let expectationOne = XCTestExpectation(description: "Compression & overwrite")
@@ -783,12 +794,12 @@ class MediaToolSwiftTests: XCTestCase {
                     Self.fulfill(expectationOne)
                 }
         })
-
+        
         // Copy file
-        let sourceTwo = URL(fileURLWithPath: "./Tests/media/temp/oludeniz.MOV")
+        let sourceTwo = Self.tempDirectory.appendingPathComponent("oludeniz.MOV")
         try? FileManager.default.copyItem(at: sourceOne, to: sourceTwo)
         // Should delete file (on success)
-        let destinationTwo = URL(fileURLWithPath: "./Tests/media/temp/exported_oludeniz_delete.mov")
+        let destinationTwo = Self.tempDirectory.appendingPathComponent("exported_oludeniz_delete.mov")
         let expectationTwo = XCTestExpectation(description: "Compression & delete")
         expectations.append(expectationTwo)
         _ = await VideoTool.convert(
@@ -881,10 +892,9 @@ class MediaToolSwiftTests: XCTestCase {
         settings: CompressionAudioSettings? = nil,
         data: AudioData? = nil
     ) async {
-        let path = "./Tests/media/\(filename)"
-        let source = URL(fileURLWithPath: path)
+        let source = Self.mediaDirectory.appendingPathComponent(filename)
 
-        let destination = URL(fileURLWithPath: "./Tests/media/temp/exported_\(filename)_\(uid)_audio.mov")
+        let destination = Self.tempDirectory.appendingPathComponent("exported_\(filename)_\(uid)_audio.mov")
         let expectation = XCTestExpectation(description: "Compression & Audio")
         _ = await VideoTool.convert(
             source: source,
