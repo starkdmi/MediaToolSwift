@@ -6,7 +6,7 @@ Pod::Spec.new do |spec|
                       MediaToolSwift is a Swift library that provides a collection of classes and utilities for media handling and manipulation. It provides an easy-to-use interface for performing common media operations such as  compression, conversion, resizing and more. Supports video, image and audio media types.
                       DESC
   spec.homepage     = "https://github.com/starkdmi/MediaToolSwift"
-  spec.license      = { :type => 'GPLv3', :file => 'LICENSE' }
+  spec.license      = { :type => 'MPL-2.0', :file => 'LICENSE' }
   spec.author       = "Dmitry Starkov"
   spec.source       = { :git => "https://github.com/starkdmi/MediaToolSwift.git", :tag => "#{spec.version}" }
   spec.platforms    = { :ios => "13.0", :osx => "11.0" }
