@@ -91,7 +91,6 @@ iOSInjectionProject/
 .DS_Store
 
 # Swift Package Manager
-Package.resolved
 .swiftpm/
 
 # Tests
