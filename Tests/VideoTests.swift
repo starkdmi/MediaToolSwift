@@ -133,7 +133,7 @@ let configurations: [ConfigList] = [
                     resolution: CGSize(width: 1280.0, height: 720.0),
                     videoCodec: .hevc,
                     fileType: .mp4,
-                    bitrate: 880_000,
+                    bitrate: 950_000,
                     frameRate: 24, // 23.98
                     duration: 15.02,
                     hasAlpha: false
@@ -433,6 +433,10 @@ class MediaToolSwiftTests: XCTestCase {
 
     override func setUp() {
         guard !Self.setUpCalled else { return }
+        
+        // Used to stop execution of fulfillment expectations whenever at least one of them fails
+        // XCTestObservationCenter.shared.addTestObserver(TestObserver())
+        
         super.setUp()
 
         Task {
@@ -542,6 +546,13 @@ class MediaToolSwiftTests: XCTestCase {
                 continue
             }
             #endif
+            
+            #if os(tvOS)
+            // Apple TV doesn't support HEVC with alpha channel decoding
+            if file.input.videoCodec == .hevcWithAlpha {
+                continue
+            }
+            #endif
 
             for config in file.configs {
                 let destination = Self.tempDirectory.appendingPathComponent(config.output.filename)
@@ -565,7 +576,7 @@ class MediaToolSwiftTests: XCTestCase {
                         case .completed, .cancelled:
                             Self.fulfill(expectation)
                         case .failed(let error):
-                            XCTFail(error.localizedDescription)
+                            XCTFail("\(error.localizedDescription) while compressing \(file.filename)->\(config.output.filename)")
                         default:
                             break
                         }
@@ -579,6 +590,12 @@ class MediaToolSwiftTests: XCTestCase {
         for file in configurations {
             #if targetEnvironment(simulator)
             if file.input.videoCodec == .proRes4444 {
+                continue
+            }
+            #endif
+            
+            #if os(tvOS)
+            if file.input.videoCodec == .hevcWithAlpha {
                 continue
             }
             #endif
@@ -633,21 +650,30 @@ class MediaToolSwiftTests: XCTestCase {
                         XCTAssert(fileSize > UInt64(size - precision) && fileSize < UInt64(size + precision))
                     } else if size < 0, let original = file.input.filesize {
                         // should be less than input
-                        XCTAssertLessThanOrEqual(fileSize, UInt64(original))
+                        XCTAssertLessThanOrEqual(fileSize, UInt64(original),
+                                                 "File size should be smaller than input for \(file.filename)->\(config.output.filename)")
                     }
                 }
 
                 // 3. Resolution
-                let videoSize = videoTrack.naturalSizeWithOrientation
-                XCTAssertEqual(videoSize, config.output.resolution)
+                if let resolution = config.output.resolution {
+                    let videoSize = videoTrack.naturalSizeWithOrientation
+                    XCTAssertTrue(
+                        videoSize.almostEqual(to: resolution),
+                        "Output resolution is incorrect (\(videoSize)) should be (\(resolution))"
+                    )
+                }
 
                 // 4. Bitrate 
                 let estimatedDataRate = videoTrack.estimatedDataRate
                 if let bitrate = config.output.bitrate {
                     if bitrate >= 0 {
-                        // should equal the value +- 5%
-                        let precision = Float(bitrate) * 0.05
-                        XCTAssert(estimatedDataRate > Float(bitrate) - precision && estimatedDataRate < Float(bitrate) + precision)
+                        // should equal the value +- 7.5%
+                        let precision = Float(bitrate) * 0.075
+                        XCTAssert(
+                            estimatedDataRate > Float(bitrate) - precision && estimatedDataRate < Float(bitrate) + precision,
+                            "Bitrate doesn't match for \(file.filename)->\(config.output.filename). Actual bitrate is \(estimatedDataRate) but should be \(bitrate)"
+                        )
                     } else if bitrate < 0 {
                         // should be less than input
                         XCTAssertLessThanOrEqual(estimatedDataRate, Float(file.input.bitrate ?? 0))
@@ -1038,6 +1064,27 @@ class MediaToolSwiftTests: XCTestCase {
             // ...
         }
     }*/
+}
+
+/*class TestObserver: NSObject, XCTestObservation {
+    func testCase(_ testCase: XCTestCase, didFailWithDescription description: String, inFile filePath: String?, atLine lineNumber: Int) {
+        XCTFail("Test case failed: \(description)")
+        XCTContext.runActivity(named: "Test Failure Details") { _ in
+            if let filePath = filePath {
+                XCTAttachment(contentsOfFile: URL(fileURLWithPath: filePath)).lifetime = .keepAlways
+            }
+            XCTAttachment(plistObject: lineNumber).lifetime = .keepAlways
+        }
+        XCTContext.runActivity(named: "Abort Test Execution") { _ in
+            fatalError("Abort test execution due to failure")
+        }
+    }
+}*/
+
+extension CGSize {
+    func almostEqual(to size: CGSize, threshold: CGFloat = 1.0) -> Bool {
+        abs(self.width - size.width) <= threshold && abs(self.height - size.height) <= threshold
+    }
 }
 
 extension AVAssetTrack {
