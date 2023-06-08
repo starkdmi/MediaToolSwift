@@ -38,6 +38,7 @@ public struct CompressionVideoSettings {
     let quality: Double?
 
     /// Size to fit video in while preserving aspect ratio, width and height may be rounded to be divisible by 2
+    /// On macOS value of 405 may be scalled down to 404, while on iOS stay 405
     /// For best results, always use even number values for width and height when encoding to H.264 or any other format that uses 4:2:0 downsampling
     let size: CGSize? // CGSize(width: 1280.0, height: 1280.0)
 
