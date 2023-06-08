@@ -325,12 +325,12 @@ let configurations: [ConfigList] = [
                     frameRate: 60
                 ),
                 output: Parameters(
-                    filename: "exported_oludeniz_prores.mov", 
-                    filesize: nil, 
-                    resolution: CGSize(width: 1080.0, height: 1920.0), 
-                    videoCodec: .proRes4444, 
+                    filename: "exported_oludeniz_prores.mov",
+                    filesize: nil,
+                    resolution: CGSize(width: 1080.0, height: 1920.0),
+                    videoCodec: .proRes4444,
                     fileType: .mov,
-                    bitrate: nil, 
+                    bitrate: nil,
                     frameRate: 30,
                     duration: 7.6,
                     hasAlpha: false
@@ -403,7 +403,7 @@ let configurations: [ConfigList] = [
                     duration: 7.97,
                     hasAlpha: false
                 )
-            ),
+            )
         ]
     )
 
@@ -428,15 +428,15 @@ class MediaToolSwiftTests: XCTestCase {
     static let testsDirectory = URL(fileURLWithPath: #file).deletingLastPathComponent()
     static let mediaDirectory = testsDirectory.appendingPathComponent("media")
     static let tempDirectory = mediaDirectory.appendingPathComponent("temp")
-    
+
     static var setUpCalled = false
 
     override func setUp() {
         guard !Self.setUpCalled else { return }
-        
+
         // Used to stop execution of fulfillment expectations whenever at least one of them fails
         // XCTestObservationCenter.shared.addTestObserver(TestObserver())
-        
+
         super.setUp()
 
         Task {
@@ -450,12 +450,12 @@ class MediaToolSwiftTests: XCTestCase {
                 }
             }
         }
-                
+
         var isDirectory: ObjCBool = true
         if !FileManager.default.fileExists(atPath: Self.tempDirectory.path, isDirectory: &isDirectory) {
             try! FileManager.default.createDirectory(atPath: Self.tempDirectory.path, withIntermediateDirectories: false)
         }
-        
+
         Self.setUpCalled = true
     }
 
@@ -478,7 +478,7 @@ class MediaToolSwiftTests: XCTestCase {
             expectation.fulfill()
         }
     }
-    
+
     #if targetEnvironment(simulator)
     // Apple TV and iOS simulator compression is really slow
     let osAdditionalTimeout: TimeInterval = 300 // 5 min
@@ -546,7 +546,7 @@ class MediaToolSwiftTests: XCTestCase {
                 continue
             }
             #endif
-            
+
             #if os(tvOS)
             // Apple TV doesn't support HEVC with alpha channel decoding
             if file.input.videoCodec == .hevcWithAlpha {
@@ -584,7 +584,7 @@ class MediaToolSwiftTests: XCTestCase {
                 expectations.append(expectation)
             }
         }
-        
+
         await fulfillment(of: expectations, timeout: 20 + osAdditionalTimeout * Double(expectations.count))
 
         for file in configurations {
@@ -593,13 +593,13 @@ class MediaToolSwiftTests: XCTestCase {
                 continue
             }
             #endif
-            
+
             #if os(tvOS)
             if file.input.videoCodec == .hevcWithAlpha {
                 continue
             }
             #endif
-            
+
             for config in file.configs {
                 // Test results
                 // 1. video
@@ -617,7 +617,7 @@ class MediaToolSwiftTests: XCTestCase {
                 #endif
 
                 let destination = Self.tempDirectory.appendingPathComponent(config.output.filename)
-                
+
                 // Init video asset
                 let asset = AVAsset(url: destination)
                 guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
@@ -894,7 +894,7 @@ class MediaToolSwiftTests: XCTestCase {
                     Self.fulfill(expectationOne)
                 }
         })
-        
+
         // Copy file
         let sourceTwo = Self.tempDirectory.appendingPathComponent("oludeniz.MOV")
         try? FileManager.default.copyItem(at: sourceOne, to: sourceTwo)
