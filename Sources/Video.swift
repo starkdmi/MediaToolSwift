@@ -61,6 +61,7 @@ public class VideoTool {
 
         // Check source file existence
         if !FileManager.default.fileExists(atPath: source.path) {
+            // Also caused by insufficient permissions
             callback(.failed(CompressionError.sourceFileNotFound))
             return task
         }
@@ -243,13 +244,6 @@ public class VideoTool {
             processes += 1
             input.requestMediaDataWhenReady(on: queue) {
                 while input.isReadyForMoreMediaData, !task.isCancelled {
-                    // Progress
-                    if input.mediaType == .video {
-                        progress.completedUnitCount = Int64(frames)
-                        callback(.progress(progress))
-                        frames += 1
-                    }
-
                     // Read
                     guard let sample = output.copyNextSampleBuffer() else {
                         if reader.status == .failed {
@@ -274,6 +268,13 @@ public class VideoTool {
                         input.markAsFinished()
                         group.leave()
                         return
+                    }
+
+                    // Progress
+                    if input.mediaType == .video {
+                        frames += 1
+                        progress.completedUnitCount = Int64(frames)
+                        callback(.progress(progress))
                     }
                 }
 
@@ -461,7 +462,7 @@ public class VideoTool {
                 let totalPixels = Float(videoSize.width * videoSize.height)
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
                 let rate = (totalPixels * codecMultiplier * fps) / 8
-                videoCompressionSettings[AVVideoAverageBitRateKey] = rate
+                videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
             case .encoder:
                 break
             }
@@ -484,7 +485,9 @@ public class VideoTool {
                 videoCompressionSettings[AVVideoExpectedSourceFrameRateKey] = frameRate
             } else if videoCodec == .h264 {
                 videoCompressionSettings[AVVideoExpectedSourceFrameRateKey] = frameRate
+                #if os(OSX)
                 videoCompressionSettings[AVVideoAverageNonDroppableFrameRateKey] = frameRate
+                #endif
             }
         } else {
             // Frame rate is nil, more or equal to source video frame rate
@@ -534,8 +537,8 @@ public class VideoTool {
             case .ebu3213:
                 #if os(OSX)
                 colorPrimary = AVVideoColorPrimaries_EBU_3213
-                #elseif os(iOS)
-                // Fallback to iOS supported SD color primary
+                #else
+                // Fallback to iOS and tvOS supported SD color primary
                 colorPrimary = AVVideoColorPrimaries_SMPTE_C
                 #endif
                 matrix = AVVideoYCbCrMatrix_ITU_R_601_4

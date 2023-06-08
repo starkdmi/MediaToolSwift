@@ -1,5 +1,5 @@
 ## MediaToolSwift
-> Advanced media converter for iOS and macOS
+> Advanced media converter for iOS, macOS and tvOS
 
 ## Video
 __Video compressor focused on:__
@@ -13,9 +13,9 @@ __Video compressor focused on:__
 - Progress and cancellation
 
 __Features:__
-| Convert | Resize | Trim | Crop | Custom FPS | Thumbnail | Video Preview | Info |
+| Convert | Resize | Rotate | Trim | Crop | Custom FPS | Thumbnail | Video Preview | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| ✅ | ✅ | ❌ | ❌ | ✅ | 🟠 | 🟠 | 🟠 |
+| ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | 🟠 | 🟠 | 🟠 |
 
 __Supported video codecs:__
 - H.264
@@ -84,6 +84,7 @@ Complex example can be found in [this](./Example/) directory.
 ## Requirements
 * iOS 13.0+
 * macOS 11.0+
+* tvOS 13.0+
 
 ## Documentation
 Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
@@ -93,14 +94,14 @@ Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/
 To install library with Swift Package Manager, add the following code to your __Package.swift__ file:
 ```
 dependencies: [
-    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.0.3"))
+    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.0.4"))
 ]
 ```
 
 ### CocoaPods
 To install library with CocoaPods, add the following line to your __Podfile__ file:
 ```
-pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.3'
+pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.4'
 ```
 
 ## Problem Solving

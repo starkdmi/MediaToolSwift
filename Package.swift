@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "MediaToolSwift",
     platforms: [
-        .macOS(.v11), .iOS(.v13)
+        .macOS(.v11), .iOS(.v13), .tvOS(.v13)
     ],
     products: [
         .library(name: "MediaToolSwift", targets: ["MediaToolSwift"])

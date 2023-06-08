@@ -22,10 +22,10 @@ class Player {
     }
 
     func makeView() -> Any {
-        #if os(iOS)
-        let backgroundColor = UIColor.clear.cgColor
-        #else
+        #if os(macOS)
         let backgroundColor = NSColor.clear.cgColor
+        #else
+        let backgroundColor = UIColor.clear.cgColor
         #endif
 
         // Setup video player layer
@@ -35,13 +35,13 @@ class Player {
         // playerLayer.pixelBufferAttributes = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
 
         // Parent view
-        #if os(iOS)
-        let view = UIView()
-        let layer = view.layer
-        #else
+        #if os(macOS)
         let view = NSView()
         view.layer = CALayer()
         let layer = view.layer!
+        #else
+        let view = UIView()
+        let layer = view.layer
         #endif
         layer.backgroundColor = backgroundColor
         layer.addSublayer(playerLayer)
@@ -54,31 +54,7 @@ class Player {
     }
 }
 
-#if os(iOS)
-struct PlayerView: UIViewRepresentable {
-    private let player: Player!
-    private let url: URL
-    private let size: CGSize?
-    private let isPaused: Binding<Bool>
-
-    init(avPlayer: AVQueuePlayer, url: URL, size: CGSize? = nil, isPaused: Binding<Bool>) {
-        self.url = url
-        self.size = size
-        self.isPaused = isPaused
-        player = Player(player: avPlayer, url: url, size: size)
-    }
-
-    func makeUIView(context: Context) -> UIView {
-        player.makeView() as! UIView
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        if !isPaused.wrappedValue {
-            player.updateView()
-        }
-    }
-}
-#else
+#if os(macOS)
 struct PlayerView: NSViewRepresentable {
     typealias NSViewType = NSView
 
@@ -99,6 +75,30 @@ struct PlayerView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        if !isPaused.wrappedValue {
+            player.updateView()
+        }
+    }
+}
+#else
+struct PlayerView: UIViewRepresentable {
+    private let player: Player!
+    private let url: URL
+    private let size: CGSize?
+    private let isPaused: Binding<Bool>
+
+    init(avPlayer: AVQueuePlayer, url: URL, size: CGSize? = nil, isPaused: Binding<Bool>) {
+        self.url = url
+        self.size = size
+        self.isPaused = isPaused
+        player = Player(player: avPlayer, url: url, size: size)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        player.makeView() as! UIView
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
         if !isPaused.wrappedValue {
             player.updateView()
         }

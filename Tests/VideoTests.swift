@@ -6,8 +6,6 @@ import Foundation
 import AVFoundation
 import VideoToolbox
 
-// Run from project directory `cd MediaToolSwift` with `swift test`
-
 struct ConfigList {
     let filename: String
     let url: String? // [nil] for local file
@@ -426,7 +424,7 @@ func downloadFile(url: String, path: String) async throws {
 }
 
 class MediaToolSwiftTests: XCTestCase {
-    
+
     static let testsDirectory = URL(fileURLWithPath: #file).deletingLastPathComponent()
     static let mediaDirectory = testsDirectory.appendingPathComponent("media")
     static let tempDirectory = mediaDirectory.appendingPathComponent("temp")
@@ -476,12 +474,19 @@ class MediaToolSwiftTests: XCTestCase {
             expectation.fulfill()
         }
     }
+    
+    #if targetEnvironment(simulator)
+    // Apple TV and iOS simulator compression is really slow
+    let osAdditionalTimeout: TimeInterval = 300 // 5 min
+    #else
+    let osAdditionalTimeout: TimeInterval = 0
+    #endif
 
     /*func testOne() async {
         let expectation = XCTestExpectation(description: "Test video file")
         let source = Self.mediaDirectory.appendingPathComponent("google_pixel_hdr.mp4")
         let destination = Self.tempDirectory.appendingPathComponent("google_pixel_hdr.mp4")
-        
+
         _ = await VideoTool.convert(
             source: source,
             destination: destination,
@@ -506,7 +511,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        await fulfillment(of: [expectation], timeout: 15)
+        await fulfillment(of: [expectation], timeout: 15 + osAdditionalTimeout)
     }*/
 
     func testVideos() async {
@@ -515,9 +520,38 @@ class MediaToolSwiftTests: XCTestCase {
         for file in configurations {
             let source = Self.mediaDirectory.appendingPathComponent(file.filename)
 
+            #if targetEnvironment(simulator)
+            // ProRes is not available in simulators
+            /*ProRes Decoding & Encoding:
+                MacBook Air M2
+                MacBook Pro M1 Pro, Max, M2
+                iPhone 13 Pro, Pro Max
+                iPhone 14 Pro, Pro Max
+                iPad Pro (12.9-inch, 5th generation)
+                iPad Pro (11-inch, 3rd generation)
+                iPad Air (5th generation)
+
+            ProRes Decoding (Bionic A15+):
+                iPhone 13, Mini, Pro, Pro Max
+                iPhone 14, Plus
+                iPhone SE (3rd generation)
+                iPad Mini (6th generation)
+                Apple TV 4K
+            */
+            if file.input.videoCodec == .proRes4444 {
+                continue
+            }
+            #endif
+
             for config in file.configs {
                 let destination = Self.tempDirectory.appendingPathComponent(config.output.filename)
                 let expectation = XCTestExpectation(description: "Video processing")
+
+                #if targetEnvironment(simulator)
+                if config.videoSettings.codec == .proRes4444 {
+                    continue
+                }
+                #endif
 
                 _ = await VideoTool.convert(
                     source: source,
@@ -531,7 +565,6 @@ class MediaToolSwiftTests: XCTestCase {
                         case .completed, .cancelled:
                             Self.fulfill(expectation)
                         case .failed(let error):
-                            print(error)
                             XCTFail(error.localizedDescription)
                         default:
                             break
@@ -540,10 +573,16 @@ class MediaToolSwiftTests: XCTestCase {
                 expectations.append(expectation)
             }
         }
-
-        await fulfillment(of: expectations, timeout: 20)
+        
+        await fulfillment(of: expectations, timeout: 20 + osAdditionalTimeout * Double(expectations.count))
 
         for file in configurations {
+            #if targetEnvironment(simulator)
+            if file.input.videoCodec == .proRes4444 {
+                continue
+            }
+            #endif
+            
             for config in file.configs {
                 // Test results
                 // 1. video
@@ -553,6 +592,12 @@ class MediaToolSwiftTests: XCTestCase {
                 // 5. frame rate
                 // 6? duration in seconds
                 // 7? has alpha channel
+
+                #if targetEnvironment(simulator)
+                if config.videoSettings.codec == .proRes4444 {
+                    continue
+                }
+                #endif
 
                 let destination = Self.tempDirectory.appendingPathComponent(config.output.filename)
                 
@@ -758,7 +803,7 @@ class MediaToolSwiftTests: XCTestCase {
             }
         })
 
-        await fulfillment(of: expectations, timeout: 20)
+        await fulfillment(of: expectations, timeout: 20 + osAdditionalTimeout)
     }
 
     func testCancellation() async {
@@ -770,9 +815,8 @@ class MediaToolSwiftTests: XCTestCase {
         let task = await VideoTool.convert(
             source: source,
             destination: destination,
-            // Slow down the compression
             videoSettings: CompressionVideoSettings(
-                codec: .proRes4444,
+                codec: .hevc,
                 bitrate: .encoder
             ),
             overwrite: true,
@@ -794,7 +838,7 @@ class MediaToolSwiftTests: XCTestCase {
             task.cancel()
         }
 
-        await fulfillment(of: [expectation], timeout: 10)
+        await fulfillment(of: [expectation], timeout: 20)
 
         // Check the state
         XCTAssertEqual(status, .cancelled)
@@ -855,7 +899,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        await fulfillment(of: expectations, timeout: 10)
+        await fulfillment(of: expectations, timeout: 10 + osAdditionalTimeout)
     }
 
     func testAudio() async {
@@ -944,7 +988,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        await fulfillment(of: [expectation], timeout: 10)
+        await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
 
         // Compare resulting file with provided data
         let asset = AVAsset(url: destination)
