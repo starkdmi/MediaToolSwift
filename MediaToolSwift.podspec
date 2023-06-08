@@ -1,3 +1,8 @@
+# To publish new version to CocoaPods:
+# - create new release on Github with a tag `1.0.0`
+# - `git tag 1.0.0`
+# - `pod trunk push MediaToolSwift.podspec --allow-warnings`
+
 Pod::Spec.new do |spec|
   spec.name         = "MediaToolSwift"
   spec.version      = "1.0.4"
@@ -14,6 +19,7 @@ Pod::Spec.new do |spec|
   spec.public_header_files = "Sources/Classes/ObjCExceptionCatcher/**/*.h"
   spec.frameworks   = "Foundation"
   # spec.ios.framework  = 'UIKit'
+  # spec.tvos.framework = 'UIKit'
   # spec.osx.framework  = 'AppKit'
   spec.module_name  = "MediaToolSwift"
   spec.swift_version = "5.8"
