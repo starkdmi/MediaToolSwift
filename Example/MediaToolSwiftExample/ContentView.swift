@@ -386,6 +386,8 @@ struct ContentView: View {
 
     private func compress() {
         guard let url = sourceURL else { return }
+        _ = url.startAccessingSecurityScopedResource()
+
         guard let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             error = CompressionError(description: "Cannot access cache directory")
             isErrorAlertPresented = true
