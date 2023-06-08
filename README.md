@@ -14,7 +14,7 @@ __Video compressor focused on:__
 
 __Features:__
 | Convert | Resize | Rotate | Trim | Crop | Custom FPS | Thumbnail | Video Preview | Info |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | 🟠 | 🟠 | 🟠 |
 
 __Supported video codecs:__
