@@ -14,7 +14,7 @@ force_cast: warning
 line_length: 256
 
 type_body_length:
-  warning: 500 
+  warning: 600 
   error: 800
 
 file_length:
