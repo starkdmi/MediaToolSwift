@@ -362,7 +362,6 @@ public class VideoTool {
         }
 
         // MARK: Reader
-        // Total Frames used for progress calculation
         let durationInSeconds = asset.duration.seconds
         let nominalFrameRate = videoTrack.nominalFrameRate
         let totalFrames = Int64(ceil(durationInSeconds * Double(nominalFrameRate)))
@@ -389,6 +388,20 @@ public class VideoTool {
             // Use source video codec
             videoCodec = sourceVideoCodec
         }
+        
+        // Enable non-default video decoders if required by input video file format
+        #if os(OSX)
+        let mediaSubType = CMFormatDescriptionGetMediaSubType(videoDesc)
+        // let mediaSubTypeString = NSFileTypeForHFSTypeCode(mediaSubType)
+        switch mediaSubType {
+        case kCMVideoCodecType_VP9:
+            VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9)
+        case kCMVideoCodecType_AV1:
+            VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_AV1)
+        default:
+            break
+        }
+        #endif
 
         // HDR videos can't have an alpha channel
         var preserveAlphaChannel = videoSettings.preserveAlphaChannel
@@ -422,16 +435,11 @@ public class VideoTool {
             }
         }
 
-        let videoReaderSettings: [String: Any] = [
+        var videoReaderSettings: [String: Any] = [
             // Pixel format
             kCVPixelBufferPixelFormatTypeKey as String:
                 preserveAlphaChannel ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_422YpCbCr8
         ]
-
-        variables.videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings)
-        // Video composition
-        // variables.videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [videoTrack], videoSettings: videoReaderSettings)
-        // variables.videoOutput.videoComposition = composition
 
         // MARK: Writer
         // Resize (no upscaling applied)
@@ -480,7 +488,7 @@ public class VideoTool {
 
         // Frame Rate
         if let frameRate = variables.frameRate, frameRate < Int(round(nominalFrameRate)) {
-            // Note: The [AVVideoExpectedSourceFrameRateKey] is just a hint to the encoder about the expected source frame rate, and the encoder is free to ignore it
+            // Note: The `AVVideoExpectedSourceFrameRateKey` is just a hint to the encoder about the expected source frame rate, and the encoder is free to ignore it
             if videoCodec == .hevc || videoCodec == .hevcWithAlpha {
                 videoCompressionSettings[AVVideoExpectedSourceFrameRateKey] = frameRate
             } else if videoCodec == .h264 {
@@ -490,7 +498,7 @@ public class VideoTool {
                 #endif
             }
         } else {
-            // Frame rate is nil, more or equal to source video frame rate
+            // Frame rate is nil, greater or equal to source video frame rate
             variables.frameRate = nil
         }
 
@@ -575,22 +583,34 @@ public class VideoTool {
             ]
         }
 
-        // Enable non-default video decoders if required by input video file format
-        #if os(OSX)
-        let mediaSubType = CMFormatDescriptionGetMediaSubType(videoDesc)
-        // let mediaSubTypeString = NSFileTypeForHFSTypeCode(mediaSubType)
-        switch mediaSubType {
-        case kCMVideoCodecType_VP9:
-            VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_VP9)
-        case kCMVideoCodecType_AV1:
-            VTRegisterSupplementalVideoDecoderIfAvailable(kCMVideoCodecType_AV1)
-        default:
-            break
+        // Compare source video settings with output to possibly skip video compression
+        let defaultSettings = CompressionVideoSettings()
+        if videoCodec == sourceVideoCodec, // output codec equals source video codec
+           videoSettings.bitrate == .auto || videoSettings.bitrate == .encoder, // custom bitrate value is not set
+           videoSettings.quality == defaultSettings.quality, // quality set to default value
+           videoSize == sourceVideoSize, // output size equals source resolution
+           !(videoSettings.preserveAlphaChannel == false && hasAlphaChannel == true), // false if alpha is removed
+           videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue, // profile set to default value
+           videoSettings.color == defaultSettings.color, // color set to default value
+           videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval { // max ket frame set to default value
+
+            if variables.frameRate == defaultSettings.frameRate { // output frame rate greater or equals source frame rate
+                variables.shouldCompress = false
+            }
+            // Lossless Compression can be done even while adjusting frame rate or trimming video
+
+            // Set outputSettings to nil to allow lossless compression (no video re-encoding)
+            videoReaderSettings = [:]
+            videoParameters = [:]
         }
-        #endif
+
+        variables.videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings.isEmpty ? nil : videoReaderSettings)
+        // Video composition
+        // variables.videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [videoTrack], videoSettings: videoReaderSettings)
+        // variables.videoOutput.videoComposition = composition
 
         try ObjCExceptionCatcher.catchException {
-            variables.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoParameters, sourceFormatHint: videoDesc)
+            variables.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoParameters.isEmpty ? nil : videoParameters, sourceFormatHint: videoDesc)
         }
         variables.videoInput.transform = videoTrack.fixedPreferredTransform // videoTrack.preferredTransform
 
@@ -673,20 +693,6 @@ public class VideoTool {
         variables.sampleHandler = makeVideoSampleHandler()
         variables.nominalFrameRate = nominalFrameRate
         variables.totalFrames = totalFrames
-
-        // Compare source video settings with output to possibly skip the compression
-        let defaultSettings = CompressionVideoSettings()
-        if videoCodec == sourceVideoCodec, // output codec equals source video codec
-           videoSettings.bitrate == defaultSettings.bitrate, // bitrate set to default value
-           videoSettings.quality == defaultSettings.quality, // quality set to default value
-           videoSize == sourceVideoSize, // output size equals source resolution
-           variables.frameRate == defaultSettings.frameRate, // output frame rate equals source frame rate
-           !(videoSettings.preserveAlphaChannel == false && hasAlphaChannel == true), // false if alpha is removed
-           videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue, // profile set to default value
-           videoSettings.color == defaultSettings.color, // color set to default value
-           videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval { // max ket frame set to default value
-            variables.shouldCompress = false
-        }
 
         return variables
     }
