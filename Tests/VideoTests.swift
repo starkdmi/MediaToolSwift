@@ -463,7 +463,11 @@ class MediaToolSwiftTests: XCTestCase {
         // Delete system AVAssetWriter temp files
         do {
             let files = try! FileManager.default.contentsOfDirectory(at: Self.tempDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
-            for file in files where !(file.pathExtension == "mov" || file.pathExtension == "mp4" || file.pathExtension == "m4v") {
+            for file in files where !(
+                file.pathExtension.lowercased() == "mov" ||
+                file.pathExtension.lowercased() == "mp4" ||
+                file.pathExtension.lowercased() == "m4v"
+            ) {
                 try FileManager.default.removeItem(at: file)
             }
         } catch { }
@@ -486,23 +490,88 @@ class MediaToolSwiftTests: XCTestCase {
     let osAdditionalTimeout: TimeInterval = 0
     #endif
 
-    /*func testOne() async {
-        let expectation = XCTestExpectation(description: "Test video file")
-        let source = Self.mediaDirectory.appendingPathComponent("google_pixel_hdr.mp4")
-        let destination = Self.tempDirectory.appendingPathComponent("google_pixel_hdr.mp4")
+    func testLosslessCut() async {
+        let expectation = XCTestExpectation(description: "Losslessly cut HEVC")
+        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
+        let destination = Self.tempDirectory.appendingPathComponent("lossless_cut_oludeniz.mov")
+        try? FileManager.default.removeItem(at: destination)
+
+        let asset = AVAsset(url: source)
+        let reader = try! AVAssetReader(asset: asset)
+        let writer = try! AVAssetWriter(outputURL: destination, fileType: .mov)
+
+        let videoTrack = await asset.getFirstTrack(withMediaType: .video)
+
+        let videoOutput = AVAssetReaderTrackOutput(track: videoTrack!, outputSettings: nil)
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: nil)
+
+        reader.add(videoOutput)
+        writer.add(videoInput)
+
+        videoInput.transform = videoTrack!.fixedPreferredTransform
+
+        // Time Scale
+        let timeScale = videoTrack!.naturalTimeScale // asset.duration.timescale
+        videoInput.mediaTimeScale = timeScale
+        writer.movieTimeScale = timeScale
+        // TODO: Time Scale should be adjusted as frame rate of video is changed on trimming - https://developer.apple.com/library/archive/qa/qa1447/_index.html
+
+        // Time Range and Duration
+        let startTime: CMTime = CMTime(seconds: 5, preferredTimescale: timeScale)
+        let endTime: CMTime = CMTime(seconds: asset.duration.seconds, preferredTimescale: timeScale)
+        reader.timeRange = CMTimeRange(start: startTime, end: endTime) // CMTimeRangeMake(start: 5, duration: 3)
+
+        writer.shouldOptimizeForNetworkUse = true
+
+        reader.startReading()
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+
+        let videoQueue = DispatchQueue(label: "MediaToolSwiftTests.video.queue")
+        videoInput.requestMediaDataWhenReady(on: videoQueue) {
+            while videoInput.isReadyForMoreMediaData {
+                if let sampleBuffer = videoOutput.copyNextSampleBuffer() {
+                    let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                    let newPresentationTime = CMTimeSubtract(presentationTime, startTime)
+                    
+                    let status = CMSampleBufferSetOutputPresentationTimeStamp(sampleBuffer, newValue: newPresentationTime)
+                    if status == noErr {
+                        videoInput.append(sampleBuffer)
+                    }
+                } else {
+                    videoInput.markAsFinished()
+                    
+                    writer.finishWriting {
+                        if writer.status == .completed {
+                            Self.fulfill(expectation)
+                        } else {
+                            XCTFail(writer.error?.localizedDescription ?? "Unknown error")
+                        }
+                    }
+                }
+            }
+        }
+        
+        await fulfillment(of: [expectation], timeout: 5)
+    }
+
+    func testOne() async {
+        let expectation = XCTestExpectation(description: "Test video")
+        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
+        let destination = Self.tempDirectory.appendingPathComponent("compressed_oludeniz.MOV")
 
         _ = await VideoTool.convert(
             source: source,
             destination: destination,
-            fileType: .mp4,
+            fileType: .mov,
             videoSettings: CompressionVideoSettings(
-                codec: .hevcWithAlpha,
-                size: .uhd
+                codec: .hevc,
+                frameRate: 15
             ),
-            // skipAudio: true,
-            audioSettings: CompressionAudioSettings(
-                codec: .flac
-            ),
+             skipAudio: true,
+            /*audioSettings: CompressionAudioSettings(
+                codec: .alac
+            ),*/
             overwrite: true,
             callback: { state in
                 switch state {
@@ -516,7 +585,7 @@ class MediaToolSwiftTests: XCTestCase {
         })
 
         await fulfillment(of: [expectation], timeout: 15 + osAdditionalTimeout)
-    }*/
+    }
 
     func testVideos() async {
         var expectations: [XCTestExpectation] = []
