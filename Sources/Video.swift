@@ -388,7 +388,7 @@ public class VideoTool {
             // Use source video codec
             videoCodec = sourceVideoCodec
         }
-        
+
         // Enable non-default video decoders if required by input video file format
         #if os(OSX)
         let mediaSubType = CMFormatDescriptionGetMediaSubType(videoDesc)
@@ -589,15 +589,15 @@ public class VideoTool {
            videoSettings.bitrate == .auto || videoSettings.bitrate == .encoder, // custom bitrate value is not set
            videoSettings.quality == defaultSettings.quality, // quality set to default value
            videoSize == sourceVideoSize, // output size equals source resolution
+           variables.frameRate == defaultSettings.frameRate, // output frame rate greater or equals source frame rate
            !(videoSettings.preserveAlphaChannel == false && hasAlphaChannel == true), // false if alpha is removed
            videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue, // profile set to default value
            videoSettings.color == defaultSettings.color, // color set to default value
            videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval { // max ket frame set to default value
-
-            if variables.frameRate == defaultSettings.frameRate { // output frame rate greater or equals source frame rate
                 variables.shouldCompress = false
-            }
+
             // Lossless Compression can be done even while adjusting frame rate or trimming video
+            // But disabled for frame rate due to calling `CMSampleBufferGetSampleTimingInfo()`, which is not allowed with `nil` outputSettings settings
 
             // Set outputSettings to nil to allow lossless compression (no video re-encoding)
             videoReaderSettings = [:]
@@ -633,8 +633,8 @@ public class VideoTool {
             // Add first frame index (starting from one)
             frames.insert(1)
             // Find other desired frame indexes
-            for i in 1 ..< targetFrames {
-                frames.insert(Int(ceil(Double(totalFrames) * Double(i) / Double(targetFrames - 1))))
+            for index in 1 ..< targetFrames {
+                frames.insert(Int(ceil(Double(totalFrames) * Double(index) / Double(targetFrames - 1))))
             }
 
             var frameIndex: Int = 0
@@ -668,7 +668,7 @@ public class VideoTool {
                         // First frame
                         timingInfo.presentationTimeStamp = CMTime(value: .zero, timescale: timeScale)
                     }
-  
+
                     // Update the previous presentation time stamp
                     previousPresentationTimeStamp = timingInfo.presentationTimeStamp
 
@@ -714,16 +714,18 @@ public class VideoTool {
         }
 
         // MARK: Reader
+        var audioReaderSettings: [String: Any]?
+        var audioDescription: CMFormatDescription?
         var bitsPerChannel, channelsPerFrame: Int?
         var isFloat, isBigEndian: Bool?
         if !variables.skipAudio {
-            var audioReaderSettings: [String: Any]?
+            // swiftlint:disable:next force_cast
+            audioDescription = (audioTrack!.formatDescriptions.first as! CMFormatDescription)
+
             if let audioSettings = audioSettings {
                 // Retvieve source info
                 var sampleRate: Int?
-                // swiftlint:disable:next force_cast
-                let audioDescription = audioTrack!.formatDescriptions.first as! CMFormatDescription
-                let basicDescription = audioDescription.audioStreamBasicDescription
+                let basicDescription = audioDescription!.audioStreamBasicDescription
 
                 sampleRate = audioSettings.sampleRate ?? Int(basicDescription?.mSampleRate ?? 44100)
                 channelsPerFrame = Int(basicDescription?.mChannelsPerFrame ?? 2)
@@ -770,14 +772,11 @@ public class VideoTool {
                     AVLinearPCMIsBigEndianKey: isBigEndian ?? false
                 ]
             }
-            variables.audioOutput = AVAssetReaderTrackOutput(track: audioTrack!, outputSettings: audioReaderSettings)
         }
 
         // MARK: Writer
         if !variables.skipAudio {
-            // swiftlint:disable:next force_cast
-            let audioDesc = audioTrack!.formatDescriptions.first as! CMFormatDescription
-            let audioFormatID = CMFormatDescriptionGetMediaSubType(audioDesc)
+            let audioFormatID = CMFormatDescriptionGetMediaSubType(audioDescription!)
 
             var sourceFormatHint: CMFormatDescription?
             var audioParameters: [String: Any]?
@@ -789,7 +788,6 @@ public class VideoTool {
                 if codec == .default, let sourceCodec = CompressionAudioCodec(formatId: audioFormatID), sourceCodec != .default {
                     // Use source audio format
                     codec = sourceCodec
-                    variables.shouldCompress = false
                 }
 
                 switch codec {
@@ -864,7 +862,7 @@ public class VideoTool {
                         AVEncoderBitDepthHintKey: bitsPerChannel ?? 16
                     ]
                 case .default:
-                    sourceFormatHint = audioDesc
+                    sourceFormatHint = audioDescription
                     variables.shouldCompress = false
                 }
 
@@ -875,11 +873,20 @@ public class VideoTool {
                    !((audioFormatID == kAudioFormatMPEG4AAC || audioFormatID == kAudioFormatFLAC) && audioSettings.quality != defaultSettings.quality), // default settings is used for quality (aac and flac only)
                    audioSettings.sampleRate == defaultSettings.sampleRate // default settings is used for sample rate
                 {
+                    // Info: Bitrate is not calculated internally, so providing any value to audio bitrate using `.value(Int)` will require compression, even if .value(135_000) equals to source audio bitrate
                     variables.shouldCompress = false
                 }
             } else {
-                sourceFormatHint = audioDesc
+                sourceFormatHint = audioDescription
             }
+
+            if !variables.shouldCompress {
+                // Lossless Compression (no re-encoding required)
+                audioReaderSettings = nil
+                audioParameters = nil
+            }
+
+            variables.audioOutput = AVAssetReaderTrackOutput(track: audioTrack!, outputSettings: audioReaderSettings)
 
             try ObjCExceptionCatcher.catchException {
                 variables.audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioParameters, sourceFormatHint: sourceFormatHint)
