@@ -603,8 +603,8 @@ public class VideoTool {
 
             // The frame rate in current implementation is always an integer, so the Time Scale set to frame rate
             // https://developer.apple.com/library/archive/qa/qa1447/_index.html
-            let timeScale = Int32(frameRate)
-            variables.videoInput.mediaTimeScale = CMTimeScale(timeScale)
+            let timeScale = CMTimeScale(frameRate)
+            variables.videoInput.mediaTimeScale = timeScale
 
             // Find frames which will be written (not skipped)
             let targetFrames = Int(round(Float(totalFrames) * Float(frameRate) / nominalFrameRate))
