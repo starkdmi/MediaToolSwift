@@ -17,6 +17,9 @@ public enum CompressionAudioCodec: Int {
     /// Linear PCM
     case lpcm
 
+    /// Apple Lossless Audio Codec
+    case alac
+
     /// Initialize using `AudioFormatID` value
     init?(formatId: AudioFormatID) {
         switch formatId {
@@ -28,6 +31,8 @@ public enum CompressionAudioCodec: Int {
             self.init(rawValue: 3)
         case kAudioFormatLinearPCM:
             self.init(rawValue: 4)
+        case kAudioFormatAppleLossless:
+            self.init(rawValue: 5)
         default:
             self.init(formatId: 0)
         }
@@ -46,6 +51,8 @@ public enum CompressionAudioCodec: Int {
             return kAudioFormatFLAC
         case .lpcm:
             return kAudioFormatLinearPCM
+        case .alac:
+            return kAudioFormatAppleLossless
         }
     }
 }

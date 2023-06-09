@@ -30,6 +30,7 @@ __Supported audio codecs:__
 - Opus
 - FLAC
 - Linear PCM
+- Apple Lossless
 
 __Example:__
 ```Swift

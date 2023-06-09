@@ -29,7 +29,7 @@ public class VideoTool {
     ///   - optimizeForNetworkUse: Allows video file to be streamed over network
     ///   - skipAudio: Disable audio, output file will be muted
     ///   - audioSettings: Audio related settings including
-    ///      - codec: Audio codec used by encoder: AAC, Opus, FLAC, Linear PCM
+    ///      - codec: Audio codec used by encoder: AAC, Opus, FLAC, Linear PCM, Apple Lossless Audio Codec
     ///      - bitrate: Audio bitrate, used by aac and opus codecs only
     ///      - quality: Audio quality, AAC and FLAC only: low, medium, high
     ///      - sampleRate: Sample rate in Hz
@@ -826,6 +826,14 @@ public class VideoTool {
                         AVLinearPCMIsFloatKey: isFloat ?? false,
                         AVLinearPCMIsBigEndianKey: isBigEndian ?? false,
                         AVLinearPCMIsNonInterleaved: false
+                    ]
+                case .alac:
+                    // Apple Lossless
+                    audioParameters = [
+                        AVFormatIDKey: kAudioFormatAppleLossless,
+                        AVSampleRateKey: audioSettings.sampleRate ?? 44100,
+                        AVNumberOfChannelsKey: channelsPerFrame ?? 2,
+                        AVEncoderBitDepthHintKey: bitsPerChannel ?? 16
                     ]
                 case .default:
                     sourceFormatHint = audioDesc
