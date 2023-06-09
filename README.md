@@ -4,6 +4,7 @@
 ## Video
 __Video compressor focused on:__
 - Multiple video and audio codecs
+- Lossless compression*
 - HDR content
 - Alpha channel
 - Metadata (File metadata, Timed metadata, Extended attributes)
@@ -11,6 +12,8 @@ __Video compressor focused on:__
 - Proportional resize
 - Frame rate adjustment
 - Progress and cancellation
+
+\* If audio or video track doesn't require re-encoding the track is written as is
 
 __Features:__
 | Convert | Resize | Rotate | Trim | Crop | Custom FPS | Thumbnail | Video Preview | Info |
