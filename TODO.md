@@ -1,4 +1,6 @@
-## TODO
+## Main
+- __AVAssetReaderOutput.alwaysCopiesSampleData__ - `videoOutput.alwaysCopiesSampleData` set to `false` may improve the perfomance, default to `true`. Check if applicable
+- __AVAssetWriterInput.performsMultiPassEncodingIfSupported__ - `videoInput.performsMultiPassEncodingIfSupported` may improve the compression in some cases, check availability via `videoInput.canPerformMultiplePasses`
 - __VP9 and AV1 video codecs support using VideoToolBox__ - VTDecompressionSession and VTCompressionSession can be used inside sample buffer processing block for frame by frame decoding/encoding
 - __Multiple video/audio/metadata tracks support__ - Option to save all video/audio/metadata tracks from source file to output (now only first track for each track media type is stored)
 - __Command line tool__ - command line application like avconvert and ffmpeg
@@ -18,6 +20,8 @@ VP9, AV1
 ```
 
 __Thumbnails and Video Preview__ - [Apple Documentation](https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/creating_images_from_a_video_asset)
+
+__Watermark or Overlay__ - place any image as overlay, can have time interval
 
 __Video Filters__ - [vImage #1](https://developer.apple.com/documentation/accelerate/applying_vimage_operations_to_video_sample_buffers), [vImage #2](https://developer.apple.com/documentation/accelerate/using_vimage_pixel_buffers_to_generate_video_effects#4225030), [Core Image Filters](https://developer.apple.com/documentation/coreimage/processing_an_image_using_built-in_filters)
 
