@@ -599,40 +599,62 @@ public class VideoTool {
             guard let frameRate = variables.frameRate, Float(frameRate) < nominalFrameRate else { return nil }
             // Frame rate - skip frames and update time stamp & duration of each saved frame
             // Info: Another approach to adjust video frame rate is using AVAssetReaderVideoCompositionOutput
-            var frameIndex: Double = 0.0
-            let skipInterval: Double = round(Double(nominalFrameRate)) / Double(frameRate)
-            var previousPresentationTimeStamp: CMTime = CMTime(value: .zero, timescale: CMTimeScale(Int32(frameRate)))
+            // Info: It also possible using CMSampleBufferSetOutputPresentationTimeStamp().convertScale(timeScale, method: .quickTime)
+
+            // The frame rate in current implementation is always an integer, so the Time Scale set to frame rate
+            // https://developer.apple.com/library/archive/qa/qa1447/_index.html
+            let timeScale = Int32(frameRate)
+            variables.videoInput.mediaTimeScale = CMTimeScale(timeScale)
+
+            // Find frames which will be written (not skipped)
+            let targetFrames = Int(round(Float(totalFrames) * Float(frameRate) / nominalFrameRate))
+            var frames: Set<Int> = []
+            frames.reserveCapacity(targetFrames)
+            // Add first frame index (starting from one)
+            frames.insert(1)
+            // Find other desired frame indexes
+            for i in 1 ..< targetFrames {
+                frames.insert(Int(ceil(Double(totalFrames) * Double(i) / Double(targetFrames - 1))))
+            }
+
+            var frameIndex: Int = 0
+            var previousPresentationTimeStamp: CMTime?
 
             return { sample in
-                frameIndex += 1.0 // do not drop the first frame
-                guard abs(remainder(frameIndex, skipInterval)) >= 0.15 else {
-                    // Drop frame, 0.15 used as threshold to comprare doubles near to zero
+                frameIndex += 1
+
+                guard frames.contains(frameIndex) else {
+                    // Drop current frame
                     return
                 }
 
                 // Update frame timing and write
                 autoreleasepool {
-                    // Get sample timing info 
+                    // Get sample timing info
                     var timingInfo: CMSampleTimingInfo = CMSampleTimingInfo()
+
                     let getTimingInfoStatus = CMSampleBufferGetSampleTimingInfo(sample, at: 0, timingInfoOut: &timingInfo)
                     // Expect success
                     guard getTimingInfoStatus == noErr else { return }
 
                     // Set desired frame rate via duration
-                    timingInfo.duration = CMTimeMake(value: 1, timescale: Int32(frameRate))
-
-                    // Calculate the new presentation time stamp
-                    let newPresentationTimeStamp = CMTimeAdd(previousPresentationTimeStamp, timingInfo.duration)
+                    timingInfo.duration = CMTimeMake(value: 1, timescale: timeScale)
 
                     // Update the sample timing info
-                    timingInfo.presentationTimeStamp = newPresentationTimeStamp
-
+                    if let previousPresentationTimeStamp = previousPresentationTimeStamp {
+                        // Calculate the new presentation time stamp
+                        timingInfo.presentationTimeStamp = CMTimeAdd(previousPresentationTimeStamp, timingInfo.duration)
+                    } else {
+                        // First frame
+                        timingInfo.presentationTimeStamp = CMTime(value: .zero, timescale: timeScale)
+                    }
+  
                     // Update the previous presentation time stamp
-                    previousPresentationTimeStamp = newPresentationTimeStamp
+                    previousPresentationTimeStamp = timingInfo.presentationTimeStamp
 
                     // Create a copy of the sample buffer with the new timing info
                     var buffer: CMSampleBuffer!
-                    let status = CMSampleBufferCreateCopyWithNewTiming(
+                    let copySampleBufferStatus = CMSampleBufferCreateCopyWithNewTiming(
                         allocator: kCFAllocatorDefault,
                         sampleBuffer: sample,
                         sampleTimingEntryCount: 1,
@@ -640,8 +662,8 @@ public class VideoTool {
                         sampleBufferOut: &buffer
                     )
 
-                    if status == noErr {
-                        // Append the new sample buffer to the input array
+                    if copySampleBufferStatus == noErr {
+                        // Append the new sample buffer to the input
                         variables.videoInput.append(buffer)
                     }
                 }

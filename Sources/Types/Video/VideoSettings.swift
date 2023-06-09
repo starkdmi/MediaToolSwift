@@ -42,8 +42,7 @@ public struct CompressionVideoSettings {
     /// For best results, always use even number values for width and height when encoding to H.264 or any other format that uses 4:2:0 downsampling
     let size: CGSize? // CGSize(width: 1280.0, height: 1280.0)
 
-    /// Frame rate will not increase resulting video frame rate, set `bitrate` to .auto for lower file size when `frameRate` is set
-    /// Warning: Use with caution, frame rate adjustment isn't well documented and uses code for skipping frames manually
+    /// Frame rate, will not increase resulting video frame rate
     let frameRate: Int?
 
     /// Indicates to save alpha channel or drop
