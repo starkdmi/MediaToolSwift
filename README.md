@@ -16,7 +16,7 @@ __Video compressor focused on:__
 \* If audio or video track doesn't require re-encoding the track is written as is
 
 __Features:__
-| Convert | Resize | Crop | Cut\* | Rotate/Flip/Mirror\* | FPS | Thumbnail | Video Preview | Info |
+| Convert | Resize | Crop | Cut \* | Rotate, Flip, Mirror \* | FPS | Thumbnail | Video Preview | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | 🟠 | 🟠 | 🟠 |
 
@@ -48,8 +48,12 @@ let task = await VideoTool.convert(
     videoSettings: CompressionVideoSettings(
         codec: .hevc,
         bitrate: .value(2_000_000), // optional
-        size: .hd // CGSize to aspect fit in
+        size: .hd, // CGSize to aspect fit in
         // quality, fps, alpha channel, profile, color primary, atd.
+        operations: [
+            Cut(start: 2.5, end: 15.0), // Cut movie from 2.5 to 15 seconds
+            Transform.rotate(.clockwise), Transform.mirror // Rotate and mirror
+        ]
     ),
     optimizeForNetworkUse: true,
     // Audio
