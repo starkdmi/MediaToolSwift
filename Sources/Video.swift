@@ -151,10 +151,10 @@ public class VideoTool {
             audioVariables = AudioVariables()
             audioVariables.skipAudio = true
 
-            if videoVariables.shouldCompress == false {
+            if videoVariables.hasChanges == false {
                 // Additionally load audio track to check if source file has audio 
                 audioVariables.audioTrack = await asset.getFirstTrack(withMediaType: .audio)
-                audioVariables.shouldCompress = audioVariables.audioTrack != nil
+                audioVariables.hasChanges = audioVariables.audioTrack != nil
             }
         } else {
             do {
@@ -166,7 +166,7 @@ public class VideoTool {
         }
 
         // Prevent the compression when video and audio settings are same as the source file
-        if !videoVariables.shouldCompress, !audioVariables.shouldCompress {
+        if !videoVariables.hasChanges, !audioVariables.hasChanges {
             callback(.failed(CompressionError.redunantCompression))
             return task
         }
@@ -595,15 +595,22 @@ public class VideoTool {
         }
 
         // Video operations
+        var transform = videoTrack.fixedPreferredTransform // videoTrack.preferredTransform
+        var transformed = false // indicates if video should additionally be transformed (rotated, flipped, mirrored, atd.)
         for operation in videoSettings.operations {
             switch operation {
             case let cut as Cut:
                 // Apply only one Cut operation
                 guard variables.cuttingRange == nil else { continue }
 
+                // Verify the provided range is valid
                 if let range = cut.getRange(duration: durationInSeconds, timescale: naturalTimeScale) {
                     variables.cuttingRange = range
                 }
+            case let transformation as Transform:
+                // Rotate, Mirror, Flip
+                transform = transform.concatenating(transformation.value)
+                transformed = true
             default:
                 break
             }
@@ -621,12 +628,12 @@ public class VideoTool {
            videoSettings.color == defaultSettings.color, // color set to default value
            videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval { // max ket frame set to default value
 
-            if variables.cuttingRange == nil { // no video operations applied
-                variables.shouldCompress = false
+            if variables.cuttingRange == nil && !transformed { // no video operations applied
+                variables.hasChanges = false
             }
 
-            // Lossless Compression can be done even while adjusting frame rate or cutting the video
-            // But disabled for frame rate due to calling `CMSampleBufferGetSampleTimingInfo()`, which is not allowed with `nil` outputSettings settings
+            // Lossless Compression can be done even while adjusting frame rate, cutting, rotating, mirroring or flipping the video
+            // But disabled for frame rate due to using `Timing Info`, which is not allowed with `nil` outputSettings settings
 
             // Set outputSettings to nil to allow lossless compression (no video re-encoding)
             videoReaderSettings = [:]
@@ -642,7 +649,8 @@ public class VideoTool {
             variables.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoParameters.isEmpty ? nil : videoParameters, sourceFormatHint: videoDesc)
         }
 
-        variables.videoInput.transform = videoTrack.fixedPreferredTransform // videoTrack.preferredTransform
+        // Transform
+        variables.videoInput.transform = transform
 
         /// Custom sample buffer handler for video to adjust frame rate
         func makeVideoSampleHandler() -> ((CMSampleBuffer) -> Void)? {
@@ -739,11 +747,11 @@ public class VideoTool {
         variables.audioTrack = audioTrack
         if audioTrack == nil {
             variables.skipAudio = true
-            variables.shouldCompress = false
+            variables.hasChanges = false
             return variables
         }
         if audioSettings == nil {
-            variables.shouldCompress = false
+            variables.hasChanges = false
         }
 
         // MARK: Reader
@@ -896,7 +904,7 @@ public class VideoTool {
                     ]
                 case .default:
                     sourceFormatHint = audioDescription
-                    variables.shouldCompress = false
+                    variables.hasChanges = false
                 }
 
                 // Compare source audio settings with output to possibly skip the compression
@@ -907,13 +915,13 @@ public class VideoTool {
                    audioSettings.sampleRate == defaultSettings.sampleRate // default settings is used for sample rate
                 {
                     // Info: Bitrate is not calculated internally, so providing any value to audio bitrate using `.value(Int)` will require compression, even if .value(135_000) equals to source audio bitrate
-                    variables.shouldCompress = false
+                    variables.hasChanges = false
                 }
             } else {
                 sourceFormatHint = audioDescription
             }
 
-            if !variables.shouldCompress {
+            if !variables.hasChanges {
                 // Lossless Compression (no re-encoding required)
                 audioReaderSettings = nil
                 audioParameters = nil

@@ -51,8 +51,53 @@ public struct Cut: VideoOperation {
     }
 }
 
+/// Custom transformation operation
+public enum Transform: VideoOperation {
+    /// Rotation
+    case rotate(Rotate)
+
+    /// Flip upside down
+    case flip
+
+    /// Right to left mirror effect
+    case mirror
+
+    /// Raw transform value
+    var value: CGAffineTransform {
+        switch self {
+        case .rotate(let angle):
+            return CGAffineTransform(rotationAngle: angle.value)
+        case .flip:
+            return CGAffineTransform(scaleX: 1.0, y: -1.0)
+        case .mirror:
+            return CGAffineTransform(scaleX: -1.0, y: 1.0)
+        }
+    }
+}
+
 /// Video rotation operation
-// public struct Rotate: VideoOperation {}
+public enum Rotate: VideoOperation {
+    /// Rotate in a rightward direction
+    case clockwise
+
+    /// Rotate in a leftward direction
+    case counterclockwise
+
+    /// Custom rotation angle in radians, most likely will be displayed as nearest 90' value
+    case angle(Double)
+
+    /// Angle
+    var value: Double {
+        switch self {
+        case .clockwise:
+            return .pi/2
+        case .counterclockwise:
+            return -.pi/2
+        case .angle(let radians):
+            return radians
+        }
+    }
+}
 
 /// Video crop operation
 // public struct Crop: VideoOperation {}

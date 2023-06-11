@@ -7,7 +7,7 @@ internal struct VideoVariables {
     var totalFrames: Int64!
     var cuttingRange: CMTimeRange?
     var sampleHandler: ((CMSampleBuffer) -> Void)?
-    var shouldCompress = true
+    var hasChanges = true
     var videoOutput: AVAssetReaderTrackOutput!
     var videoInput: AVAssetWriterInput!
 }

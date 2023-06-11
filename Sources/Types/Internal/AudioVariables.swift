@@ -4,7 +4,7 @@ import AVFoundation
 internal struct AudioVariables {
     var skipAudio = false
     var audioTrack: AVAssetTrack?
-    var shouldCompress = true
+    var hasChanges = true
     var audioOutput: AVAssetReaderOutput?
     var audioInput: AVAssetWriterInput?
 }
