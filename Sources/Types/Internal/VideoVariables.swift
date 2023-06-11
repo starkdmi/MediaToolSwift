@@ -5,7 +5,7 @@ internal struct VideoVariables {
     var frameRate: Int?
     var nominalFrameRate: Float!
     var totalFrames: Int64!
-    var cuttingRange: CMTimeRange?
+    var range: CMTimeRange?
     var sampleHandler: ((CMSampleBuffer) -> Void)?
     var hasChanges = true
     var videoOutput: AVAssetReaderTrackOutput!

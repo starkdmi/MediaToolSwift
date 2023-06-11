@@ -26,7 +26,7 @@ public class VideoTool {
     ///      - color: Color primaries
     ///      - maxKeyFrameInterval: Maximum interval between keyframes
     ///      - hardwareAcceleration: Hardware acceleration option, macOS only, enabled by default
-    ///      - operations: Video related operations - cut, rotate, crop, atd.
+    ///      - edit: Video related operations - cut, rotate, crop, atd.
     ///   - optimizeForNetworkUse: Allows video file to be streamed over network
     ///   - skipAudio: Disable audio, output file will be muted
     ///   - audioSettings: Audio related settings including
@@ -219,13 +219,13 @@ public class VideoTool {
         }
 
         // Initiate read-write process
-        if let timeRange = videoVariables.cuttingRange {
+        if let timeRange = videoVariables.range {
             // Cut movie - read only required part of clip
             reader.timeRange = timeRange
         }
         reader.startReading()
         writer.startWriting()
-        if let timeRange = videoVariables.cuttingRange {
+        if let timeRange = videoVariables.range {
             // Cut movie - start writing from specified point
             writer.startSession(atSourceTime: timeRange.start)
         } else {
@@ -596,23 +596,18 @@ public class VideoTool {
 
         // Video operations
         var transform = videoTrack.fixedPreferredTransform // videoTrack.preferredTransform
-        var transformed = false // indicates if video should additionally be transformed (rotated, flipped, mirrored, atd.)
-        for operation in videoSettings.operations {
+        var transformed = false // require additional transformation (rotate, flip, mirror, atd.)
+        for operation in videoSettings.edit {
             switch operation {
-            case let cut as Cut:
-                // Apply only one Cut operation
-                guard variables.cuttingRange == nil else { continue }
-
-                // Verify the provided range is valid
-                if let range = cut.getRange(duration: durationInSeconds, timescale: naturalTimeScale) {
-                    variables.cuttingRange = range
+            case let .cut(from: start, to: end):
+                // Apply only one cutting operation, confirm the range is valid
+                if variables.range == nil,
+                   let range = CMTimeRange(start: start, end: end, duration: durationInSeconds, timescale: naturalTimeScale) {
+                    variables.range = range
                 }
-            case let transformation as Transform:
-                // Rotate, Mirror, Flip
-                transform = transform.concatenating(transformation.value)
+            case .rotate, .flip, .mirror:
+                transform = transform.concatenating(operation.transform!)
                 transformed = true
-            default:
-                break
             }
         }
 
@@ -628,12 +623,12 @@ public class VideoTool {
            videoSettings.color == defaultSettings.color, // color set to default value
            videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval { // max ket frame set to default value
 
-            if variables.cuttingRange == nil && !transformed { // no video operations applied
+            if variables.range == nil && !transformed { // no video operations applied
                 variables.hasChanges = false
             }
 
             // Lossless Compression can be done even while adjusting frame rate, cutting, rotating, mirroring or flipping the video
-            // But disabled for frame rate due to using `Timing Info`, which is not allowed with `nil` outputSettings settings
+            // But disabled for frame rate due to using `Timing Info`, which is not allowed with `nil` outputSettings
 
             // Set outputSettings to nil to allow lossless compression (no video re-encoding)
             videoReaderSettings = [:]
@@ -703,7 +698,7 @@ public class VideoTool {
                         timingInfo.presentationTimeStamp = CMTimeAdd(previousPresentationTimeStamp, timingInfo.duration)
                     } else {
                         // First frame
-                        if let start = variables.cuttingRange?.start {
+                        if let start = variables.range?.start {
                             timingInfo.presentationTimeStamp = start
                         } else {
                             timingInfo.presentationTimeStamp = CMTime(value: .zero, timescale: timeScale)

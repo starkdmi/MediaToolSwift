@@ -1,45 +1,10 @@
-import CoreMedia
+import Foundation
 
-/// Intefrace for operations on video
-public protocol VideoOperation {}
+/// Video operations
+public enum VideoOperation {
+    /// Cutting
+    case cut(from: Double = 0.0, to: Double = .infinity)
 
-/// Cutting video operation
-public struct Cut: VideoOperation {
-    /// The time to start cutting from, in seconds
-    var start: Double
-
-    /// The time to stop the cuttings at, in seconds
-    var end: Double
-
-    /// Public initializer using start and end point
-    init(from: Double = 0.0, to: Double = .infinity) {
-        self.start = max(0.0, from)
-        self.end = to
-    }
-
-    /// Public initializer using duration
-    init(from: Double = 0.0, duration: Double) {
-        self.start = max(0.0, from)
-        self.end = self.start + duration
-    }
-
-    /// Calculate range using start, end points and video duration in seconds
-    func getRange(duration: Double, timescale: CMTimeScale) -> CMTimeRange? {
-        guard start < duration else { return nil }
-
-        let startTime = CMTime(seconds: start, preferredTimescale: timescale)
-        let end = min(duration, self.end)
-        let endTime = CMTime(seconds: end, preferredTimescale: timescale)
-
-        /// Start is before the end and the distance is less than duration
-        guard start < end, end - start < duration else { return nil }
-
-        return CMTimeRange(start: startTime, end: endTime)
-    }
-}
-
-/// Custom transformation operation
-public enum Transform: VideoOperation {
     /// Rotation
     case rotate(Rotate)
 
@@ -49,21 +14,23 @@ public enum Transform: VideoOperation {
     /// Right to left mirror effect
     case mirror
 
-    /// Raw transform value
-    var value: CGAffineTransform {
+    /// Transform value
+    var transform: CGAffineTransform? {
         switch self {
-        case .rotate(let angle):
-            return CGAffineTransform(rotationAngle: angle.value)
+        case .rotate(let value):
+            return CGAffineTransform(rotationAngle: value.radians)
         case .flip:
             return CGAffineTransform(scaleX: 1.0, y: -1.0)
         case .mirror:
             return CGAffineTransform(scaleX: -1.0, y: 1.0)
+        default:
+            return nil
         }
     }
 }
 
-/// Video rotation operation
-public enum Rotate: VideoOperation {
+/// Rotation enumeration
+public enum Rotate {
     /// Rotate in a rightward direction
     case clockwise
 
@@ -74,17 +41,14 @@ public enum Rotate: VideoOperation {
     case angle(Double)
 
     /// Angle
-    var value: Double {
+    var radians: Double {
         switch self {
         case .clockwise:
             return .pi/2
         case .counterclockwise:
             return -.pi/2
-        case .angle(let radians):
-            return radians
+        case .angle(let value):
+            return value
         }
     }
 }
-
-/// Video crop operation
-// public struct Crop: VideoOperation {}
