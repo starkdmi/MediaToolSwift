@@ -16,9 +16,11 @@ __Video compressor focused on:__
 \* If audio or video track doesn't require re-encoding the track is written as is
 
 __Features:__
-| Convert | Resize | Rotate | Cut | Lossless Cut | Crop | Custom FPS | Thumbnail | Video Preview | Info |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | 🟠 | 🟠 | 🟠 |
+| Convert | Resize | Crop | Cut\* | Rotate/Flip/Mirror\* | FPS | Thumbnail | Video Preview | Info |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | 🟠 | 🟠 | 🟠 |
+
+\* Those operations can be applied without re-encoding (losslessly)
 
 __Supported video codecs:__
 - H.264
