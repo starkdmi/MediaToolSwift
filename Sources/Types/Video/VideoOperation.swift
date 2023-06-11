@@ -2,7 +2,7 @@ import Foundation
 
 /// Video operations
 public enum VideoOperation {
-    /// Cutting
+    /// Cutting, only one cut operation is applied
     case cut(from: Double = 0.0, to: Double = .infinity)
 
     /// Rotation
