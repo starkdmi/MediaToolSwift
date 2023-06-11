@@ -33,4 +33,5 @@ public struct CompressionError: LocalizedError, Equatable {
     public static let failedToReadMetadata = CompressionError(description: "Couldn't add metadata to reader")
     public static let videoTrackNotFound = CompressionError(description: "Video track not found")
     public static let invalidVideoCodec = CompressionError(description: "Specified video codec is not supported")
+    public static let cuttingNotAllowed = CompressionError(description: "Cutting is not compatible with frame rate adjusment")
 }

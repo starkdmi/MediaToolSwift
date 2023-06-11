@@ -13,7 +13,8 @@ public struct CompressionVideoSettings {
         profile: CompressionVideoProfile? = nil,
         color: CompressionColorPrimary? = nil,
         maxKeyFrameInterval: Int? = nil,
-        hardwareAcceleration: CompressionHardwareAcceleration = .auto
+        hardwareAcceleration: CompressionHardwareAcceleration = .auto,
+        operations: [VideoOperation] = []
     ) {
         self.codec = codec
         self.bitrate = bitrate
@@ -25,6 +26,7 @@ public struct CompressionVideoSettings {
         self.color = color
         self.maxKeyFrameInterval = maxKeyFrameInterval
         self.hardwareAcceleration = hardwareAcceleration
+        self.operations = operations
     }
 
     /// Video codec used for compression, use `nil` for source video codec
@@ -61,4 +63,7 @@ public struct CompressionVideoSettings {
 
     /// Hardware Acceleration
     let hardwareAcceleration: CompressionHardwareAcceleration
+
+    /// Video specific operations like cut, rotate, crop
+    let operations: [VideoOperation]
 }

@@ -26,6 +26,7 @@ public class VideoTool {
     ///      - color: Color primaries
     ///      - maxKeyFrameInterval: Maximum interval between keyframes
     ///      - hardwareAcceleration: Hardware acceleration option, macOS only, enabled by default
+    ///      - operations: Video related operations - cut, rotate, crop, atd.
     ///   - optimizeForNetworkUse: Allows video file to be streamed over network
     ///   - skipAudio: Disable audio, output file will be muted
     ///   - audioSettings: Audio related settings including
@@ -218,9 +219,16 @@ public class VideoTool {
         }
 
         // Initiate read-write process
+        if let timeRange = videoVariables.cuttingRange {
+            reader.timeRange = timeRange
+        }
         reader.startReading()
         writer.startWriting()
-        writer.startSession(atSourceTime: .zero)
+        if let timeRange = videoVariables.cuttingRange {
+            writer.startSession(atSourceTime: timeRange.start)
+        } else {
+            writer.startSession(atSourceTime: .zero)
+        }
 
         // Notify caller
         callback(.started)
@@ -364,6 +372,7 @@ public class VideoTool {
         // MARK: Reader
         let durationInSeconds = asset.duration.seconds
         let nominalFrameRate = videoTrack.nominalFrameRate
+        let naturalTimeScale = await videoTrack.getVideoTimeScale()
         let totalFrames = Int64(ceil(durationInSeconds * Double(nominalFrameRate)))
         // ffmpeg command to get frames amount:
         // ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -print_format csv video.mp4
@@ -583,6 +592,27 @@ public class VideoTool {
             ]
         }
 
+        // Video operations
+        for operation in videoSettings.operations {
+            switch operation {
+            case let cut as Cut:
+                // Apply only one Cut operation
+                guard variables.cuttingRange == nil else { continue }
+
+                if let range = cut.getRange(duration: durationInSeconds, timescale: naturalTimeScale) {
+                    if variables.frameRate != nil {
+                        // Not compatible with custom frame rate
+                        throw CompressionError.cuttingNotAllowed
+                    }
+
+                    // variables.videoInput.mediaTimeScale = naturalTimeScale
+                    variables.cuttingRange = range
+                }
+            default:
+                break
+            }
+        }
+
         // Compare source video settings with output to possibly skip video compression
         let defaultSettings = CompressionVideoSettings()
         if videoCodec == sourceVideoCodec, // output codec equals source video codec
@@ -594,9 +624,12 @@ public class VideoTool {
            videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue, // profile set to default value
            videoSettings.color == defaultSettings.color, // color set to default value
            videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval { // max ket frame set to default value
-                variables.shouldCompress = false
 
-            // Lossless Compression can be done even while adjusting frame rate or trimming video
+            if variables.cuttingRange == nil { // no video operations applied
+                variables.shouldCompress = false
+            }
+
+            // Lossless Compression can be done even while adjusting frame rate or cutting the video
             // But disabled for frame rate due to calling `CMSampleBufferGetSampleTimingInfo()`, which is not allowed with `nil` outputSettings settings
 
             // Set outputSettings to nil to allow lossless compression (no video re-encoding)
@@ -612,6 +645,7 @@ public class VideoTool {
         try ObjCExceptionCatcher.catchException {
             variables.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoParameters.isEmpty ? nil : videoParameters, sourceFormatHint: videoDesc)
         }
+
         variables.videoInput.transform = videoTrack.fixedPreferredTransform // videoTrack.preferredTransform
 
         /// Custom sample buffer handler for video to adjust frame rate

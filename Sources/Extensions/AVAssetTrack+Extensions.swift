@@ -36,4 +36,16 @@ public extension AVAssetTrack {
         }
         return transform
     }
+
+    /// Video time scale
+    func getVideoTimeScale() async -> CMTimeScale {
+        guard self.mediaType == .video else { return .zero }
+
+        if #available(macOS 12, iOS 15, tvOS 15, *) {
+            let scale = try? await self.load(.naturalTimeScale)
+            return scale ?? .zero
+        } else {
+            return self.naturalTimeScale
+        }
+    }
 }
