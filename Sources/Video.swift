@@ -220,11 +220,13 @@ public class VideoTool {
 
         // Initiate read-write process
         if let timeRange = videoVariables.cuttingRange {
+            // Cut movie - read only required part of clip
             reader.timeRange = timeRange
         }
         reader.startReading()
         writer.startWriting()
         if let timeRange = videoVariables.cuttingRange {
+            // Cut movie - start writing from specified point
             writer.startSession(atSourceTime: timeRange.start)
         } else {
             writer.startSession(atSourceTime: .zero)
@@ -600,12 +602,6 @@ public class VideoTool {
                 guard variables.cuttingRange == nil else { continue }
 
                 if let range = cut.getRange(duration: durationInSeconds, timescale: naturalTimeScale) {
-                    if variables.frameRate != nil {
-                        // Not compatible with custom frame rate
-                        throw CompressionError.cuttingNotAllowed
-                    }
-
-                    // variables.videoInput.mediaTimeScale = naturalTimeScale
                     variables.cuttingRange = range
                 }
             default:
@@ -655,10 +651,9 @@ public class VideoTool {
             // Info: Another approach to adjust video frame rate is using AVAssetReaderVideoCompositionOutput
             // Info: It also possible using CMSampleBufferSetOutputPresentationTimeStamp().convertScale(timeScale, method: .quickTime)
 
-            // The frame rate in current implementation is always an integer, so the Time Scale set to frame rate
-            // https://developer.apple.com/library/archive/qa/qa1447/_index.html
-            let timeScale = CMTimeScale(frameRate)
-            variables.videoInput.mediaTimeScale = timeScale
+            let timeScale = naturalTimeScale
+            // Each frame duration - 1.0 multiplied by scale factor
+            let frameDuration = Int64(timeScale) / Int64(frameRate)
 
             // Find frames which will be written (not skipped)
             let targetFrames = Int(round(Float(totalFrames) * Float(frameRate) / nominalFrameRate))
@@ -692,7 +687,7 @@ public class VideoTool {
                     guard getTimingInfoStatus == noErr else { return }
 
                     // Set desired frame rate via duration
-                    timingInfo.duration = CMTimeMake(value: 1, timescale: timeScale)
+                    timingInfo.duration = CMTimeMake(value: frameDuration, timescale: timeScale)
 
                     // Update the sample timing info
                     if let previousPresentationTimeStamp = previousPresentationTimeStamp {
@@ -700,7 +695,11 @@ public class VideoTool {
                         timingInfo.presentationTimeStamp = CMTimeAdd(previousPresentationTimeStamp, timingInfo.duration)
                     } else {
                         // First frame
-                        timingInfo.presentationTimeStamp = CMTime(value: .zero, timescale: timeScale)
+                        if let start = variables.cuttingRange?.start {
+                            timingInfo.presentationTimeStamp = start
+                        } else {
+                            timingInfo.presentationTimeStamp = CMTime(value: .zero, timescale: timeScale)
+                        }
                     }
 
                     // Update the previous presentation time stamp
