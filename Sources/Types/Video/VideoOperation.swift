@@ -6,48 +6,35 @@ public protocol VideoOperation {}
 /// Cutting video operation
 public struct Cut: VideoOperation {
     /// The time to start cutting from, in seconds
-    var startTime: Double?
+    var start: Double
 
     /// The time to stop the cuttings at, in seconds
-    var endTime: Double?
+    var end: Double
 
-    /// Public initializer
-    init(start: Double?, end: Double?) {
-        self.startTime = start
-        self.endTime = end
+    /// Public initializer using start and end point
+    init(from: Double = 0.0, to: Double = .infinity) {
+        self.start = max(0.0, from)
+        self.end = to
     }
 
     /// Public initializer using duration
-    // init(starTime: Double, duration: Double) { }
+    init(from: Double = 0.0, duration: Double) {
+        self.start = max(0.0, from)
+        self.end = self.start + duration
+    }
 
-    /// Calculate range using startTime, endTime and video duration in seconds
+    /// Calculate range using start, end points and video duration in seconds
     func getRange(duration: Double, timescale: CMTimeScale) -> CMTimeRange? {
-        // One of the parameters shouln't be nil
-        guard startTime != nil || endTime != nil else { return nil }
+        guard start < duration else { return nil }
 
-        var start: CMTime?
-        if let startTime = startTime, startTime > 0.0 && startTime < duration {
-            start = CMTime(seconds: startTime, preferredTimescale: timescale)
-        }
+        let startTime = CMTime(seconds: start, preferredTimescale: timescale)
+        let end = min(duration, self.end)
+        let endTime = CMTime(seconds: end, preferredTimescale: timescale)
 
-        var end: CMTime?
-        if let endTime = endTime, endTime <= duration {
-            end = CMTime(seconds: endTime, preferredTimescale: timescale)
-        }
+        /// Start is before the end and the distance is less than duration
+        guard start < end, end - start < duration else { return nil }
 
-        if let start = start, let end = end {
-            // End should be greater than start
-            guard endTime! > startTime! else { return nil }
-
-            return CMTimeRange(start: start, end: end)
-        } else if let start = start {
-            let end = CMTime(seconds: duration, preferredTimescale: timescale)
-            return CMTimeRange(start: start, end: end)
-        } else if let end = end {
-            return CMTimeRange(start: CMTime.zero, end: end)
-        }
-
-        return nil
+        return CMTimeRange(start: startTime, end: endTime)
     }
 }
 
