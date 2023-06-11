@@ -1,8 +1,8 @@
 import Foundation
 
 /// Video operations
-public enum VideoOperation {
-    /// Cutting, only one cut operation is applied
+public enum VideoOperation: Equatable, Hashable {
+    /// Cutting
     case cut(from: Double = 0.0, to: Double = .infinity)
 
     /// Rotation
@@ -27,10 +27,43 @@ public enum VideoOperation {
             return nil
         }
     }
+
+    /// Hashable conformance
+    public func hash(into hasher: inout Hasher) {
+        switch self {
+        case let .cut(from: from, to: to):
+            hasher.combine("cut")
+            hasher.combine(from)
+            hasher.combine(to)
+        case .rotate(let value):
+            hasher.combine("rotate")
+            hasher.combine(value.radians)
+        case .flip:
+            hasher.combine("flip")
+        case .mirror:
+            hasher.combine("mirror")
+        }
+    }
+
+    /// Equatable conformance
+    public static func == (lhs: VideoOperation, rhs: VideoOperation) -> Bool {
+        switch (lhs, rhs) {
+        case (let .cut(lhsFrom, lhsTo), let .cut(rhsFrom, rhsTo)):
+            return lhsFrom == rhsFrom && lhsTo == rhsTo
+        case (.rotate(let lhsRotation), .rotate(let rhsRotation)):
+            return lhsRotation == rhsRotation
+        case (.flip, .flip):
+            return true
+        case (.mirror, .mirror):
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// Rotation enumeration
-public enum Rotate {
+public enum Rotate: Equatable {
     /// Rotate in a rightward direction
     case clockwise
 

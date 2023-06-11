@@ -14,7 +14,7 @@ public struct CompressionVideoSettings {
         color: CompressionColorPrimary? = nil,
         maxKeyFrameInterval: Int? = nil,
         hardwareAcceleration: CompressionHardwareAcceleration = .auto,
-        edit: [VideoOperation] = []
+        edit: Set<VideoOperation> = []
     ) {
         self.codec = codec
         self.bitrate = bitrate
@@ -65,5 +65,6 @@ public struct CompressionVideoSettings {
     let hardwareAcceleration: CompressionHardwareAcceleration
 
     /// Video specific operations like cut, rotate, crop
-    let edit: [VideoOperation]
+    /// Only one operation of each type is applied
+    let edit: Set<VideoOperation>
 }
