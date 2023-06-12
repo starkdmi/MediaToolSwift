@@ -51,10 +51,11 @@ let task = await VideoTool.convert(
         size: .hd, // CGSize to aspect fit in
         // quality, fps, alpha channel, profile, color primary, atd.
         edit: [
-            .cut(from: 2.5, to: 15.0), // Cut movie
-            .rotate(.clockwise), .mirror // Rotate and mirror
+            .cut(from: 2.5, to: 15.0), // cut, in seconds
+            .rotate(.clockwise), // rotate
+            // flip, mirror, atd.
         ]
-    ),
+    )
     optimizeForNetworkUse: true,
     // Audio
     skipAudio: false,
