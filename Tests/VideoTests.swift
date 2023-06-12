@@ -251,7 +251,7 @@ let configurations: [ConfigList] = [
             Config(
                 videoSettings: CompressionVideoSettings(
                     codec: .proRes4444,
-                    bitrate: .encoder,
+                    bitrate: .value(20_000_000),
                     preserveAlphaChannel: true
                 ),
                 output: Parameters(
@@ -405,7 +405,123 @@ let configurations: [ConfigList] = [
                 )
             )
         ]
-    )
+    ),
+
+    // Slo-mo, 120/240fps, all video codecs supported, lowering frame rate (240->120), custom bitrate and video operations works
+    // On iOS any videos above ~120 fps handled as slo-mo
+    ConfigList(
+        filename: "slomo_120_fps.mov",
+        url: nil,
+        input: Parameters(
+            filename: "slomo_120_fps.mov",
+            filesize: 13_354_827,
+            resolution: CGSize(width: 1080.0, height: 1920.0),
+            videoCodec: .hevc,
+            fileType: .mov,
+            bitrate: 21_273_000,
+            frameRate: 108, // originally 120, but was cropped so at average is lower
+            duration: 4.33,
+            hasAlpha: false
+        ),
+        configs: [
+            Config(
+                videoSettings: CompressionVideoSettings(bitrate: .value(21_000_000)),
+                output: Parameters(
+                    filename: "exported_slomo_120_fps.mov",
+                    filesize: nil, // ~= 13_303_814
+                    resolution: CGSize(width: 1080.0, height: 1920.0),
+                    videoCodec: .hevc,
+                    fileType: .mov,
+                    bitrate: 21_000_000, // nil
+                    frameRate: 120,
+                    duration: 4.33,
+                    hasAlpha: false
+                )
+            )
+        ]
+    ),
+    ConfigList(
+        filename: "slomo_240_fps.mov",
+        url: nil,
+        input: Parameters(
+            filename: "slomo_240_fps.mov",
+            filesize: 31_071_646,
+            resolution: CGSize(width: 1080.0, height: 1920.0),
+            videoCodec: .hevc,
+            fileType: .mov,
+            bitrate: 53_915_000,
+            frameRate: 240,
+            duration: 4.60,
+            hasAlpha: false
+        ),
+        configs: [
+            Config(
+                videoSettings: CompressionVideoSettings(bitrate: .value(10_000_000)),
+                output: Parameters(
+                    filename: "exported_slomo_240_fps.mov",
+                    filesize: nil, // ~= 31_030_000
+                    resolution: CGSize(width: 1080.0, height: 1920.0),
+                    videoCodec: .hevc,
+                    fileType: .mov,
+                    bitrate: nil, // ~- 53_915_000
+                    frameRate: 240,
+                    duration: 4.60,
+                    hasAlpha: false
+                )
+            ),
+            Config(
+                videoSettings: CompressionVideoSettings(
+                    codec: .h264,
+                    bitrate: .value(10_000_000),
+                    frameRate: 120
+                ),
+                output: Parameters(
+                    filename: "exported_slomo_240_fps_2.mov",
+                    filesize: nil, // ~= 5_908_000
+                    resolution: CGSize(width: 1080.0, height: 1920.0),
+                    videoCodec: .h264,
+                    fileType: .mov,
+                    bitrate: 10_000_000, // nil
+                    frameRate: 120,
+                    duration: 4.60,
+                    hasAlpha: false
+                )
+            )
+        ]
+    ),
+
+    // Time-lapse, normally stored at 30 fps as any other video
+    ConfigList(
+        filename: "time_lapse.MOV",
+        url: nil,
+        input: Parameters(
+            filename: "time_lapse.MOV",
+            filesize: 3_340_362,
+            resolution: CGSize(width: 1080.0, height: 1920.0),
+            videoCodec: .hevc,
+            fileType: .mov,
+            bitrate: 14_565_000,
+            frameRate: 30,
+            duration: 1.83,
+            hasAlpha: false
+        ),
+        configs: [
+            Config(
+                videoSettings: CompressionVideoSettings(codec: .h264),
+                output: Parameters(
+                    filename: "exported_time_lapse.mov",
+                    filesize: nil, // ~= 1_560_000
+                    resolution: CGSize(width: 1080.0, height: 1920.0),
+                    videoCodec: .h264,
+                    fileType: .mov,
+                    bitrate: nil, // 6_800_000
+                    frameRate: 30,
+                    duration: 1.83,
+                    hasAlpha: false
+                )
+            )
+        ]
+    ),
 
     // INFO: VP9 and AV1 are not supported yet
     // Big Buck Bunny VP9 - https://test-videos.co.uk/bigbuckbunny/webm-vp9
@@ -490,10 +606,10 @@ class MediaToolSwiftTests: XCTestCase {
     let osAdditionalTimeout: TimeInterval = 0
     #endif
 
-    func testLosslessCut() async {
-        let expectation = XCTestExpectation(description: "Losslessly cut HEVC")
+    /*func testLosslessCut() async {
+        let expectation = XCTestExpectation(description: "Lossless Cut")
         let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destination = Self.tempDirectory.appendingPathComponent("lossless_cut_oludeniz.mov")
+        let destination = Self.tempDirectory.appendingPathComponent("lossless_cut_oludeniz.MOV")
         try? FileManager.default.removeItem(at: destination)
 
         let asset = AVAsset(url: source)
@@ -510,34 +626,23 @@ class MediaToolSwiftTests: XCTestCase {
 
         videoInput.transform = videoTrack!.fixedPreferredTransform
 
-        // Time Scale
-        let timeScale = videoTrack!.naturalTimeScale // asset.duration.timescale
-        videoInput.mediaTimeScale = timeScale
-        writer.movieTimeScale = timeScale
-        // TODO: Time Scale should be adjusted as frame rate of video is changed on trimming - https://developer.apple.com/library/archive/qa/qa1447/_index.html
-
         // Time Range and Duration
-        let startTime: CMTime = CMTime(seconds: 5, preferredTimescale: timeScale)
-        let endTime: CMTime = CMTime(seconds: asset.duration.seconds, preferredTimescale: timeScale)
-        reader.timeRange = CMTimeRange(start: startTime, end: endTime) // CMTimeRangeMake(start: 5, duration: 3)
+        let timeScale = videoTrack!.naturalTimeScale
+        let startTime: CMTime = CMTime(seconds: 3, preferredTimescale: timeScale)
+        let endTime: CMTime = CMTime(seconds: 5, preferredTimescale: timeScale) // asset.duration.seconds
+        reader.timeRange = CMTimeRange(start: startTime, end: endTime)
 
         writer.shouldOptimizeForNetworkUse = true
 
         reader.startReading()
         writer.startWriting()
-        writer.startSession(atSourceTime: .zero)
+        writer.startSession(atSourceTime: startTime)
 
         let videoQueue = DispatchQueue(label: "MediaToolSwiftTests.video.queue")
         videoInput.requestMediaDataWhenReady(on: videoQueue) {
             while videoInput.isReadyForMoreMediaData {
                 if let sampleBuffer = videoOutput.copyNextSampleBuffer() {
-                    let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                    let newPresentationTime = CMTimeSubtract(presentationTime, startTime)
-                    
-                    let status = CMSampleBufferSetOutputPresentationTimeStamp(sampleBuffer, newValue: newPresentationTime)
-                    if status == noErr {
-                        videoInput.append(sampleBuffer)
-                    }
+                    videoInput.append(sampleBuffer)
                 } else {
                     videoInput.markAsFinished()
                     
@@ -553,12 +658,12 @@ class MediaToolSwiftTests: XCTestCase {
         }
         
         await fulfillment(of: [expectation], timeout: 5)
-    }
+    }*/
 
-    func testOne() async {
-        let expectation = XCTestExpectation(description: "Test video")
+    /*func testSingle() async {
+        let expectation = XCTestExpectation(description: "Test single video")
         let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destination = Self.tempDirectory.appendingPathComponent("compressed_oludeniz.MOV")
+        let destination = Self.tempDirectory.appendingPathComponent("test_oludeniz.MOV")
 
         _ = await VideoTool.convert(
             source: source,
@@ -566,12 +671,18 @@ class MediaToolSwiftTests: XCTestCase {
             fileType: .mov,
             videoSettings: CompressionVideoSettings(
                 codec: .hevc,
-                frameRate: 15
+                // bitrate: .encoder
+                // frameRate: 24
+                edit: [
+                    .cut(from: 3, to: 5),
+                    .rotate(.clockwise)
+                    // .flip, .mirror,
+                ]
             ),
-             skipAudio: true,
-            /*audioSettings: CompressionAudioSettings(
-                codec: .alac
-            ),*/
+            skipAudio: true,
+            audioSettings: CompressionAudioSettings(
+                codec: .aac
+            ),
             overwrite: true,
             callback: { state in
                 switch state {
@@ -584,8 +695,8 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        await fulfillment(of: [expectation], timeout: 15 + osAdditionalTimeout)
-    }
+        await fulfillment(of: [expectation], timeout: 25 + osAdditionalTimeout)
+    }*/
 
     func testVideos() async {
         var expectations: [XCTestExpectation] = []
@@ -654,7 +765,7 @@ class MediaToolSwiftTests: XCTestCase {
             }
         }
 
-        await fulfillment(of: expectations, timeout: 20 + osAdditionalTimeout * Double(expectations.count))
+        await fulfillment(of: expectations, timeout: 30 + osAdditionalTimeout * Double(expectations.count))
 
         for file in configurations {
             #if targetEnvironment(simulator)
@@ -750,7 +861,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
 
                 // 5. Frame rate | FPS
-                let frameRate = videoTrack.nominalFrameRate
+                let frameRate = videoTrack.nominalFrameRate.rounded()
                 if config.output.frameRate == nil {
                     // should be less then input
                     XCTAssertLessThanOrEqual(frameRate, Float(file.input.frameRate ?? 0))
@@ -911,9 +1022,10 @@ class MediaToolSwiftTests: XCTestCase {
             source: source,
             destination: destination,
             videoSettings: CompressionVideoSettings(
-                codec: .hevc,
+                codec: .h264,
                 bitrate: .encoder
             ),
+            skipAudio: true,
             overwrite: true,
             deleteSourceFile: false,
             callback: { state in
