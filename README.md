@@ -54,7 +54,7 @@ let task = await VideoTool.convert(
             .rotate(.clockwise), // rotate
             // flip, mirror, atd.
         ]
-    )
+    ),
     optimizeForNetworkUse: true,
     // Audio
     skipAudio: false,
