@@ -652,7 +652,7 @@ public class VideoTool {
             guard let frameRate = variables.frameRate, Float(frameRate) < nominalFrameRate else { return nil }
             // Frame rate - skip frames and update time stamp & duration of each saved frame
             // Info: Another approach to adjust video frame rate is using AVAssetReaderVideoCompositionOutput
-            // Info: It also possible using CMSampleBufferSetOutputPresentationTimeStamp().convertScale(timeScale, method: .quickTime)
+            // Info: It also possible using CMSampleBufferSetOutputPresentationTimeStamp() +- .convertScale(timeScale, method: .quickTime)
 
             let timeScale = naturalTimeScale
             // Each frame duration - 1.0 multiplied by scale factor
