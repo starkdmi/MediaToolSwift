@@ -4,7 +4,7 @@
 ## Video
 __Video compressor focused on:__
 - Multiple video and audio codecs
-- Lossless compression*
+- Lossless*
 - HDR content
 - Alpha channel
 - Slow motion
@@ -44,7 +44,7 @@ let task = await VideoTool.convert(
     destination: URL(fileURLWithPath: "output.mov"),
     // Video
     fileType: .mov, // mov, mp4, m4v
-    videoSettings: CompressionVideoSettings(
+    videoSettings: .init(
         codec: .hevc,
         bitrate: .value(2_000_000), // optional
         size: .hd, // CGSize to aspect fit in
@@ -58,7 +58,7 @@ let task = await VideoTool.convert(
     optimizeForNetworkUse: true,
     // Audio
     skipAudio: false,
-    audioSettings: CompressionAudioSettings(
+    audioSettings: .init(
         codec: .opus,
         bitrate: .value(96_000)
         // quality, sample rate, volume, atd.
