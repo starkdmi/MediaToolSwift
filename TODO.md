@@ -67,6 +67,6 @@ __Formats__
 JPEG, PNG, TIFF, GIF, HEIF (No built-in WEBP support)
 ```
 
-__Raw images__
+__Panoramas, Portraits, Live Photos, Raw Images__
 
-__Live Photos__
+__AI__ - [FILM: Frame Interpolation](https://film-net.github.io/)
