@@ -498,7 +498,7 @@ public class VideoTool {
         }
 
         // Frame Rate
-        if let frameRate = variables.frameRate, frameRate < Int(round(nominalFrameRate)) {
+        if let frameRate = variables.frameRate, Float(frameRate) < nominalFrameRate {
             // Note: The `AVVideoExpectedSourceFrameRateKey` is just a hint to the encoder about the expected source frame rate, and the encoder is free to ignore it
             if videoCodec == .hevc || videoCodec == .hevcWithAlpha {
                 videoCompressionSettings[AVVideoExpectedSourceFrameRateKey] = frameRate
@@ -649,7 +649,7 @@ public class VideoTool {
 
         /// Custom sample buffer handler for video to adjust frame rate
         func makeVideoSampleHandler() -> ((CMSampleBuffer) -> Void)? {
-            guard let frameRate = variables.frameRate, Float(frameRate) < nominalFrameRate else { return nil }
+            guard let frameRate = variables.frameRate else { return nil }
             // Frame rate - skip frames and update time stamp & duration of each saved frame
             // Info: Another approach to adjust video frame rate is using AVAssetReaderVideoCompositionOutput
             // Info: It also possible using CMSampleBufferSetOutputPresentationTimeStamp() +- .convertScale(timeScale, method: .quickTime)
