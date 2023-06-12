@@ -1,5 +1,4 @@
 ## Main
-- __Slow Motion__ - check slo-mo video compression
 - __AVAssetReaderOutput.alwaysCopiesSampleData__ - `videoOutput.alwaysCopiesSampleData` set to `false` may improve the perfomance, default to `true`. Check if applicable
 - __AVAssetWriterInput.performsMultiPassEncodingIfSupported__ - `videoInput.performsMultiPassEncodingIfSupported` may improve the compression in some cases, check availability via `videoInput.canPerformMultiplePasses`
 - __VP9 and AV1 video codecs support using VideoToolBox__ - VTDecompressionSession and VTCompressionSession can be used inside sample buffer processing block for frame by frame decoding/encoding
@@ -38,7 +37,7 @@ __AI__ - face landmark, pose detections, atd. using Vision framework
 ## Audio
 | Convert | Cut | Speed | Waveform | Info |
 | :---: | :---: | :---: | :---: | :---: |
-| 🟠 | ❌ | ❌ | 🟠 | 🟠 |
+| 🚧 | ➖ | ➖ | 🚧 | 🚧 |
 
 __Info__
 ``` 
@@ -53,7 +52,7 @@ AAC, Opus, FLAC
 ## Image
 | Convert | Resize | Crop | Rotate | Flip | Filter | Background | Blurhash | Custom FPS | Thumbnail | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| 🟠 | 🟠 | 🟠 | ❌ | ❌ | ❌ | ❌ | 🟠 | Animated 🟠 | Animated 🟠 | 🟠 |
+| 🚧 | 🚧 | 🚧 | ➖ | ➖ | ➖ | ➖ | 🚧 | Animated 🚧 | Animated 🚧 | 🚧 |
 
 __Info__
 ```
