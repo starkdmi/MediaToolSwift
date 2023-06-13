@@ -675,7 +675,7 @@ class MediaToolSwiftTests: XCTestCase {
         videoComposition.frameDuration = videoTrack!.minFrameDuration
         
         // Crop
-        let cropSize = CGSize(width: 720, height: 720)
+        let cropSize = CGSize(width: 360, height: 360)
         videoComposition.renderSize = cropSize
         
         let instruction = AVMutableVideoCompositionInstruction()
@@ -684,9 +684,71 @@ class MediaToolSwiftTests: XCTestCase {
         let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack!)
         let videoSize = videoTrack!.naturalSizeWithOrientation
         let preferredTransform = videoTrack!.fixedPreferredTransform
+
+        /* Overlay
+        // Overlay image
+        #if os(OSX)
+        let image = NSImage(named: NSImage.computerName)!
+        //#else
+        //let image = UIImage(systemName: "computer")
+        #endif
+        // Overlay layer
+        let overlayLayer = CALayer()
+        overlayLayer.frame = CGRect(x: 0, y: -48, width: cropSize.width, height: cropSize.height)
+        overlayLayer.contents = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        overlayLayer.contentsGravity = .center
+        overlayLayer.contentsScale = 1.0
+        overlayLayer.opacity = 0.75
+        // Video
+        let videolayer = CALayer()
+        videolayer.frame = CGRect(x: 0, y: 0, width: cropSize.width, height: cropSize.height)
+        // Parent
+        let parentlayer = CALayer()
+        parentlayer.frame = CGRect(x: 0, y: 0, width: cropSize.width, height: cropSize.height)
+        parentlayer.addSublayer(videolayer)
+        parentlayer.addSublayer(overlayLayer)
+        // Insert
+        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayers: [videolayer], in: parentlayer)*/
         
-        let transform = preferredTransform // .concatenating(transformScale).concatenating(transformTranslation)
-            .translatedBy(x: (cropSize.width - videoSize.width) / 2, y: (cropSize.height - videoSize.height) / 2)
+        let cropRect: CGRect
+        // Crop using CGSize and Aligment
+        let aligment: Alignment? = nil //.topLeading
+        if let aligment = aligment {
+            let cropOrigin: CGPoint
+            switch aligment {
+            case .center:
+                cropOrigin = CGPoint(x: (videoSize.width - cropSize.width) / 2, y: (videoSize.height - cropSize.height) / 2)
+            case .topLeading:
+                cropOrigin = CGPoint(x: 0, y: 0)
+            case .top:
+                cropOrigin = CGPoint(x: (videoSize.width - cropSize.width) / 2, y: 0)
+            case .topTrailing:
+                cropOrigin = CGPoint(x: videoSize.width - cropSize.width, y: 0)
+            case .leading:
+                cropOrigin = CGPoint(x: 0, y: (videoSize.height - cropSize.height) / 2)
+            case .trailing:
+                cropOrigin = CGPoint(x: videoSize.width - cropSize.width, y: (videoSize.height - cropSize.height) / 2)
+            case .bottom:
+                cropOrigin = CGPoint(x: (videoSize.width - cropSize.width) / 2, y: videoSize.height - cropSize.height)
+            case .bottomLeading:
+                cropOrigin = CGPoint(x: 0, y: videoSize.height - cropSize.height)
+            case .bottomTrailing:
+                cropOrigin = CGPoint(x: videoSize.width - cropSize.width, y: videoSize.height - cropSize.height)
+            }
+            cropRect = CGRect(origin: cropOrigin, size: cropSize)
+        } else {
+            // Crop using CGRect
+            cropRect = CGRect(x: 460, y: 180, width: cropSize.width, height: cropSize.height) // center
+            // let cropRect = CGRect(x: 0, y: 0, width: cropSize.width, height: cropSize.height) // topLeading
+            
+            // TODO: Or use two CGPoint objects - Origin and Size as arguments
+        }
+        
+        // Calculate translation
+        let translateTransform = CGAffineTransform(translationX: -cropRect.origin.x, y: -cropRect.origin.y)
+        let transform = preferredTransform.concatenating(translateTransform)
+        
+        // TODO: Warning videoInput.transform should not be set when layerInstruction.setTransform is used (!)
         layerInstruction.setTransform(transform, at: .zero)
         
         instruction.layerInstructions = [layerInstruction]
@@ -1355,5 +1417,18 @@ extension AVAssetTrack {
            return naturalSize
        }
    }
+}
+
+// Custom Aligment class to use instead of crossplatform SwiftUI.Alignment
+enum Alignment {
+    case center
+    case topLeading
+    case top
+    case topTrailing
+    case leading
+    case trailing
+    case bottomLeading
+    case bottom
+    case bottomTrailing
 }
 #endif
