@@ -19,7 +19,7 @@ __Codecs__
 VP9, AV1
 ```
 
-__Thumbnails and Video Preview__ - [Apple Documentation](https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/creating_images_from_a_video_asset). for video preview GIF can be used instead of WebP
+__Video Preview__ - animated image/video file with a little of best video frames stitched together at a small frame rate, GIF can be used instead of WebP
 
 __Advanced Cutting__ - select multiple ranges of audio/video track and stitch them together while removing unselected parts. this feature can be done without re-encoding video frames (losslessly)
 
