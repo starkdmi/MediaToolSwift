@@ -15,9 +15,9 @@ __Video compressor focused on:__
 \* If audio or video track doesn't require re-encoding the track is written as is
 
 __Features:__
-| Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | FPS | Thumbnail | Video Preview | Info |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| ✔️ | ✔️ | ➖ | ⭐️ | ⭐️ | ✔️ | 🚧 | 🚧 | 🚧 |
+| Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Overlay | FPS | Thumbnail | Video Preview | Info |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| ✔️ | ✔️ | ✔️ | ⭐️ | ⭐️ | 🚧 | ✔️ | 🚧 | ➖ | 🚧 |
 
 ⭐️ - _do not require re-encoding (lossless)_
 

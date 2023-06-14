@@ -8,6 +8,6 @@ internal struct VideoVariables {
     var range: CMTimeRange?
     var sampleHandler: ((CMSampleBuffer) -> Void)?
     var hasChanges = true
-    var videoOutput: AVAssetReaderTrackOutput!
+    var videoOutput: AVAssetReaderOutput!
     var videoInput: AVAssetWriterInput!
 }
