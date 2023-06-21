@@ -3,7 +3,7 @@ import VideoToolbox
 
 /// Profiles used by video encoder
 public enum CompressionVideoProfile {
-    // MARK: H.264 Proofiles
+    // MARK: H.264 Profiles
 
     /// Baseline Auto Level
     case h264Baseline
@@ -33,6 +33,11 @@ public enum CompressionVideoProfile {
     case value(String)
 }
 
+/// Video profiles bandwidth level
+public enum CompressionVideoProfileBandwidth {
+    case low, medium, high
+}
+
 public extension CompressionVideoProfile {
     /// Provide appropriative profile string
     var rawValue: String {
@@ -56,12 +61,43 @@ public extension CompressionVideoProfile {
             if #available(iOS 15.4, OSX 12.3, tvOS 15.4, *) {
                 profile = kVTProfileLevel_HEVC_Main42210_AutoLevel as String
             } else {
-                profile = kVTProfileLevel_HEVC_Main_AutoLevel as String
+                profile = kVTProfileLevel_HEVC_Main10_AutoLevel as String
             }
             return profile
         // Custom
         case .value(let value):
             return value
         }
+    }
+
+    /// Calculate video profile based on codec, bits and quality
+    static func profile(for codec: AVVideoCodecType, bitsPerComponent: Int, bandwidth: CompressionVideoProfileBandwidth = .medium) -> CompressionVideoProfile? {
+        switch codec {
+        case .h264:
+            switch bandwidth {
+            case .low:
+                if bitsPerComponent >= 10 { fallthrough }
+                return .h264Baseline
+            case .medium:
+                if bitsPerComponent > 10 { fallthrough }
+                return .h264Main
+            case .high:
+                return .h264High
+            }
+        case .hevc, .hevcWithAlpha:
+            switch bandwidth {
+            case .low:
+                if bitsPerComponent > 8 { fallthrough }
+                return .hevcMain
+            case .medium:
+                return .hevcMain10
+            case .high:
+                return .hevcMain42210
+            }
+        default:
+            break
+        }
+
+        return nil
     }
 }
