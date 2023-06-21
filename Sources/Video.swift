@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import CoreMedia
+import CoreImage
 import VideoToolbox
 
 // To support both SwiftPM and CocoaPods
@@ -416,7 +417,8 @@ public class VideoTool {
 
         // HDR videos can't have an alpha channel
         var preserveAlphaChannel = videoSettings.preserveAlphaChannel
-        if preserveAlphaChannel, videoDesc.isHDRVideo {
+        let isHDR = videoDesc.isHDRVideo
+        if preserveAlphaChannel, isHDR {
             preserveAlphaChannel = false
         }
 
@@ -595,9 +597,9 @@ public class VideoTool {
         }
 
         // Video operations
-        var transform = videoTrack.fixedPreferredTransform // videoTrack.preferredTransform
+        var transform = CGAffineTransform.identity
         var transformed = false // require additional transformation (rotate, flip, mirror, atd.)
-        var cropSize: CGSize?
+        var cropRect: CGRect?
         for operation in videoSettings.edit {
             switch operation {
             case let .cut(from: start, to: end):
@@ -622,22 +624,18 @@ public class VideoTool {
                 videoSize = naturalSize
 
                 // Get/set cropping area
-                let cropRect = options.makeCroppingRectangle(in: videoSize)
-                cropSize = size
+                cropRect = options.makeCroppingRectangle(in: videoSize)
 
                 // Output video size
                 videoParameters[AVVideoWidthKey] = size.width
                 videoParameters[AVVideoHeightKey] = size.height
-
-                // Translate using origin
-                let translation = CGAffineTransform(translationX: -cropRect.origin.x, y: -cropRect.origin.y)
-                transform = transform.concatenating(translation)
             case .rotate, .flip, .mirror:
                 transform = transform.concatenating(operation.transform!)
                 transformed = true
             }
         }
-        let useVideoComposition: Bool = cropSize != nil // || !overlays.isEmpty
+        let useVideoComposition: Bool = cropRect != nil // || !overlays.isEmpty
+        let videoRect = cropRect ?? CGRect(origin: .zero, size: videoSize)
 
         // Compare source video settings with output to possibly skip video compression
         let defaultSettings = CompressionVideoSettings()
@@ -663,66 +661,47 @@ public class VideoTool {
             videoParameters = [:]
         }
 
+        if useVideoComposition, videoSettings.profile == nil {
+            // Video Profile should be adjusted for HDR content support when Video Composition is used
+            let bitsPerComponent = videoDesc.bitsPerComponent ?? (isHDR ? 10 : 8)
+            if let profile = CompressionVideoProfile.profile(for: .hevc, bitsPerComponent: bitsPerComponent) {
+                videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
+                videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
+            }
+        }
+
         // Setup video reader, apply crop and overlay if required
+        let readerSettings = videoReaderSettings.isEmpty ? nil : videoReaderSettings
         if useVideoComposition {
-            // Layer instruction
-            let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
-            // Apply video transform including translation required by cropping
-            layerInstruction.setTransform(transform, at: .zero)
-
-            // Composition instruction
-            let instruction = AVMutableVideoCompositionInstruction()
-            instruction.timeRange = variables.range ?? CMTimeRangeMake(start: .zero, duration: asset.duration)
-            instruction.layerInstructions = [layerInstruction]
-
-            // Video composition
-            let videoComposition = AVMutableVideoComposition(propertiesOf: asset)
-            // Apply crop
-            let size = cropSize ?? videoSize
-            videoComposition.renderSize = size
-            videoComposition.instructions = [instruction]
+            let videoComposition = AVMutableVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
+                let filter = CIFilter(name: "CICrop", parameters: [
+                    "inputImage": request.sourceImage,
+                    "inputRectangle": CIVector(cgRect: videoRect)
+                ])!
+                var ciImage = filter.outputImage!
+                ciImage = ciImage.transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))
+                request.finish(with: ciImage, context: nil)
+            })
+            videoComposition.renderSize = videoRect.size
 
             // Video reader
-            let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [videoTrack], videoSettings: videoReaderSettings.isEmpty ? nil : videoReaderSettings)
+            let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [videoTrack], videoSettings: readerSettings)
             videoOutput.videoComposition = videoComposition
             variables.videoOutput = videoOutput
         } else {
-            variables.videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings.isEmpty ? nil : videoReaderSettings)
+            variables.videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: readerSettings)
         }
 
-        // Setup video writer
-        var outputSettings: [String: Any]?
-        if videoParameters.isEmpty {
-            if useVideoComposition {
-                // Cropping requires `AVVideoCodecKey` for compressed output, which mean `outputSettings` cannot be set to `nil`
-                let size = cropSize ?? videoSize
-                outputSettings = [
-                    AVVideoCodecKey: videoCodec!,
-                    AVVideoWidthKey: size.width,
-                    AVVideoHeightKey: size.height
-                ]
-
-                /// Fix high bitrate set by `AVAssetWriter` while encoding H.264
-                /*if videoCodec == .h264 {
-                    // Calculate bitrate based on size changes
-                    let scale = cropSize != nil ? (cropSize!.width * cropSize!.height) / (videoSize.width * videoSize.height) : 1.0
-                    outputSettings![AVVideoCompressionPropertiesKey] = [
-                        AVVideoAverageBitRateKey: (videoTrack.estimatedDataRate * Float(scale)).rounded()
-                    ]
-                 }*/
-            } else {
-                outputSettings = nil
-            }
-        } else {
-            outputSettings = videoParameters
-        }
+        // Video writer
         try ObjCExceptionCatcher.catchException {
-            variables.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings, sourceFormatHint: videoDesc)
+            variables.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoParameters.isEmpty ? nil : videoParameters, sourceFormatHint: videoDesc)
         }
 
         // Transform
-        if !useVideoComposition {
+        if useVideoComposition {
             variables.videoInput.transform = transform
+        } else {
+            variables.videoInput.transform = videoTrack.fixedPreferredTransform.concatenating(transform) // videoTrack.preferredTransform
         }
 
         /// Custom sample buffer handler for video to adjust frame rate
