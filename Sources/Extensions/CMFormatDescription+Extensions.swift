@@ -62,6 +62,18 @@ public extension CMFormatDescription {
         return AVVideoCodecType(rawValue: fourCCString)
     }
 
+    /// Video bits per component
+    var bitsPerComponent: Int? {
+        guard self.mediaType == .video, #available(macOS 12, iOS 15, tvOS 15, *) else { return nil }
+
+        if let value = self.extensions[kCMFormatDescriptionExtension_BitsPerComponent] as? CMFormatDescription.Extensions.Value,
+           let number = value.propertyListRepresentation as? Int {
+            return number
+        }
+
+        return nil
+    }
+
     /// Audio format stored in format description
     var audioFormat: AudioFormatID {
         let mediaSubType = CMFormatDescriptionGetMediaSubType(self)
