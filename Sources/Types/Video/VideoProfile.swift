@@ -71,6 +71,7 @@ public extension CompressionVideoProfile {
     }
 
     /// Calculate video profile based on codec, bits and quality
+    /// Warning: Used by Video Composition only
     static func profile(for codec: AVVideoCodecType, bitsPerComponent: Int, bandwidth: CompressionVideoProfileBandwidth = .medium) -> CompressionVideoProfile? {
         switch codec {
         case .h264:
