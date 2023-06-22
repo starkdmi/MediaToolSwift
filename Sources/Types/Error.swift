@@ -34,4 +34,5 @@ public struct CompressionError: LocalizedError, Equatable {
     public static let videoTrackNotFound = CompressionError(description: "Video track not found")
     public static let invalidVideoCodec = CompressionError(description: "Specified video codec is not supported")
     public static let croppingNotAllowed = CompressionError(description: "Cropping is not allowed while the video size is set")
+    public static let croppingOutOfBounds = CompressionError(description: "Cropping area is larger than source video bounds")
 }

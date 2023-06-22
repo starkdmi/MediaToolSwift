@@ -600,6 +600,7 @@ public class VideoTool {
         var transform = CGAffineTransform.identity
         var transformed = false // require additional transformation (rotate, flip, mirror, atd.)
         var cropRect: CGRect?
+        var applyFilter = false // video composition filter
         for operation in videoSettings.edit {
             switch operation {
             case let .cut(from: start, to: end):
@@ -613,28 +614,35 @@ public class VideoTool {
                     throw CompressionError.croppingNotAllowed
                 }
 
-                let size = options.cropSize
+                // Get the cropping area
                 let naturalSize = videoTrack.naturalSizeWithOrientation
-                guard size != naturalSize, size.width <= videoSize.width || size.height <= videoSize.height else {
-                    // The crop size equals to video size or both width and height are bigger than source
+                let rect = options.makeCroppingRectangle(in: naturalSize)
+                if rect.origin == .zero && rect.size == naturalSize {
+                    // The cropping bounds equal to source video bounds
                     continue
+                }
+                guard rect.size.width >= 0, rect.size.height >= 0, rect.minX >= 0, rect.minY >= 0,
+                       rect.width <= naturalSize.width, rect.height <= naturalSize.height else {
+                    // Bounds are out of source video bounds
+                    throw CompressionError.croppingOutOfBounds
                 }
 
                 // Video Composition require tranformed video size
                 videoSize = naturalSize
 
-                // Get/set cropping area
-                cropRect = options.makeCroppingRectangle(in: videoSize)
+                // Use crop filter
+                applyFilter = true
+                cropRect = rect
 
                 // Output video size
-                videoParameters[AVVideoWidthKey] = size.width
-                videoParameters[AVVideoHeightKey] = size.height
+                videoParameters[AVVideoWidthKey] = rect.size.width
+                videoParameters[AVVideoHeightKey] = rect.size.height
             case .rotate, .flip, .mirror:
                 transform = transform.concatenating(operation.transform!)
                 transformed = true
             }
         }
-        let useVideoComposition: Bool = cropRect != nil // || !overlays.isEmpty
+        let useVideoComposition: Bool = applyFilter // || !overlays.isEmpty
         let videoRect = cropRect ?? CGRect(origin: .zero, size: videoSize)
 
         // Compare source video settings with output to possibly skip video compression
@@ -647,9 +655,10 @@ public class VideoTool {
            !(videoSettings.preserveAlphaChannel == false && hasAlphaChannel == true), // false if alpha is removed
            videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue, // profile set to default value
            videoSettings.color == defaultSettings.color, // color set to default value
-           videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval { // max ket frame set to default value
+           videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval, // max ket frame set to default value
+           useVideoComposition == false {  // no video composition added
 
-            if variables.range == nil && !transformed && !useVideoComposition { // no video operations applied
+            if variables.range == nil && !transformed { // no video operations applied
                 variables.hasChanges = false
             }
 
@@ -673,15 +682,28 @@ public class VideoTool {
         // Setup video reader, apply crop and overlay if required
         let readerSettings = videoReaderSettings.isEmpty ? nil : videoReaderSettings
         if useVideoComposition {
-            let videoComposition = AVMutableVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
-                let filter = CIFilter(name: "CICrop", parameters: [
-                    "inputImage": request.sourceImage,
-                    "inputRectangle": CIVector(cgRect: videoRect)
-                ])!
-                var ciImage = filter.outputImage!
-                ciImage = ciImage.transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))
-                request.finish(with: ciImage, context: nil)
-            })
+            let videoComposition: AVMutableVideoComposition
+            if applyFilter {
+                videoComposition = AVMutableVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
+                    //https://developer.apple.com/library/archive/documentation/GraphicsImaging/Reference/CoreImageFilterReference/index.html#//apple_ref/doc/filter/ci
+                    var image = request.sourceImage
+
+                    if cropRect != nil {
+                        image = image.cropped(to: videoRect).transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))
+                        /*let filter = CIFilter(name: "CICrop", parameters: [
+                            "inputImage": image,
+                            "inputRectangle": CIVector(cgRect: videoRect)
+                        ])!
+                        image = filter.outputImage!
+                        image = image.transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))*/
+                    } else {
+                        // Other CIFilters | Image manipulations
+                    }
+                    request.finish(with: image, context: nil)
+                })
+            } else {
+                videoComposition = AVMutableVideoComposition(propertiesOf: asset)
+            }
             videoComposition.renderSize = videoRect.size
 
             // Video reader

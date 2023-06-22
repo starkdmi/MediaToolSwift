@@ -109,12 +109,12 @@ public struct Crop {
         self.aligment = aligment
     }
 
-    /// Initialize using rectangle
+    /// Initialize using rectangle, origin at (0, 0) is a left bottom corner
     public init(rect: CGRect) {
         self.rect = rect
     }
 
-    /// Initialize using starting point and size
+    /// Initialize using starting point and size, point at (0, 0) is a left bottom corner
     public init(origin: CGPoint, size: CGSize) {
         self.origin = origin
         self.size = size

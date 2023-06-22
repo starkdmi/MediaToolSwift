@@ -51,6 +51,7 @@ let task = await VideoTool.convert(
         // quality, fps, alpha channel, profile, color primary, atd.
         edit: [
             .cut(from: 2.5, to: 15.0), // cut, in seconds
+            .crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center)), // crop center
             .rotate(.clockwise), // rotate
             // flip, mirror, atd.
         ]
