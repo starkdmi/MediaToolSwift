@@ -383,7 +383,12 @@ public class VideoTool {
         // Video codec
         // swiftlint:disable:next force_cast
         let videoDesc = videoTrack.formatDescriptions.first as! CMFormatDescription
-        let sourceVideoCodec = videoDesc.videoCodec
+        let hasAlphaChannel = videoDesc.hasAlphaChannel
+        var sourceVideoCodec = videoDesc.videoCodec
+        if sourceVideoCodec == .hevc, hasAlphaChannel {
+            // Fix muxa video codec
+            sourceVideoCodec = .hevcWithAlpha
+        }
         var videoCodec = videoSettings.codec
         if videoCodec == nil {
             // Verify source video codec is valid for output
@@ -425,7 +430,6 @@ public class VideoTool {
         // Fix the codec based on alpha support option
         // h264 do not support alpha channel, while all prores profiles do
         // hevc has two different codec variants
-        let hasAlphaChannel = videoDesc.hasAlphaChannel
         if preserveAlphaChannel {
             if hasAlphaChannel {
                 // Fix codec, only .hevcWithAlpha and .proRes4444 support alpha channel
@@ -673,7 +677,7 @@ public class VideoTool {
         if useVideoComposition, videoSettings.profile == nil {
             // Video Profile should be adjusted for HDR content support when Video Composition is used
             let bitsPerComponent = videoDesc.bitsPerComponent ?? (isHDR ? 10 : 8)
-            if let profile = CompressionVideoProfile.profile(for: .hevc, bitsPerComponent: bitsPerComponent) {
+            if let profile = CompressionVideoProfile.profile(for: sourceVideoCodec, bitsPerComponent: bitsPerComponent) {
                 videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
                 videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
             }

@@ -85,7 +85,7 @@ public extension CompressionVideoProfile {
             case .high:
                 return .h264High
             }
-        case .hevc, .hevcWithAlpha:
+        case .hevc:
             switch bandwidth {
             case .low:
                 if bitsPerComponent > 8 { fallthrough }
@@ -95,6 +95,8 @@ public extension CompressionVideoProfile {
             case .high:
                 return .hevcMain42210
             }
+        case .hevcWithAlpha:
+            return .hevcMain
         default:
             break
         }
