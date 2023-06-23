@@ -1,0 +1,41 @@
+import Foundation
+import QuartzCore
+
+/// Public extension on `CALayer`
+public extension CALayer {
+    /// Set animation for property
+    /// - keyPath: animatable property key path
+    /// - id: unique id
+    /// - fromValue: value to animate from, previous is used for `nil`
+    /// - toValue: value to animate to
+    /// - atTime: start time in seconds
+    /// - duration: animation duration
+    func animate(_ keyPath: String, id: String?, fromValue: Any? = nil, toValue: Any?, atTime: CFTimeInterval = 0.0, duration: CFTimeInterval = 0.0) {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.duration = duration
+        animation.fromValue = fromValue
+        animation.toValue = toValue
+        animation.beginTime = atTime
+        animation.isRemovedOnCompletion = false // to keep animated value after animation finished
+        animation.fillMode = .forwards
+        self.add(animation, forKey: id)
+    }
+
+    /// Apply present/dismiss animations on layer
+    func setTimeRangeAnimation(from: Double, to: Double?, opacity: Float) {
+        guard from != .zero || to != nil else { return }
+
+        if from != .zero {
+            // appears hidden
+            self.opacity = 0.0
+            self.animate("opacity", id: "animateFadeIn", fromValue: 0.0, toValue: opacity, atTime: from) // show
+            if let to = to {
+                self.animate("opacity", id: "animateFadeOut", fromValue: opacity, toValue: 0.0, atTime: to) // hide
+            }
+        } else {
+            // appears visible
+            self.opacity = opacity
+            self.animate("opacity", id: "animateFadeOut", fromValue: opacity, toValue: 0.0, atTime: to!) // hide
+        }
+    }
+}

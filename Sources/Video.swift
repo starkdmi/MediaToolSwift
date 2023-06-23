@@ -605,6 +605,7 @@ public class VideoTool {
         var transformed = false // require additional transformation (rotate, flip, mirror, atd.)
         var cropRect: CGRect?
         var applyFilter = false // video composition filter
+        var overlays: [CALayer] = []
         for operation in videoSettings.edit {
             switch operation {
             case let .cut(from: start, to: end):
@@ -631,9 +632,6 @@ public class VideoTool {
                     throw CompressionError.croppingOutOfBounds
                 }
 
-                // Video Composition require tranformed video size
-                videoSize = naturalSize
-
                 // Use crop filter
                 applyFilter = true
                 cropRect = rect
@@ -644,9 +642,18 @@ public class VideoTool {
             case .rotate, .flip, .mirror:
                 transform = transform.concatenating(operation.transform!)
                 transformed = true
+            case .overlay(let items):
+                guard items.count > 0 else { continue }
+
+                // Video Composition require tranformed video size
+                videoSize = videoTrack.naturalSizeWithOrientation
+
+                for item in items {
+                    overlays.append(item.layer)
+                }
             }
         }
-        let useVideoComposition: Bool = applyFilter // || !overlays.isEmpty
+        let useVideoComposition: Bool = applyFilter || overlays.count > 0
         let videoRect = cropRect ?? CGRect(origin: .zero, size: videoSize)
 
         // Compare source video settings with output to possibly skip video compression
@@ -709,6 +716,31 @@ public class VideoTool {
                 videoComposition = AVMutableVideoComposition(propertiesOf: asset)
             }
             videoComposition.renderSize = videoRect.size
+
+            // Overlays
+            if overlays.count > 0 {
+                // Video layer
+                let videolayer = CALayer()
+                videolayer.frame = CGRect(origin: .zero, size: videoRect.size)
+
+                // Parent layer
+                let parentlayer = CALayer()
+                parentlayer.frame = CGRect(origin: .zero, size: videoRect.size)
+                parentlayer.addSublayer(videolayer)
+                for overlay in overlays {
+                    parentlayer.addSublayer(overlay)
+                }
+
+                // Insert
+                videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videolayer, in: parentlayer)
+
+                // Set transformed resolution (width/height could be swapped by default)
+                if cropRect == nil {
+                    videoParameters[AVVideoCodecKey] = videoCodec!
+                    videoParameters[AVVideoWidthKey] = videoRect.size.width
+                    videoParameters[AVVideoHeightKey] = videoRect.size.height
+                }
+            }
 
             // Video reader
             let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [videoTrack], videoSettings: readerSettings)

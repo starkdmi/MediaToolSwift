@@ -1,4 +1,11 @@
 import Foundation
+import CoreMedia
+import QuartzCore
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Video operations
 public enum VideoOperation: Equatable, Hashable {
@@ -19,6 +26,9 @@ public enum VideoOperation: Equatable, Hashable {
 
     /// Right to left mirror effect
     case mirror
+
+    /// Overlay
+    case overlay([any Overlay])
 
     /// Transform value
     var transform: CGAffineTransform? {
@@ -52,6 +62,9 @@ public enum VideoOperation: Equatable, Hashable {
             hasher.combine("flip")
         case .mirror:
             hasher.combine("mirror")
+        case .overlay(let items):
+            hasher.combine("overlay")
+            hasher.combine(items.count)
         }
     }
 
@@ -157,5 +170,159 @@ public struct Crop {
         }
 
         return .zero
+    }
+}
+
+/// Overlay interface
+public protocol Overlay: Equatable {
+    /// Presentation start time, in seconds
+    var from: Double { get }
+
+    /// Presentation end time, in seconds, use `nil` for the end of video
+    var to: Double? { get }
+
+    /// Overlay opacity
+    var opacity: Float { get }
+
+    /// Build `CALayer`
+    func makeLayer() -> CALayer
+}
+
+/// Extensions on `Overlay`
+public extension Overlay {
+    /// Set base properties and add present/dismiss animations to layer
+    var layer: CALayer {
+        let layer = self.makeLayer()
+        layer.opacity = self.opacity
+        // Presentation time range using opacity animation
+        layer.setTimeRangeAnimation(from: from, to: to, opacity: self.opacity)
+        return layer
+    }
+}
+
+/// Image overlay
+public struct ImageOverlay: Overlay {
+    /// Presentation start time, in seconds
+    public var from: Double
+
+    /// Presentation end time, in seconds, use `nil` for the end of video
+    public var to: Double?
+
+    /// Overlay opacity
+    public var opacity: Float
+
+    /// Image
+    public var cgImage: CGImage
+
+    /// Image size
+    public var size: CGSize
+
+    /// Image position (starting point)
+    public var position: CGPoint
+
+    /// Public initializer
+    public init(from: Double = .zero, to: Double? = nil, opacity: Float = 1.0, cgImage: CGImage, size: CGSize, position: CGPoint) {
+        self.from = from
+        self.to = to
+        self.opacity = opacity
+        self.cgImage = cgImage
+        self.size = size
+        self.position = position
+    }
+
+    /// Build function
+    public func makeLayer() -> CALayer {
+        let layer = CALayer()
+        layer.frame = CGRect(origin: position, size: size)
+        layer.contents = cgImage
+        layer.contentsGravity = .center
+        layer.contentsScale = 1.0
+        return layer
+    }
+}
+
+/// Text overlay
+public struct TextOverlay: Overlay {
+    #if os(macOS)
+    public typealias Font = NSFont
+    #else
+    public typealias Font = UIFont
+    #endif
+
+    /// Presentation start time, in seconds
+    public var from: Double
+
+    /// Presentation end time, in seconds, use `nil` for the end of video
+    public var to: Double?
+
+    /// Overlay opacity
+    public var opacity: Float
+
+    /// Text
+    public var text: String
+
+    /// Text position (starting point)
+    public var position: CGPoint
+
+    /// Text font
+    public var font: Font
+
+    /// Text color
+    public var foregroundColor: CGColor
+
+    /// Background color
+    public var backgroundColor: CGColor
+
+    /// Public initializer
+    public init(from: Double = .zero, to: Double? = nil, opacity: Float = 1.0, text: String, position: CGPoint, font: Font, foregroundColor: CGColor, backgroundColor: CGColor = .clear) {
+        self.from = from
+        self.to = to
+        self.opacity = opacity
+        self.text = text
+        self.position = position
+        self.font = font
+        self.foregroundColor = foregroundColor
+        self.backgroundColor = backgroundColor
+    }
+
+    /// Build function
+    public func makeLayer() -> CALayer {
+        let layer = CATextLayer()
+        layer.string = self.text
+        layer.alignmentMode = .center
+        layer.font = self.font
+        layer.foregroundColor = self.foregroundColor
+        layer.backgroundColor = self.backgroundColor
+        layer.frame = CGRect(origin: self.position, size: layer.preferredFrameSize())
+        layer.displayIfNeeded()
+        return layer
+    }
+}
+
+/// Custom `CALayer` overlay
+public struct CustomOverlay: Overlay {
+    /// Presentation start time, in seconds
+    public var from: Double
+
+    /// Presentation end time, in seconds, use `nil` for the end of video
+    public var to: Double?
+
+    /// Overlay opacity
+    public var opacity: Float
+
+    /// Custom layer
+    public var layer: CALayer
+
+    /// Public initializer
+    public init(from: Double = .zero, to: Double? = nil, opacity: Float = 1.0, layer: CALayer) {
+        self.from = from
+        self.to = to
+        self.opacity = opacity
+        self.layer = layer
+    }
+
+    /// Build function
+    public func makeLayer() -> CALayer {
+        return layer
     }
 }

@@ -30,4 +30,6 @@ identifier_name:
     - fhd
     - hd
     - sd
+    - from
     - to
+    - id
