@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import QuartzCore
 
 /// Public extension on `CALayer`
@@ -10,12 +11,13 @@ public extension CALayer {
     /// - toValue: value to animate to
     /// - atTime: start time in seconds
     /// - duration: animation duration
-    func animate(_ keyPath: String, id: String?, fromValue: Any? = nil, toValue: Any?, atTime: CFTimeInterval = 0.0, duration: CFTimeInterval = 0.0) {
+    func animate(_ keyPath: String, id: String?, fromValue: Any? = nil, toValue: Any?, atTime: CFTimeInterval = AVCoreAnimationBeginTimeAtZero, duration: CFTimeInterval = 0.0) {
         let animation = CABasicAnimation(keyPath: keyPath)
-        animation.duration = duration
+        animation.duration = duration // fade-in and fade-out duration
         animation.fromValue = fromValue
         animation.toValue = toValue
-        animation.beginTime = atTime
+        // https://developer.apple.com/documentation/avfoundation/avvideocompositioncoreanimationtool
+        animation.beginTime = atTime == 0.0 ? AVCoreAnimationBeginTimeAtZero : atTime
         animation.isRemovedOnCompletion = false // to keep animated value after animation finished
         animation.fillMode = .forwards
         self.add(animation, forKey: id)
