@@ -14,8 +14,8 @@ public enum CompressionVideoProfile {
     /// High Auto Level
     case h264High
 
-    /// Extended Auto Level
-    case h264Extended
+    /// Extended Auto Level - Unsupported (!)
+    // case h264Extended
 
     // MARK: H.265/HEVC Profiles
 
@@ -49,8 +49,8 @@ public extension CompressionVideoProfile {
             return AVVideoProfileLevelH264MainAutoLevel
         case .h264High:
             return AVVideoProfileLevelH264HighAutoLevel
-        case .h264Extended:
-            return kVTProfileLevel_H264_Extended_AutoLevel as String
+        //case .h264Extended:
+        //    return kVTProfileLevel_H264_Extended_AutoLevel as String
         // HEVC
         case .hevcMain:
             return kVTProfileLevel_HEVC_Main_AutoLevel as String
