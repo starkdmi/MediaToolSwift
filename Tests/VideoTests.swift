@@ -5,6 +5,9 @@ import XCTest
 import Foundation
 import AVFoundation
 import VideoToolbox
+import CoreVideo
+import Accelerate
+import QuartzCore
 
 struct ConfigList {
     let filename: String
@@ -609,197 +612,125 @@ class MediaToolSwiftTests: XCTestCase {
     #else
     let osAdditionalTimeout: TimeInterval = 0
     #endif
-    
-    func testThumbnail() async {
-        let expectation = XCTestExpectation(description: "Test thumbnail")
-        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destination = Self.tempDirectory.appendingPathComponent("thumbnail_oludeniz.jpg")
-        try? FileManager.default.removeItem(at: destination)
 
-        let asset = AVAsset(url: source)
-        let videoTrack = await asset.getFirstTrack(withMediaType: .video)
-        
-        // TODO: Parameters: Time, Time Tolerance, Formats (bmp, jpeg, png, tiff), Quality
-        
-        let timeScale = CMTimeScale(videoTrack!.nominalFrameRate)
-        let time = CMTimeMakeWithSeconds(5.5, preferredTimescale: timeScale)
-        
-        // AVAssetImageGenerator - https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/creating_images_from_a_video_asset
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        //generator.maximumSize = CGSize(width: 300, height: 0)
-        
-        // Tolerance
-        // generator.requestedTimeToleranceBefore = CMTime(seconds: 0.01, preferredTimescale: timeScale) // .zero
-        // generator.requestedTimeToleranceAfter = CMTime(seconds: 0.01, preferredTimescale: timeScale) // .zero
-        
-        // if #available(macOS 13, iOS 16, tvOS 16, *)
-        // let (image, actualTime) = try! await generator.images(at: [time])
-        // else
-        generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)], completionHandler: { (requestedTime, image, actualTime, result, error) in
-            #if os(OSX)
-            let thumbnail = NSImage(cgImage: image!, size: CGSize(width: image!.width, height: image!.height))
-            let jpegData = NSBitmapImageRep(data: thumbnail.tiffRepresentation!)!
-                .representation(using: .jpeg, properties: [.compressionFactor: 0.95])!
-            #else
-            let thumbnail = UIImage(cgImage: img)
-            let jpegData = thumbnail.jpegData(compressionQuality: 0.95)!
-            #endif
-            
-            let url = Self.tempDirectory.appendingPathComponent("oludeniz.jpg")
-            // _ = url.startAccessingSecurityScopedResource()
-            try! jpegData.write(to: url, options: .atomic)
-
-            Self.fulfill(expectation) // expectation.fulfill()
-        })
-        await fulfillment(of: [expectation], timeout: 5)
-    }
-
-    func testCrop() async {
-        let expectation = XCTestExpectation(description: "Test crop")
-        let source = Self.mediaDirectory.appendingPathComponent("chromecast.mp4")
-        let destination = Self.tempDirectory.appendingPathComponent("cropped_chromecast.MOV")
-        try? FileManager.default.removeItem(at: destination)
-
-        let asset = AVAsset(url: source)
-        let reader = try! AVAssetReader(asset: asset)
-        let writer = try! AVAssetWriter(outputURL: destination, fileType: .mov)
-
-        let videoTrack = await asset.getFirstTrack(withMediaType: .video)
-    
-        // Video composition
-        let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [videoTrack!], videoSettings: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA // kCVPixelFormatType_422YpCbCr8
-        ])
-        let videoComposition = AVMutableVideoComposition(propertiesOf: asset)
-        videoComposition.frameDuration = videoTrack!.minFrameDuration
-        
-        // Crop
-        let cropSize = CGSize(width: 360, height: 360)
-        videoComposition.renderSize = cropSize
-        
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRangeMake(start: .zero, duration: asset.duration)
-
-        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack!)
-        let videoSize = videoTrack!.naturalSizeWithOrientation
-        let preferredTransform = videoTrack!.fixedPreferredTransform
-
-        /* Overlay
-        // Overlay image
-        #if os(OSX)
-        let image = NSImage(named: NSImage.computerName)!
-        //#else
-        //let image = UIImage(systemName: "computer")
+    func testImageProcessing() async {
+        #if os(macOS)
+        typealias Font = NSFont
+        typealias Color = NSColor
+        #else
+        typealias Font = UIFont
+        typealias Color = UIColor
         #endif
-        // Overlay layer
-        let overlayLayer = CALayer()
-        overlayLayer.frame = CGRect(x: 0, y: -48, width: cropSize.width, height: cropSize.height)
-        overlayLayer.contents = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
-        overlayLayer.contentsGravity = .center
-        overlayLayer.contentsScale = 1.0
-        overlayLayer.opacity = 0.75
-        // Video
-        let videolayer = CALayer()
-        videolayer.frame = CGRect(x: 0, y: 0, width: cropSize.width, height: cropSize.height)
-        // Parent
-        let parentlayer = CALayer()
-        parentlayer.frame = CGRect(x: 0, y: 0, width: cropSize.width, height: cropSize.height)
-        parentlayer.addSublayer(videolayer)
-        parentlayer.addSublayer(overlayLayer)
-        // Insert
-        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayers: [videolayer], in: parentlayer)*/
-        
-        let cropRect: CGRect
-        // Crop using CGSize and Aligment
-        let aligment: Alignment? = nil //.topLeading
-        if let aligment = aligment {
-            let cropOrigin: CGPoint
-            switch aligment {
-            case .center:
-                cropOrigin = CGPoint(x: (videoSize.width - cropSize.width) / 2, y: (videoSize.height - cropSize.height) / 2)
-            case .topLeading:
-                cropOrigin = CGPoint(x: 0, y: 0)
-            case .top:
-                cropOrigin = CGPoint(x: (videoSize.width - cropSize.width) / 2, y: 0)
-            case .topTrailing:
-                cropOrigin = CGPoint(x: videoSize.width - cropSize.width, y: 0)
-            case .leading:
-                cropOrigin = CGPoint(x: 0, y: (videoSize.height - cropSize.height) / 2)
-            case .trailing:
-                cropOrigin = CGPoint(x: videoSize.width - cropSize.width, y: (videoSize.height - cropSize.height) / 2)
-            case .bottom:
-                cropOrigin = CGPoint(x: (videoSize.width - cropSize.width) / 2, y: videoSize.height - cropSize.height)
-            case .bottomLeading:
-                cropOrigin = CGPoint(x: 0, y: videoSize.height - cropSize.height)
-            case .bottomTrailing:
-                cropOrigin = CGPoint(x: videoSize.width - cropSize.width, y: videoSize.height - cropSize.height)
-            }
-            cropRect = CGRect(origin: cropOrigin, size: cropSize)
-        } else {
-            // Crop using CGRect
-            cropRect = CGRect(x: 460, y: 180, width: cropSize.width, height: cropSize.height) // center
-            // let cropRect = CGRect(x: 0, y: 0, width: cropSize.width, height: cropSize.height) // topLeading
-            
-            // TODO: Or use two CGPoint objects - Origin and Size as arguments
-        }
-        
-        // Calculate translation
-        let translateTransform = CGAffineTransform(translationX: -cropRect.origin.x, y: -cropRect.origin.y)
-        let transform = preferredTransform.concatenating(translateTransform)
-        
-        // TODO: Warning videoInput.transform should not be set when layerInstruction.setTransform is used (!)
-        layerInstruction.setTransform(transform, at: .zero)
-        
-        instruction.layerInstructions = [layerInstruction]
-        videoComposition.instructions = [instruction]
-        
-        videoOutput.videoComposition = videoComposition
-        
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.hevc,
-            AVVideoWidthKey: cropSize.width,
-            AVVideoHeightKey: cropSize.height
-        ], sourceFormatHint: (videoTrack!.formatDescriptions.first as! CMFormatDescription))
 
-        reader.add(videoOutput)
-        writer.add(videoInput)
-
-        // TODO: Warning videoInput.transform should not be set when layerInstruction.setTransform is used (!)
-        // videoInput.transform = videoTrack!.fixedPreferredTransform
-
-        writer.shouldOptimizeForNetworkUse = true
-
-        reader.startReading()
-        writer.startWriting()
-        writer.startSession(atSourceTime: .zero)
-
-        let videoQueue = DispatchQueue(label: "MediaToolSwiftTests.video.queue")
-        videoInput.requestMediaDataWhenReady(on: videoQueue) {
-            while videoInput.isReadyForMoreMediaData {
-                if let sampleBuffer = videoOutput.copyNextSampleBuffer() {
-                    videoInput.append(sampleBuffer)
-                } else {
-                    videoInput.markAsFinished()
-                    
-                    writer.finishWriting {
-                        if writer.status == .completed {
-                            Self.fulfill(expectation)
-                        } else {
-                            XCTFail(writer.error?.localizedDescription ?? "Unknown error")
-                        }
-                    }
-                }
-            }
-        }
-        
-        await fulfillment(of: [expectation], timeout: 5)
-    }
-
-    func testSingle() async {
-        let expectation = XCTestExpectation(description: "Test single video")
+        let expectation = XCTestExpectation(description: "Image Processing Example")
         let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destination = Self.tempDirectory.appendingPathComponent("test_oludeniz.MOV")
+        let destination = Self.tempDirectory.appendingPathComponent("example_oludeniz.MOV")
+
+        let duration = AVAsset(url: source).duration.seconds // source video duration, be carefull with cutting
+
+        let white = CGColor(red: 244/255, green: 244/255, blue: 244/255, alpha: 1.0)
+        let darkGreen = CGColor(red: 7/255, green: 94/255, blue: 84/255, alpha: 1.0)
+        let yellow = CGColor(red: 250/255, green: 197/255, blue: 22/255, alpha: 1.0)
+    
+        let imageProcessor: ImageProcessor = { image, size, time in
+            /* Parameters:
+             - Image: An CIImage to modify
+             - Size:
+                 If cropping is applied size will be equal to crop size
+                 If videoSize is passed (no cropping), then size equals to videoSize
+                 if none passed size is source video size
+             Time: Frame time in seconds, use this to show/hide overlays or filter based on video time
+           */
+            var image = image
+
+            // Warning: This method called once for each frame, the code in this block must be optimized
+            // For example initialize filter once and reuse, render text to image once, then composite based on tim
+
+            // Warning: When .mirror, .flip or other tranformation is applied to video, it's also applied overlays
+            // To prevent apply oposite tranformation
+            let mirrored = CGAffineTransform(scaleX: -1.0, y: 1.0).translatedBy(x: -size.width, y: 0)
+            // let flipped = CGAffineTransform(scaleX: 1.0, y: -1.0).translatedBy(x: 0, y: -size.height)
+
+            // Apply Blur after 2.8 sec
+            if time >= 2.8 {
+                //https://developer.apple.com/documentation/coreimage/processing_an_image_using_built-in_filters
+                //https://developer.apple.com/library/archive/documentation/GraphicsImaging/Reference/CoreImageFilterReference/index.html#//apple_ref/doc/filter/ci
+                image = image.applyingFilter("CIGaussianBlur", parameters: [
+                    "inputRadius": 7.5
+                 ])
+            }
+
+            // Progress
+            let timeFactor = time/duration
+            let timeFactorBefore = { (end: Double) in time / end }
+            let timeFactorAfter = { (start: Double) in max(0, (time - start) / (duration - start)) }
+
+            // Overlay text, all the duration
+            let shadow = NSShadow()
+            shadow.shadowColor = Color.white
+            shadow.shadowBlurRadius = Easing.default(from: -5, to: 15, with: timeFactor)
+            // Text attributes
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: Font.systemFont(ofSize: Easing.default(from: 92, to: 200, with: timeFactor)),
+                .foregroundColor: time <= 6 ?
+                    Easing.linear.interpolate(from: white, to: yellow, with: timeFactorBefore(6)) :
+                    Easing.sineIn.interpolate(from: yellow, to: darkGreen, with: timeFactorAfter(6)),
+                .backgroundColor: CGColor(red: 40/255, green: 40/255, blue: 40/255, alpha: Easing.default(from: 0.5, to: 0.0, with: timeFactorBefore(2.8))),
+                .strokeWidth: time >= 2.8 ? Easing.default(from: 3, to: 2, with: timeFactor) : 0.0,
+                .shadow: shadow
+            ]
+
+            let attributedString = NSAttributedString(string: " Ölüdeniz 🏖️  ", attributes: attributes)
+            let textFilter = CIFilter(name: "CIAttributedTextImageGenerator", parameters: [
+                "inputText": attributedString
+            ])!
+            var textImage = textFilter.outputImage!
+
+            // Center text
+            textImage = textImage.transformed(by: .init(
+                translationX: Easing.bounceOut.interpolate(from: (size.width - textImage.extent.width) / 2.0 + 200, to: (size.width - textImage.extent.width) / 2.0, with: timeFactor),
+                y: Easing.bounceOut.interpolate(from: (size.height - textImage.extent.height) / 2.0 + 640, to: (size.height - textImage.extent.height) / 2.0, with: timeFactor)
+            ))
+            // Transform
+            textImage = textImage.transformed(by: mirrored)
+
+            // Place text over source image
+            image = textImage.composited(over: image)
+
+            // Image overlay
+            if time >= 2.8 {
+                let imageUrl = Self.mediaDirectory.appendingPathComponent("starkdev.png")
+                var ciImageOverlay = CIImage(contentsOf: imageUrl)! // 512x512
+                // Resize
+                ciImageOverlay = ciImageOverlay.transformed(by: .init(scaleX: 0.25, y: 0.25))
+                // Adjust position
+                ciImageOverlay = ciImageOverlay.transformed(by: .init(translationX: size.width - ciImageOverlay.extent.size.width - 44, y: 44))
+                // Tint PNG
+                ciImageOverlay = CIImage(color: CIColor(red: 244/255, green: 244/255, blue: 244/255, alpha: 1.0)).applyingFilter("CIBlendWithAlphaMask", parameters: [
+                    "inputBackgroundImage": CIImage(color: CIColor.clear),
+                    "inputMaskImage": ciImageOverlay
+                ])
+                // Time based opacity animation
+                let alpha = 1.0 - timeFactorAfter(2.8)
+                
+                ciImageOverlay = ciImageOverlay.applyingFilter("CIColorMatrix", parameters: [
+                    "inputAVector": CIVector(values: [0.0, 0.0, 0.0, CGFloat(alpha)], count: 4),
+                ])
+                // Transform
+                ciImageOverlay = ciImageOverlay.transformed(by: mirrored)
+                // Stack image over source
+                image = ciImageOverlay.composited(over: image)
+            }
+
+            // Sepia at the end
+            if timeFactor >= 0.99 {
+                image = image.applyingFilter("CISepiaTone", parameters: [
+                    "inputIntensity": 0.8
+                ])
+            }
+
+            return image
+        }
 
         _ = await VideoTool.convert(
             source: source,
@@ -807,18 +738,16 @@ class MediaToolSwiftTests: XCTestCase {
             fileType: .mov,
             videoSettings: .init(
                 codec: .hevc,
-                // bitrate: .encoder
-                // frameRate: 24
+                bitrate: .encoder,
                 edit: [
-                    .cut(from: 3, to: 5),
-                    .rotate(.clockwise)
-                    // .flip, .mirror,
+                    .imageProcessing(imageProcessor),
+                    //.crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center)),
+                    //.cut(from: 0.5, to: 7.5)
+                    //.rotate(.clockwise), .rotate(.angle(.pi))
+                    .mirror,
                 ]
             ),
             skipAudio: true,
-            audioSettings: .init(
-                codec: .aac
-            ),
             overwrite: true,
             callback: { state in
                 switch state {
@@ -831,7 +760,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        await fulfillment(of: [expectation], timeout: 25 + osAdditionalTimeout)
+        await fulfillment(of: [expectation], timeout: 5 + osAdditionalTimeout)
     }
 
     func testVideos() async {
@@ -1419,16 +1348,222 @@ extension AVAssetTrack {
    }
 }
 
-// Custom Aligment class to use instead of crossplatform SwiftUI.Alignment
-enum Alignment {
-    case center
-    case topLeading
-    case top
-    case topTrailing
-    case leading
-    case trailing
-    case bottomLeading
-    case bottom
-    case bottomTrailing
+let kPERIOD: Double = 0.3
+let M_PI_X_2: Double = Double.pi * 2.0
+
+/** The easing (timing function) that an animation should use */
+public enum Easing: Int {
+    // Source - https://github.com/SteveBarnegren/TweenKit/blob/master/TweenKit/TweenKit/Easing.swift#L28
+    // Additional curves can be found here:
+    // - https://github.com/manuelCarlos/Easing/blob/main/Sources/Easing/Easing.swift
+    // - https://github.com/AugustRush/Stellar/blob/master/Sources/TimingFunction.swift
+    
+    // Linear
+    case linear
+    
+    // Sine
+    case sineIn
+    case sineOut
+    case sineInOut
+
+    // Exponential
+    case exponentialIn
+    case exponentialOut
+    case exponentialInOut
+    
+    // Back
+    case backIn
+    case backOut
+    case backInOut
+    
+    // Bounce
+    case bounceIn
+    case bounceOut
+    case bounceInOut
+    
+    // Elastic
+    case elasticIn
+    case elasticOut
+    case elasticInOut
+    
+    public func apply(t: Double) -> Double {
+        
+        switch self {
+            
+        // **** Linear ****
+        case .linear:
+            return t
+            
+        // **** Sine ****
+        case .sineIn:
+            return -1.0 * cos(t * (Double.pi/2)) + 1.0
+            
+        case .sineOut:
+            return sin(t * (Double.pi/2))
+            
+        case .sineInOut:
+            return -0.5 * (cos(Double.pi*t) - 1.0)
+        
+        // **** Exponential ****
+        case .exponentialIn:
+            return (t==0.0) ? 0.0 : pow(2.0, 10.0 * (t/1.0 - 1.0)) - 1.0 * 0.001;
+            
+        case .exponentialOut:
+            return (t==1.0) ? 1.0 : (-pow(2.0, -10.0 * t/1.0) + 1.0);
+            
+        case .exponentialInOut:
+            var t = t
+            t /= 0.5;
+            if (t < 1.0) {
+                t = 0.5 * pow(2.0, 10.0 * (t - 1.0))
+            }
+            else {
+                t = 0.5 * (-pow(2.0, -10.0 * (t - 1.0) ) + 2.0);
+            }
+            return t;
+        
+        // **** Back ****
+        case .backIn:
+            let overshoot = 1.70158
+            return t * t * ((overshoot + 1.0) * t - overshoot);
+            
+        case .backOut:
+            let overshoot = 1.70158
+            var t = t
+            t = t - 1.0;
+            return t * t * ((overshoot + 1.0) * t + overshoot) + 1.0;
+            
+        case .backInOut:
+            let overshoot = 1.70158 * 1.525
+            var t = t
+            t = t * 2.0;
+            if (t < 1.0) {
+                return (t * t * ((overshoot + 1.0) * t - overshoot)) / 2.0;
+            }
+            else {
+                t = t - 2.0;
+                return (t * t * ((overshoot + 1.0) * t + overshoot)) / 2.0 + 1.0;
+            }
+            
+        // **** Bounce ****
+        case .bounceIn:
+            var newT = t
+            if(t != 0.0 && t != 1.0) {
+                newT = 1.0 - bounceTime(t: 1.0 - t)
+            }
+            return newT;
+            
+        case .bounceOut:
+            var newT = t;
+            if(t != 0.0 && t != 1.0) {
+                newT = bounceTime(t: t)
+            }
+            return newT;
+            
+        case .bounceInOut:
+            let newT: Double
+            if( t == 0.0 || t == 1.0) {
+                newT = t;
+            }
+            else if (t < 0.5) {
+                var t = t
+                t = t * 2.0;
+                newT = (1.0 - bounceTime(t: 1.0-t) ) * 0.5
+            } else {
+                newT = bounceTime(t: t * 2.0 - 1.0) * 0.5 + 0.5
+            }
+            
+            return newT;
+            
+        // **** Elastic ****
+        case .elasticIn:
+            var newT = 0.0
+            if (t == 0.0 || t == 1.0) {
+                newT = t
+            }
+            else {
+                var t = t
+                let s = kPERIOD / 4.0;
+                t = t - 1;
+                newT = -pow(2, 10 * t) * sin( (t-s) * M_PI_X_2 / kPERIOD);
+            }
+            return newT;
+            
+        case .elasticOut:
+            var newT = 0.0
+            if (t == 0.0 || t == 1.0) {
+                newT = t
+            } else {
+                let s = kPERIOD / 4;
+                newT = pow(2.0, -10.0 * t) * sin( (t-s) * M_PI_X_2 / kPERIOD) + 1
+            }
+            return newT
+            
+        case .elasticInOut:
+            var newT = 0.0;
+            
+            if( t == 0.0 || t == 1.0 ) {
+                newT = t;
+            }
+            else {
+                var t = t
+                t = t * 2.0;
+                let s = kPERIOD / 4;
+                
+                t = t - 1.0;
+                if( t < 0 ) {
+                    newT = -0.5 * pow(2, 10.0 * t) * sin((t - s) * M_PI_X_2 / kPERIOD);
+                }
+                else{
+                    newT = pow(2, -10.0 * t) * sin((t - s) * M_PI_X_2 / kPERIOD) * 0.5 + 1.0;
+                }
+            }
+            return newT;
+        }
+    }
+    
+    // Helpers
+    
+    func bounceTime(t: Double) -> Double {
+        
+        var t = t
+        
+        if (t < 1.0 / 2.75) {
+            return 7.5625 * t * t
+        }
+        else if (t < 2.0 / 2.75) {
+            t -= 1.5 / 2.75
+            return 7.5625 * t * t + 0.75
+        }
+        else if (t < 2.5 / 2.75) {
+            t -= 2.25 / 2.75
+            return 7.5625 * t * t + 0.9375
+        }
+        
+        t -= 2.625 / 2.75
+        return 7.5625 * t * t + 0.984375
+    }
+    
+    func interpolate(from: CGFloat, to: CGFloat, with progress: CGFloat) -> CGFloat {
+        return from + (to - from) * self.apply(t: progress)
+    }
+
+    func interpolate(from: CGColor, to: CGColor, with progress: CGFloat) -> CGColor {
+        guard let fromComponents = from.components,
+              let toComponents = to.components else {
+            return from
+        }
+
+        let curvedProgress = self.apply(t: progress)
+        let interpolatedComponents = zip(fromComponents, toComponents).map { (fromComponent, toComponent) -> CGFloat in
+            return fromComponent + (toComponent - fromComponent) * curvedProgress
+        }
+
+        return CGColor(colorSpace: from.colorSpace ?? CGColorSpaceCreateDeviceRGB(), components: interpolatedComponents) ?? from
+    }
+    
+    static func `default`(from: CGFloat, to: CGFloat, with progress: CGFloat) -> CGFloat {
+        Self.linear.interpolate(from: from, to: to, with: progress)
+    }
 }
 #endif

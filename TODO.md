@@ -23,9 +23,7 @@ __Video Preview__ - animated image/video file with a little of best video frames
 
 __Advanced Cutting__ - select multiple ranges of audio/video track and stitch them together while removing unselected parts. this feature can be done without re-encoding video frames (losslessly)
 
-__Watermark or Overlay__ - place any image as overlay, can have time interval
-
-__Video Filters__ - [vImage #1](https://developer.apple.com/documentation/accelerate/applying_vimage_operations_to_video_sample_buffers), [vImage #2](https://developer.apple.com/documentation/accelerate/using_vimage_pixel_buffers_to_generate_video_effects#4225030), [Core Image Filters](https://developer.apple.com/documentation/coreimage/processing_an_image_using_built-in_filters)
+__Subtitles__ - draw centered text subtitles using overlays
 
 __Frame rate and resolution upscaling__ - combine nearest frames to produce middle one, upscale pixels
 

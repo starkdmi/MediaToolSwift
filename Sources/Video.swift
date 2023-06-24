@@ -422,7 +422,7 @@ public class VideoTool {
 
         // HDR videos can't have an alpha channel
         var preserveAlphaChannel = videoSettings.preserveAlphaChannel
-        let isHDR = videoDesc.isHDRVideo
+        let isHDR = videoDesc.isHDRVideo // videoTrack.hasMediaCharacteristic(.containsHDRVideo)
         if preserveAlphaChannel, isHDR {
             preserveAlphaChannel = false
         }
@@ -604,8 +604,7 @@ public class VideoTool {
         var transform = CGAffineTransform.identity
         var transformed = false // require additional transformation (rotate, flip, mirror, atd.)
         var cropRect: CGRect?
-        var applyFilter = false // video composition filter
-        var overlays: [CALayer] = []
+        var imageProcessor: ImageProcessor?
         for operation in videoSettings.edit {
             switch operation {
             case let .cut(from: start, to: end):
@@ -633,27 +632,19 @@ public class VideoTool {
                 }
 
                 // Use crop filter
-                applyFilter = true
                 cropRect = rect
-
-                // Output video size
-                videoParameters[AVVideoWidthKey] = rect.size.width
-                videoParameters[AVVideoHeightKey] = rect.size.height
             case .rotate, .flip, .mirror:
                 transform = transform.concatenating(operation.transform!)
                 transformed = true
-            case .overlay(let items):
-                guard items.count > 0 else { continue }
-
+            case .imageProcessing(let function):
                 // Video Composition require tranformed video size
                 videoSize = videoTrack.naturalSizeWithOrientation
 
-                for item in items {
-                    overlays.append(item.layer)
-                }
+                // Enable video composition
+                imageProcessor = function
             }
         }
-        let useVideoComposition: Bool = applyFilter || overlays.count > 0
+        let useVideoComposition: Bool = cropRect != nil || imageProcessor != nil
         let videoRect = cropRect ?? CGRect(origin: .zero, size: videoSize)
 
         // Compare source video settings with output to possibly skip video compression
@@ -681,64 +672,48 @@ public class VideoTool {
             videoParameters = [:]
         }
 
-        if useVideoComposition, videoSettings.profile == nil {
-            // Video Profile should be adjusted for HDR content support when Video Composition is used
-            let bitsPerComponent = videoDesc.bitsPerComponent ?? (isHDR ? 10 : 8)
-            if let profile = CompressionVideoProfile.profile(for: sourceVideoCodec, bitsPerComponent: bitsPerComponent) {
-                videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
-                videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
-            }
-        }
-
         // Setup video reader, apply crop and overlay if required
         let readerSettings = videoReaderSettings.isEmpty ? nil : videoReaderSettings
         if useVideoComposition {
-            let videoComposition: AVMutableVideoComposition
-            if applyFilter {
-                videoComposition = AVMutableVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
-                    //https://developer.apple.com/library/archive/documentation/GraphicsImaging/Reference/CoreImageFilterReference/index.html#//apple_ref/doc/filter/ci
-                    var image = request.sourceImage
+            let videoComposition = AVMutableVideoComposition(asset: asset) { request in
+                //https://developer.apple.com/documentation/coreimage/processing_an_image_using_built-in_filters
+                //https://developer.apple.com/library/archive/documentation/GraphicsImaging/Reference/CoreImageFilterReference/index.html#//apple_ref/doc/filter/ci
+                var image = request.sourceImage
+                var size = request.renderSize
 
-                    if cropRect != nil {
-                        image = image.cropped(to: videoRect).transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))
-                        /*let filter = CIFilter(name: "CICrop", parameters: [
-                            "inputImage": image,
-                            "inputRectangle": CIVector(cgRect: videoRect)
-                        ])!
-                        image = filter.outputImage!
-                        image = image.transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))*/
-                    } else {
-                        // Other CIFilters | Image manipulations
-                    }
-                    request.finish(with: image, context: nil)
-                })
-            } else {
-                videoComposition = AVMutableVideoComposition(propertiesOf: asset)
-            }
-            videoComposition.renderSize = videoRect.size
-
-            // Overlays
-            if overlays.count > 0 {
-                // Video layer
-                let videolayer = CALayer()
-                videolayer.frame = CGRect(origin: .zero, size: videoRect.size)
-
-                // Parent layer
-                let parentlayer = CALayer()
-                parentlayer.frame = CGRect(origin: .zero, size: videoRect.size)
-                parentlayer.addSublayer(videolayer)
-                for overlay in overlays {
-                    parentlayer.addSublayer(overlay)
+                // Crop
+                if cropRect != nil {
+                    image = image.cropped(to: videoRect).transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))
+                    /*let filter = CIFilter(name: "CICrop", parameters: [
+                        "inputImage": image,
+                        "inputRectangle": CIVector(cgRect: videoRect)
+                    ])!
+                    image = filter.outputImage!
+                    image = image.transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))*/
+                    size = videoRect.size
                 }
 
-                // Insert
-                videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videolayer, in: parentlayer)
+                // Custom image processor
+                if let imageProcessor = imageProcessor {
+                    image = imageProcessor(image, size, request.compositionTime.seconds)
+                }
 
-                // Set transformed resolution (width/height could be swapped by default)
-                if cropRect == nil {
-                    videoParameters[AVVideoCodecKey] = videoCodec!
-                    videoParameters[AVVideoWidthKey] = videoRect.size.width
-                    videoParameters[AVVideoHeightKey] = videoRect.size.height
+                request.finish(with: image, context: nil)
+            }
+
+            // Video size (width and height may be swapped - update)
+            videoComposition.renderSize = videoRect.size
+            videoParameters[AVVideoCodecKey] = videoCodec!
+            videoParameters[AVVideoWidthKey] = videoRect.width
+            videoParameters[AVVideoHeightKey] = videoRect.height
+
+            // Fix profile (required for HDR content in Video Composition)
+            if videoSettings.profile == nil {
+                // Video Profile should be adjusted for HDR content support when Video Composition is used
+                let bitsPerComponent = videoDesc.bitsPerComponent ?? (isHDR ? 10 : 8)
+                if let profile = CompressionVideoProfile.profile(for: sourceVideoCodec, bitsPerComponent: bitsPerComponent) {
+                    videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
+                    videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
                 }
             }
 
