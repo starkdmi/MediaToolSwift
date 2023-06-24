@@ -6,6 +6,9 @@ public enum CompressionVideoBitrate: Equatable {
     /// Bitrate automatically set by `AVAssetWriter` internally
     case encoder
 
+    /// Source video bitrate
+    case source
+
     /// User specified bitrate in bits
     case value(Int)
 
@@ -15,6 +18,8 @@ public enum CompressionVideoBitrate: Equatable {
         case (.auto, .auto):
             return true
         case (.encoder, .encoder):
+            return true
+        case (.source, .source):
             return true
         case (.value(let lhsValue), .value(let rhsValue)):
             return lhsValue == rhsValue

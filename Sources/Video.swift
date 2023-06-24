@@ -488,6 +488,8 @@ public class VideoTool {
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
                 let rate = (totalPixels * codecMultiplier * fps) / 8
                 videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
+            case .source:
+                videoCompressionSettings[AVVideoAverageBitRateKey] = videoTrack.estimatedDataRate.rounded()
             case .encoder:
                 break
             }
