@@ -8,7 +8,7 @@ __Video compressor focused on:__
 - HDR content
 - Alpha channel
 - Slow motion
-- Metadata (File metadata, Timed metadata, Extended attributes)
+- Metadata
 - Hardware Acceleration
 - Progress and cancellation
 
@@ -120,10 +120,3 @@ To install library with CocoaPods, add the following line to your __Podfile__ fi
 ```
 pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.6'
 ```
-
-## Problem Resolving
-### Metadata Stripping
-By default Xcode remove the metadata from output file, to prevent go to Build Settings tab, Under the __Other C Flags__ section, add the following flag: ```-fno-strip-metadata```
-
-### Redunant Compression
-In case the video and audio won't be modified based on source file and output settings the compression will fail with ```CompressionError.redunantCompression```
