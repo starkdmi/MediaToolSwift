@@ -120,7 +120,7 @@ CompressionVideoSettings(edit: [
     }
 ])
 ```
-Complex example is stored in [Video Tests](Tests/VideoTests.swift#:~:text=testImageProcessing) under `testImageProcessing()`.
+Complex example is stored in [Video Tests](../Tests/VideoTests.swift#:~:text=testImageProcessing) under `testImageProcessing()`.
 
 ## Frame Rate adjustment
 Set custom video frame rate. Will not increase source video frame rate. Slo-mo supported but should preserver frame rate higher than 120 to display as Slo-mo on Apple devices.
