@@ -612,7 +612,91 @@ class MediaToolSwiftTests: XCTestCase {
     #else
     let osAdditionalTimeout: TimeInterval = 0
     #endif
+    
+    func testThumbnail() async {
+        let expectation = XCTestExpectation(description: "Test thumbnail")
+        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
+        let destination = Self.tempDirectory.appendingPathComponent("thumbnail_oludeniz.jpg")
+        try? FileManager.default.removeItem(at: destination)
+        
+        let asset = AVAsset(url: source)
+        let videoTrack = await asset.getFirstTrack(withMediaType: .video)
+        
+        // TODO: Parameters: Time, Time Tolerance, Formats (bmp, jpeg, png, tiff), Quality
+        
+        let timeScale = CMTimeScale(videoTrack!.nominalFrameRate)
+        let time = CMTimeMakeWithSeconds(5.5, preferredTimescale: timeScale)
+        
+        // AVAssetImageGenerator - https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/creating_images_from_a_video_asset
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        //generator.maximumSize = CGSize(width: 300, height: 0)
+        
+        // Tolerance
+        // generator.requestedTimeToleranceBefore = CMTime(seconds: 0.01, preferredTimescale: timeScale) // .zero
+        // generator.requestedTimeToleranceAfter = CMTime(seconds: 0.01, preferredTimescale: timeScale) // .zero
+        
+        // if #available(macOS 13, iOS 16, tvOS 16, *)
+        // let (image, actualTime) = try! await generator.images(at: [time])
+        // else
+        generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)], completionHandler: { (requestedTime, image, actualTime, result, error) in
+            
+            // TODO: HDR Lost (?)
 
+            #if os(OSX)
+            let thumbnail = NSImage(cgImage: image!, size: CGSize(width: image!.width, height: image!.height))
+            let jpegData = NSBitmapImageRep(data: thumbnail.tiffRepresentation!)!
+                .representation(using: .jpeg, properties: [.compressionFactor: 0.95])!
+            #else
+            let thumbnail = UIImage(cgImage: image!)
+            let jpegData = thumbnail.jpegData(compressionQuality: 0.95)!
+            #endif
+            
+            let url = Self.tempDirectory.appendingPathComponent("oludeniz.jpg")
+            // _ = url.startAccessingSecurityScopedResource()
+            try! jpegData.write(to: url, options: .atomic)
+
+            Self.fulfill(expectation) // expectation.fulfill()
+        })
+        await fulfillment(of: [expectation], timeout: 5)
+    }
+
+    func testSingle() async {
+        let expectation = XCTestExpectation(description: "Test Single")
+        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
+        let destination = Self.tempDirectory.appendingPathComponent("test_single_oludeniz.MOV")
+
+        _ = await VideoTool.convert(
+            source: source,
+            destination: destination,
+            fileType: .mov,
+            videoSettings: .init(
+                codec: .hevc,
+                bitrate: .source,
+                edit: [
+                    .crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center)),
+                    //  .cut(from: 0.5, to: 7.5),
+                    // .rotate(.clockwise), .rotate(.angle(.pi)),
+                    // .mirror,
+                ]
+            ),
+            skipAudio: true,
+            overwrite: true,
+            callback: { state in
+                switch state {
+                case .completed, .cancelled:
+                    Self.fulfill(expectation)
+                case .failed(let error):
+                    XCTFail(error.localizedDescription)
+                default:
+                    break
+                }
+        })
+
+        await fulfillment(of: [expectation], timeout: 5 + osAdditionalTimeout)
+    }
+
+    /// Video overlay, apply CIFilters, and many more using custom CIImage processor
     func testImageProcessing() async {
         #if os(macOS)
         typealias Font = NSFont
@@ -624,14 +708,18 @@ class MediaToolSwiftTests: XCTestCase {
 
         let expectation = XCTestExpectation(description: "Image Processing Example")
         let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destination = Self.tempDirectory.appendingPathComponent("example_oludeniz.MOV")
+        let destination = Self.tempDirectory.appendingPathComponent("image_processor_oludeniz.MOV")
 
         let duration = AVAsset(url: source).duration.seconds // source video duration, be carefull with cutting
 
         let white = CGColor(red: 244/255, green: 244/255, blue: 244/255, alpha: 1.0)
+        //let dark = CGColor(red: 43/255, green: 43/255, blue: 43/255, alpha: 1.0)
+        //let black = CGColor(red: 35/255, green: 34/255, blue: 35/255, alpha: 1.0)
         let darkGreen = CGColor(red: 7/255, green: 94/255, blue: 84/255, alpha: 1.0)
+        //let orange = CGColor(red: 252/255, green: 176/255, blue: 69/255, alpha: 0.9)
         let yellow = CGColor(red: 250/255, green: 197/255, blue: 22/255, alpha: 1.0)
-    
+        //let red = CGColor(red: 250/255, green: 75/255, blue: 22/255, alpha: 1.0)
+
         let imageProcessor: ImageProcessor = { image, size, time in
             /* Parameters:
              - Image: An CIImage to modify
@@ -642,9 +730,9 @@ class MediaToolSwiftTests: XCTestCase {
              Time: Frame time in seconds, use this to show/hide overlays or filter based on video time
            */
             var image = image
-
+            
             // Warning: This method called once for each frame, the code in this block must be optimized
-            // For example initialize filter once and reuse, render text to image once, then composite based on tim
+            // For example initialize filter once and reuse, render text to image once, then composite based on time
 
             // Warning: When .mirror, .flip or other tranformation is applied to video, it's also applied overlays
             // To prevent apply oposite tranformation
@@ -664,6 +752,10 @@ class MediaToolSwiftTests: XCTestCase {
             let timeFactor = time/duration
             let timeFactorBefore = { (end: Double) in time / end }
             let timeFactorAfter = { (start: Double) in max(0, (time - start) / (duration - start)) }
+            let timeFactorRange = { (start: Double, end: Double) in
+                let progress = (time - start) / (end - start)
+                return max(0, min(progress, 1))
+            }
 
             // Overlay text, all the duration
             let shadow = NSShadow()
@@ -697,6 +789,100 @@ class MediaToolSwiftTests: XCTestCase {
             // Place text over source image
             image = textImage.composited(over: image)
 
+            // Advanced String/Letters Animation by rendering each letter separately and then animate position/opacity/atd.
+            if timeFactor < 0.99 {
+                #if os(macOS)
+                let fontSize: CGFloat = 36
+                #else
+                let fontSize: CGFloat = 24
+                #endif
+                let orange = Color(red: 252/255, green: 176/255, blue: 69/255, alpha: 0.9)
+                let green = Color(red: 7/255, green: 94/255, blue: 84/255, alpha: 1.0)
+
+                // String to animate with base character attributes
+                let storage = NSTextStorage(string: "Animated String ✨", attributes: [
+                    .foregroundColor: Color.white,
+                    .font: Font.boldSystemFont(ofSize: fontSize),
+                    //.kern: 18.0,
+                ])
+
+                // Separate attributed strings for each character using .byComposedCharacterSequences
+                // Or animate by words, sentences, lines, paragraphs, atd. using .byWords, .byLines, ...
+                var attributedCharacters: [NSAttributedString] = []
+                storage.string.enumerateSubstrings(in: storage.string.startIndex..<storage.string.endIndex, options: .byComposedCharacterSequences, { (substring, substringRange, _, _) in
+                    let range = NSRange(substringRange, in: storage.string)
+                    let char = storage.attributedSubstring(from: range)
+                    let customized: NSMutableAttributedString = char.mutableCopy() as! NSMutableAttributedString
+                    if range.length == 1 {
+                        customized.addAttribute(.foregroundColor, value: attributedCharacters.count % 2 == 0 ? orange : green, range: NSMakeRange(0, 1))
+                    }
+                    attributedCharacters.append(customized)
+                })
+
+                // Text size
+                let textSize = storage.boundingRect(with: CGRect.infinite.size, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size
+    
+                // Position on image
+                #if os(macOS)
+                let spacing: CGFloat = 24 // space between characters
+                #else
+                let spacing: CGFloat = 32
+                #endif
+                let allSpacing = max(0, (CGFloat(attributedCharacters.count) - 2)) * spacing
+                let centerX = (size.width - (textSize.width + allSpacing)) / 2.0
+                // let centerY = (size.height - textSize.height) / 2.0
+                let point = CGPoint(x: centerX, y: 256) // starting point
+                var offsetX: CGFloat = 0 // used to draw letters one by one while increasing offset
+
+                let stepsY: CGFloat = 10 // animation height - fullSize.height * stepsY
+                let startPoint = CGPoint(x: point.x, y: point.y + textSize.height * stepsY)
+                let endPoint = CGPoint(x: point.x, y: point.y )
+
+                let delay = 0.3 // delay in animation between chars, from left to right, in sec
+
+                for idx in 0...attributedCharacters.count-1 {
+                    let char = attributedCharacters[idx]
+                    let size = char.size()
+                    let progress = timeFactorRange(Double(idx) * delay, 0.99 * duration)
+  
+                    // Create an character image
+                    #if os(macOS)
+                    let characterImage = NSImage(size: size)
+                    characterImage.lockFocus()
+                    char.draw(at: .zero)
+                    characterImage.unlockFocus()
+                    // Construct CIImage
+                    var ciImage = CIImage(data: characterImage.tiffRepresentation!)!
+                    // var ciImage = CIImage(cgImage: characterImage.cgImage(forProposedRect: nil, context: nil, hints: nil)!)
+                    #else
+                    let renderer = UIGraphicsImageRenderer(size: size)
+                    let characterImage = renderer.image { context in
+                        char.draw(at: .zero)
+                    }
+                    var ciImage = CIImage(image: characterImage)!
+                    #endif
+
+                     // Position
+                    let start = CGPoint(x: startPoint.x + offsetX, y: startPoint.y)
+                    let end = CGPoint(x: endPoint.x + offsetX, y: endPoint.y)
+                    ciImage = ciImage.transformed(by: .init(
+                        translationX: Easing.bounceInOut.interpolate(from: start.x, to: end.x, with: progress),
+                        y: Easing.bounceInOut.interpolate(from: start.y, to: end.y, with: progress)
+                    ))
+                    // Opacity
+                    let alpha = Easing.default(from: 0.0, to: 1.0, with: progress)
+                    ciImage = ciImage.applyingFilter("CIColorMatrix", parameters: [
+                        "inputAVector": CIVector(values: [0.0, 0.0, 0.0, CGFloat(alpha)], count: 4),
+                    ])
+
+                    offsetX += size.width + spacing
+
+                    // Transform & Insert
+                    ciImage = ciImage.transformed(by: mirrored)
+                    image = ciImage.composited(over: image)
+                }
+            }
+
             // Image overlay
             if time >= 2.8 {
                 let imageUrl = Self.mediaDirectory.appendingPathComponent("starkdev.png")
@@ -712,7 +898,6 @@ class MediaToolSwiftTests: XCTestCase {
                 ])
                 // Time based opacity animation
                 let alpha = 1.0 - timeFactorAfter(2.8)
-                
                 ciImageOverlay = ciImageOverlay.applyingFilter("CIColorMatrix", parameters: [
                     "inputAVector": CIVector(values: [0.0, 0.0, 0.0, CGFloat(alpha)], count: 4),
                 ])
@@ -760,7 +945,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        await fulfillment(of: [expectation], timeout: 5 + osAdditionalTimeout)
+        await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
     }
 
     func testVideos() async {
