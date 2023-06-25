@@ -97,14 +97,9 @@ task.cancel()
 Complex example can be found in [this](Example/) directory.
 
 ## Requirements
-* iOS 13.0+
 * macOS 11.0+
+* iOS 13.0+
 * tvOS 13.0+
-
-## Documentation
-Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
-
-More info on video features and operations can be found [here](Files/VIDEO.md).
 
 ## Installation
 ### Swift Package Manager
@@ -120,3 +115,8 @@ To install library with CocoaPods, add the following line to your __Podfile__ fi
 ```
 pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.6'
 ```
+
+## Documentation
+Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
+
+More info on video features and operations can be found [here](Files/VIDEO.md).
