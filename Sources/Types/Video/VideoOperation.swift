@@ -30,6 +30,7 @@ public enum VideoOperation: Equatable, Hashable {
     case mirror
 
     /// Image processing
+    /// Warning: `CIImage` size should not be modified
     case imageProcessing(ImageProcessor)
 
     /// Transform value
