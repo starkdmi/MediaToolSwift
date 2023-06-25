@@ -51,6 +51,13 @@ let task = await VideoTool.convert(
             .cut(from: 2.5, to: 15.0), // cut, in seconds
             .rotate(.clockwise), // rotate
             // crop, flip, mirror, atd.
+
+            // modify video frames as images
+            .imageProcessing { image, _, _ in
+                image.applyingFilter("CIGaussianBlur", parameters: [
+                    "inputRadius": 7.5
+                ])
+            }
         ]
     ),
     optimizeForNetworkUse: true,
