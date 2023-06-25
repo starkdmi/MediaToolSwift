@@ -12,7 +12,7 @@ __Video compressor focused on:__
 - Hardware Acceleration
 - Progress and cancellation
 
-__[Features](Files/VIDEO.md):__
+__[Features](Files/VIDEO.md)__
 | Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Image Processing[\*](Tests/VideoTests.swift#:~:text=testImageProcessing) | FPS | Thumbnail | Video Preview | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | ✔️ | ✔️ | ✔️ | ⭐️ | ⭐️ | ✔️ | ✔️ | 🚧 | ➖ | 🚧 |
@@ -96,6 +96,8 @@ Complex example can be found in [this](Example/) directory.
 
 ## Documentation
 Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
+
+More info on video features and operations can be found [here](Files/VIDEO.md).
 
 ## Installation
 ### Swift Package Manager
