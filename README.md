@@ -12,7 +12,7 @@ __Video compressor focused on:__
 - Hardware Acceleration
 - Progress and cancellation
 
-__Features:__
+__[Features](Files/VIDEO.md):__
 | Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Image Processing[\*](Tests/VideoTests.swift#:~:text=testImageProcessing) | FPS | Thumbnail | Video Preview | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | ✔️ | ✔️ | ✔️ | ⭐️ | ⭐️ | ✔️ | ✔️ | 🚧 | ➖ | 🚧 |
@@ -87,7 +87,7 @@ let task = await VideoTool.convert(
 // Cancel the compression
 task.cancel()
 ```
-Complex example can be found in [this](./Example/) directory.
+Complex example can be found in [this](Example/) directory.
 
 ## Requirements
 * iOS 13.0+
