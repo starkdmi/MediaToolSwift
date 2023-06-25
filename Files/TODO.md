@@ -23,9 +23,7 @@ __Video Preview__ - animated image/video file with a little of best video frames
 
 __Advanced Cutting__ - select multiple ranges of audio/video track and stitch them together while removing unselected parts. this feature can be done without re-encoding video frames (losslessly)
 
-__Subtitles__ - draw centered text subtitles using overlays
-
-__Frame rate and resolution upscaling__ - combine nearest frames to produce middle one, upscale pixels
+__Frame rate and resolution upscaling__ - combine nearest frames to produce middle one, upscale/enlarge/unblur pixels
 
 __Video Stabilization__ - only using native Swift code (no 3rd party libraries like OpenCV and ffmpeg)
 [VNHomographicImageRegistrationRequest](https://developer.apple.com/documentation/vision/vnhomographicimageregistrationrequest) + [vImage](https://developer.apple.com/documentation/accelerate/vimage)

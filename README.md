@@ -4,15 +4,13 @@
 ## Video
 __Video compressor focused on:__
 - Multiple video and audio codecs
-- Lossless*
+- Lossless
 - HDR content
 - Alpha channel
 - Slow motion
 - Metadata (File metadata, Timed metadata, Extended attributes)
 - Hardware Acceleration
 - Progress and cancellation
-
-\* If audio or video track doesn't require re-encoding the track is written as is
 
 __Features:__
 | Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Image Processing[\*](Tests/VideoTests.swift#:~:text=testImageProcessing) | FPS | Thumbnail | Video Preview | Info |
