@@ -102,6 +102,10 @@ CompressionVideoSettings(edit: [.mirror, .flip])
 ## Image Processing
 Frame-by-frame callback handler which provides `CIImage`, frame `time` in seconds and frame `resolution`. Can be used to apply `CIFilter`, composite any images over source and many more operations supported by `CIImage`. `CIImage` size should not be modified.
 
+Before | After
+:-: | :-:
+<video src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/844fddfb-98a4-46e1-a65c-7dbedea5bdfb' type='video/quicktime; codecs=hvc1'/> | <video src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/cb23174a-85d1-4b41-b04f-df67e81ba849' type='video/quicktime; codecs=hvc1'/>
+
 __Usage__
 ```Swift
 CompressionVideoSettings(edit: [
