@@ -49,7 +49,7 @@ public extension CompressionVideoProfile {
             return AVVideoProfileLevelH264MainAutoLevel
         case .h264High:
             return AVVideoProfileLevelH264HighAutoLevel
-        //case .h264Extended:
+        // case .h264Extended:
         //    return kVTProfileLevel_H264_Extended_AutoLevel as String
         // HEVC
         case .hevcMain:
