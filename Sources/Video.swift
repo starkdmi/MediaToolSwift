@@ -9,7 +9,8 @@ import VideoToolbox
 import ObjCExceptionCatcher
 #endif
 
-public class VideoTool {
+/// Video related singletone interface
+public struct VideoTool {
 
     /// Compress video file
     /// - Parameters:
@@ -43,7 +44,7 @@ public class VideoTool {
     ///   - deleteSourceFile: Delete source file on success 
     ///   - callback: Compression process state notifier, including error handling and completion
     /// - Returns: Task with option to control the compression process
-    public class func convert(
+    public static func convert(
         source: URL,
         destination: URL,
         fileType: CompressionFileType = .mov,
@@ -364,7 +365,7 @@ public class VideoTool {
     }
 
     /// Initialize track, reader and writer for video 
-    private class func initVideo(asset: AVAsset, videoSettings: CompressionVideoSettings) async throws -> VideoVariables {
+    private static func initVideo(asset: AVAsset, videoSettings: CompressionVideoSettings) async throws -> VideoVariables {
         var variables = VideoVariables()
 
         // Get first video track, an error is raised if none found 
@@ -826,7 +827,7 @@ public class VideoTool {
     }
 
     /// Initialize track, reader and writer for audio 
-    private class func initAudio(asset: AVAsset, audioSettings: CompressionAudioSettings?) async throws -> AudioVariables {
+    private static func initAudio(asset: AVAsset, audioSettings: CompressionAudioSettings?) async throws -> AudioVariables {
         var variables = AudioVariables()
 
         // Load first audio track if any
@@ -1030,7 +1031,7 @@ public class VideoTool {
     }
 
     /// Initialize timed metadata track, reader, writer and collect metadata information
-    private class func initMetadata(asset: AVAsset, skipSourceMetadata: Bool, customMetadata: [AVMetadataItem]) async -> MetadataVariables {
+    private static func initMetadata(asset: AVAsset, skipSourceMetadata: Bool, customMetadata: [AVMetadataItem]) async -> MetadataVariables {
         var variables = MetadataVariables()
 
         var hasMetadata = false
@@ -1077,4 +1078,147 @@ public class VideoTool {
         return variables
     }
 
+    // MARK: Video Thumbnail
+
+    /// Generate multiple CGImage thumbnails
+    /// - Parameters:
+    ///     - asset: Input video asset
+    ///     - seconds: Array of points in seconds to generate thumbnails at, can differ based on tolerance
+    ///     - size: Thumbnail size to fit in
+    ///     - transfrom: Apply preferred source video tranformations if `true`
+    ///     - timeToleranceBefore: Time tolerance before specified time, in seconds
+    ///     - timeToleranceBefore: Time tolerance after specified time, in seconds
+    /// - Returns: Array of image thumbnail objects
+    public static func thumbnailImages(
+        for asset: AVAsset,
+        at seconds: [Double],
+        size: CGSize?,
+        transfrom: Bool = true,
+        timeToleranceBefore: Double = .infinity,
+        timeToleranceAfter: Double = .infinity
+    ) async throws -> [VideoThumbnail] {
+        guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
+            throw CompressionError.videoTrackNotFound
+        }
+
+        // Convert seconds to `CMTime`s
+        // let timeScale: CMTimeScale = max(600, CMTimeScale(videoTrack.nominalFrameRate))
+        var timeScale = CMTimeScale(videoTrack.nominalFrameRate)
+        if timeScale < 240 { timeScale = 240 } // 60, 240, 600
+        let seconds = seconds.map({ CMTimeMakeWithSeconds($0, preferredTimescale: timeScale) })
+
+        // AVAssetImageGenerator - https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/creating_images_from_a_video_asset
+        let generator = AVAssetImageGenerator(asset: asset)
+
+        // Transform video frame
+        generator.appliesPreferredTrackTransform = transfrom
+
+        // Size to fit in
+        let videoSize = videoTrack.naturalSizeWithOrientation // videoTrack.naturalSize.applying(videoTrack.fixedPreferredTransform)
+        if var size = size {
+            // `AVAssetImageGenerator.maximumSize` needs a value larger than required size by 0.5-1.0 pixels
+            size.width += 0.5 // 1.0
+            size.height += 0.5 // 1.0
+            if size.width < videoSize.width || size.height < videoSize.height {
+                let maximumSize: CGSize
+                if videoSize.width > videoSize.height {
+                    maximumSize = CGSize(width: videoSize.width / videoSize.height * size.width, height: size.height)
+                } else if videoSize.height > videoSize.width {
+                    maximumSize = CGSize(width: size.width, height: videoSize.height / videoSize.width * size.height)
+                } else {
+                    maximumSize = CGSize(width: videoSize.width, height: videoSize.height)
+                }
+                generator.maximumSize = maximumSize
+            }
+        }
+
+        // Tolerance before specified time
+        switch timeToleranceBefore {
+        case .zero:
+            generator.requestedTimeToleranceBefore = .zero
+        case .infinity:
+            // default to kCMTimePositiveInfinity
+            break
+        default:
+            generator.requestedTimeToleranceBefore = CMTime(seconds: timeToleranceBefore, preferredTimescale: timeScale)
+        }
+
+        // Tolerance after specified time
+        switch timeToleranceAfter {
+        case .zero:
+            generator.requestedTimeToleranceBefore = .zero
+        case .infinity:
+            // default to kCMTimePositiveInfinity
+            break
+        default:
+            generator.requestedTimeToleranceBefore = CMTime(seconds: timeToleranceAfter, preferredTimescale: timeScale)
+        }
+
+        var thumbnails: [VideoThumbnail] = []
+        if #available(macOS 13, iOS 16, tvOS 16, *) {
+            for await result in generator.images(for: seconds) {
+                let requestedTime = result.requestedTime
+                if let image = try? result.image, let actualTime = try? result.actualTime {
+                    thumbnails.append(VideoThumbnail(image: image, requestedTime: requestedTime.seconds, actualTime: actualTime.seconds))
+                }
+            }
+        } else {
+            await withUnsafeContinuation { continuation in
+                let nsSeconds = seconds.map({ NSValue(time: $0) })
+                var count = seconds.count
+                generator.generateCGImagesAsynchronously(forTimes: nsSeconds, completionHandler: { (requestedTime, image, actualTime, _, _) in
+                    if let image = image {
+                        thumbnails.append(VideoThumbnail(image: image, requestedTime: requestedTime.seconds, actualTime: actualTime.seconds))
+                    }
+                    count -= 1
+                    if count <= 0 || thumbnails.count == seconds.count {
+                        continuation.resume()
+                    }
+                })
+            }
+        }
+
+        return thumbnails
+    }
+
+    /// Generate multiple file thumbnails
+    /// - Parameters:
+    ///     - asset: Input video asset
+    ///     - requests: Array of points in seconds to generate thumbnails at and url to save file at
+    ///     - settings: Output images settings
+    ///     - transfrom: Apply preferred source video tranformations if `true`
+    ///     - timeToleranceBefore: Time tolerance before specified time, in seconds
+    ///     - timeToleranceBefore: Time tolerance after specified time, in seconds
+    /// - Returns: Array of file thumbnail objects
+    public static func thumbnailFiles(
+        of asset: AVAsset,
+        at requests: [VideoThumbnailRequest],
+        settings: ImageSettings,
+        transfrom: Bool = true,
+        timeToleranceBefore: Double = .infinity,
+        timeToleranceAfter: Double = .infinity
+    ) async throws -> [VideoThumbnailFile] {
+        // Request the images at specific times
+        let seconds = requests.map({ $0.time })
+        let items = try await thumbnailImages(for: asset, at: seconds, size: settings.size, transfrom: transfrom, timeToleranceBefore: timeToleranceBefore, timeToleranceAfter: timeToleranceAfter)
+        guard items.count > 0 else { return [] }
+
+        var thumbnails: [VideoThumbnailFile] = []
+        // Save image in options.format applying options
+        for index in 0...items.count-1 {
+            do {
+                let item = items[index]
+                let image = item.image
+                let url = requests[index].url
+
+                // Write an image
+                try ImageTool.saveImage(image, at: url, settings: settings)
+
+                // Add to success array
+                thumbnails.append(VideoThumbnailFile(url: url, format: settings.format, size: CGSize(width: image.width, height: image.height), time: item.actualTime))
+            } catch { } // skip
+        }
+
+        return thumbnails
+    }
 }
