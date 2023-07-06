@@ -1,6 +1,5 @@
 import AVFoundation
 import Foundation
-import CoreMedia
 import CoreImage
 import ImageIO
 
@@ -19,7 +18,7 @@ public struct ImageTool {
         settings: ImageSettings = ImageSettings(),
         overwrite: Bool = false,
         deleteSourceFile: Bool = false
-    ) async throws -> Bool {
+    ) async throws -> ImageInfo {
         // Check the source file exists
         guard FileManager.default.fileExists(atPath: source.path) else {
             throw CompressionError.sourceFileNotFound
@@ -54,15 +53,23 @@ public struct ImageTool {
             }
         }
 
+        // Edit
+        let image: CGImage
+        if !settings.edit.isEmpty {
+            image = cgImage.applyingOperations(settings.edit)
+        } else {
+            image = cgImage
+        }
+
         // Save image to destination in specified `ImageFormat` and `ImageSettings`
-        try saveImage(cgImage, at: destination, overwrite: overwrite, settings: settings)
+        try saveImage(image, at: destination, overwrite: overwrite, settings: settings)
 
         // Delete original
         if deleteSourceFile {
             try? FileManager.default.removeItem(atPath: source.path)
         }
 
-        return true
+        return ImageInfo(format: settings.format!, size: CGSize(width: image.width, height: image.height))
     }
 
     /// Save `CGImage` to file in `ImageFormat` with `ImageSettings` applying
