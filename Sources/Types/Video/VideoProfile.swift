@@ -58,7 +58,7 @@ public extension CompressionVideoProfile {
             return kVTProfileLevel_HEVC_Main10_AutoLevel as String
         case .hevcMain42210:
             var profile: String
-            if #available(iOS 15.4, OSX 12.3, tvOS 15.4, *) {
+            if #available(macOS 12.3, iOS 15.4, tvOS 15.4, *) {
                 profile = kVTProfileLevel_HEVC_Main42210_AutoLevel as String
             } else {
                 profile = kVTProfileLevel_HEVC_Main10_AutoLevel as String

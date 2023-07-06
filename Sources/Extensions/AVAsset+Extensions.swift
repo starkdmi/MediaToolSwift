@@ -6,7 +6,7 @@ public extension AVAsset {
     /// - Parameter type: Media type
     /// - Returns: List of tracks or nil
     func getTracks(withMediaType type: AVMediaType) async -> [AVAssetTrack]? {
-        if #available(iOS 15, OSX 12, tvOS 15, *) {
+        if #available(macOS 12, iOS 15, tvOS 15, *) {
             return try? await self.loadTracks(withMediaType: type)
         } else {
             // fallback to deprecated sync API
@@ -26,7 +26,7 @@ public extension AVAsset {
     /// - Returns: List of metadata items
     func getMetadata() async -> [AVMetadataItem] {
         var metadata: [AVMetadataItem] = []
-        if #available(iOS 15, macOS 12, tvOS 15, *) {
+        if #available(macOS 12, iOS 15, tvOS 15, *) {
             if let formats = try? await self.load(.availableMetadataFormats) {
                 for format in formats {
                     if let data = try? await self.loadMetadata(for: format) {
