@@ -47,7 +47,7 @@ public struct ImageTool {
         var settings = settings
         // When destination format is `nil` use the source image format
         if settings.format == nil {
-            if let type = UTType(filenameExtension: source.pathExtension), let format = ImageFormat(type) {
+            if let format = ImageFormat(source.pathExtension) {
                 settings.format = format
             } else {
                 throw CompressionError.unsupportedImageFormat
@@ -116,7 +116,13 @@ public struct ImageTool {
                 if isHDR, format == .heif {
                     format = .heif10
 
-                    if !CGColorSpaceUsesExtendedRange(colorSpace) && !CGColorSpaceUsesITUR_2100TF(colorSpace) {
+                    let validColorSpace: Bool
+                    if #available(macOS 11, iOS 14, tvOS 14, *) {
+                        validColorSpace = CGColorSpaceUsesExtendedRange(colorSpace) || CGColorSpaceUsesITUR_2100TF(colorSpace)
+                    } else {
+                        validColorSpace = CGColorSpaceUsesExtendedRange(colorSpace)
+                    }
+                    if validColorSpace {
                         // Replace color space with the HDR supported one
                         colorSpace = CGColorSpace(name: CGColorSpace.extendedSRGB)! // CGColorSpaceCreateExtended(colorSpace)!
                     }
@@ -146,7 +152,11 @@ public struct ImageTool {
             } catch {
                 throw CompressionError.failedToSaveImage
             }
-        case .jpeg, .jpeg2000, .gif, .bmp, .ico, .png, .tiff:
+        #if os(macOS)
+        case .jpeg2000:
+            fallthrough
+        #endif
+        case .jpeg, .gif, .bmp, .ico, .png, .tiff:
             // print(CGImageDestinationCopyTypeIdentifiers()) // supported output image formats when using `CGImageDestination` methods
             guard let format = format.rawValue, let destination = CGImageDestinationCreateWithURL(url as CFURL, format, 1, nil) else {
                 throw CompressionError.failedToCreateImageFile

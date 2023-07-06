@@ -1,6 +1,8 @@
 import Foundation
 import AVFoundation
-// import UniformTypeIdentifiers
+#if os(iOS) || os(tvOS)
+import MobileCoreServices
+#endif
 
 /// Image formats
 public enum ImageFormat: CaseIterable {
@@ -42,25 +44,50 @@ public enum ImageFormat: CaseIterable {
         case .heif, .heif10:
             return nil
         case .png:
-            return UTType.png.identifier as CFString // kUTTypePNG
+            if #available(macOS 11, iOS 14, tvOS 14, *) {
+                return UTType.png.identifier as CFString
+            } else {
+                return kUTTypePNG
+            }
         case .jpeg:
-            return UTType.jpeg.identifier as CFString // kUTTypeJPEG
+            if #available(macOS 11, iOS 14, tvOS 14, *) {
+                return UTType.jpeg.identifier as CFString
+            } else {
+                return kUTTypeJPEG
+            }
         #if os(macOS)
         case .jpeg2000:
             return kUTTypeJPEG2000 // public.jpeg-2000
         #endif
         case .gif:
-            return UTType.gif.identifier as CFString // kUTTypeGIF
+            if #available(macOS 11, iOS 14, tvOS 14, *) {
+                return UTType.gif.identifier as CFString
+            } else {
+                return kUTTypeGIF
+            }
         case .tiff:
-            return UTType.tiff.identifier as CFString // kUTTypeTIFF
+            if #available(macOS 11, iOS 14, tvOS 14, *) {
+                return UTType.tiff.identifier as CFString
+            } else {
+                return kUTTypeTIFF
+            }
         case .bmp:
-            return UTType.bmp.identifier as CFString // kUTTypeBMP
+            if #available(macOS 11, iOS 14, tvOS 14, *) {
+                return UTType.bmp.identifier as CFString
+            } else {
+                return kUTTypeBMP
+            }
         case .ico:
-            return UTType.ico.identifier as CFString // kUTTypeICO
+            if #available(macOS 11, iOS 14, tvOS 14, *) {
+                return UTType.ico.identifier as CFString
+            } else {
+                return kUTTypeICO
+            }
         }
     }
 
     /// Init `ImageFormat` using corresponding `UTType`
+    @available(macOS 11, iOS 14, tvOS 14, *)
     public init?(_ type: UTType) {
         if let value = ImageFormat.allCases.first(where: { format in
             if let cfString = format.rawValue, cfString == (type.identifier as CFString) {
@@ -71,6 +98,30 @@ public enum ImageFormat: CaseIterable {
             self = value
         } else {
             return nil
+        }
+    }
+
+    /// Init `ImageFormat` using file extension
+    public init?(_ filenameExtension: String) {
+        if #available(macOS 11, iOS 14, tvOS 14, *) {
+            if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
+                self = format
+            } else {
+                return nil
+            }
+        } else {
+            // Fallback on earlier versions
+            if let identifier = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, filenameExtension as CFString, nil)?.takeRetainedValue(),
+                let value = ImageFormat.allCases.first(where: { format in
+                if let cfString = format.rawValue, cfString == identifier {
+                    return true
+                }
+                return false
+            }) {
+                self = value
+            } else {
+                return nil
+            }
         }
     }
 
