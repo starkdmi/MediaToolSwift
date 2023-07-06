@@ -1208,8 +1208,13 @@ public struct VideoTool {
         for index in 0...items.count-1 {
             do {
                 let item = items[index]
-                let image = item.image
+                var image = item.image
                 let url = requests[index].url
+
+                // Image operations
+                if !settings.edit.isEmpty {
+                    image = image.applyingOperations(settings.edit)
+                }
 
                 // Write an image
                 try ImageTool.saveImage(image, at: url, settings: settings)
