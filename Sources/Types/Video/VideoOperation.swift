@@ -55,12 +55,9 @@ public enum VideoOperation: Equatable, Hashable {
             hasher.combine(from)
             hasher.combine(to)
         case .crop(let value):
-            hasher.combine("crop")
-            hasher.combine(value.cropSize.width)
-            hasher.combine(value.cropSize.height)
+            hasher.combine(value)
         case .rotate(let value):
-            hasher.combine("rotate")
-            hasher.combine(value.radians)
+            hasher.combine(value)
         case .flip:
             hasher.combine("flip")
         case .mirror:
@@ -75,6 +72,8 @@ public enum VideoOperation: Equatable, Hashable {
         switch (lhs, rhs) {
         case (let .cut(lhsFrom, lhsTo), let .cut(rhsFrom, rhsTo)):
             return lhsFrom == rhsFrom && lhsTo == rhsTo
+        case (.crop(let lhsCrop), .crop(let rhsCrop)):
+            return lhsCrop == rhsCrop
         case (.rotate(let lhsRotation), .rotate(let rhsRotation)):
             return lhsRotation == rhsRotation
         case (.flip, .flip):
@@ -84,93 +83,5 @@ public enum VideoOperation: Equatable, Hashable {
         default:
             return false
         }
-    }
-}
-
-/// Rotation enumeration
-public enum Rotate: Equatable {
-    /// Rotate in a rightward direction
-    case clockwise
-
-    /// Rotate in a leftward direction
-    case counterclockwise
-
-    /// Custom rotation angle in radians, most likely will be displayed as nearest 90' value
-    case angle(Double)
-
-    /// Angle
-    var radians: Double {
-        switch self {
-        case .clockwise:
-            return .pi/2
-        case .counterclockwise:
-            return -.pi/2
-        case .angle(let value):
-            return value
-        }
-    }
-}
-
-/// Rotation enumeration
-public struct Crop {
-    private var size: CGSize?
-    private var aligment: Alignment?
-    private var rect: CGRect?
-    private var origin: CGPoint?
-
-    /// Initialize using size and alignment
-    public init(size: CGSize, aligment: Alignment = .center) {
-        self.size = size
-        self.aligment = aligment
-    }
-
-    /// Initialize using rectangle, origin at (0, 0) is a left bottom corner
-    public init(rect: CGRect) {
-        self.rect = rect
-    }
-
-    /// Initialize using starting point and size, point at (0, 0) is a left bottom corner
-    public init(origin: CGPoint, size: CGSize) {
-        self.origin = origin
-        self.size = size
-    }
-
-    /// Cropping area size
-    public var cropSize: CGSize {
-        return self.size ?? self.rect?.size ?? .zero
-    }
-
-    /// Calculate cropping rectangle
-    public func makeCroppingRectangle(in size: CGSize) -> CGRect {
-        if let aligment = self.aligment, let cropSize = self.size {
-            let cropOrigin: CGPoint
-            switch aligment {
-            case .center:
-                cropOrigin = CGPoint(x: (size.width - cropSize.width) / 2, y: (size.height - cropSize.height) / 2)
-            case .topLeading:
-                cropOrigin = CGPoint(x: 0, y: 0)
-            case .top:
-                cropOrigin = CGPoint(x: (size.width - cropSize.width) / 2, y: 0)
-            case .topTrailing:
-                cropOrigin = CGPoint(x: size.width - cropSize.width, y: 0)
-            case .leading:
-                cropOrigin = CGPoint(x: 0, y: (size.height - cropSize.height) / 2)
-            case .trailing:
-                cropOrigin = CGPoint(x: size.width - cropSize.width, y: (size.height - cropSize.height) / 2)
-            case .bottom:
-                cropOrigin = CGPoint(x: (size.width - cropSize.width) / 2, y: size.height - cropSize.height)
-            case .bottomLeading:
-                cropOrigin = CGPoint(x: 0, y: size.height - cropSize.height)
-            case .bottomTrailing:
-                cropOrigin = CGPoint(x: size.width - cropSize.width, y: size.height - cropSize.height)
-            }
-            return CGRect(origin: cropOrigin, size: cropSize)
-        } else if let rect = self.rect {
-            return rect
-        } else if let origin = self.origin, let size = self.size {
-            return CGRect(origin: origin, size: size)
-        }
-
-        return .zero
     }
 }
