@@ -5,16 +5,15 @@ import CoreImage
 public struct ImageSettings {
     /// Public initializer
     public init(
-        // url: URL? = nil,
         format: ImageFormat? = nil,
         size: CGSize? = nil, quality: Double? = nil,
         frameRate: Int? = nil,
         preserveAlphaChannel: Bool = true,
         embedThumbnail: Bool = false,
         optimizeColorForSharing: Bool = false,
-        backgroundColor: CGColor? = nil
+        backgroundColor: CGColor? = nil,
+        edit: Set<ImageOperation> = []
     ) {
-        // self.url = url
         self.format = format
         self.size = size
         self.quality = quality
@@ -23,10 +22,8 @@ public struct ImageSettings {
         self.embedThumbnail = embedThumbnail
         self.optimizeColorForSharing = optimizeColorForSharing
         self.backgroundColor = backgroundColor
+        self.edit = edit
     }
-
-    /// Image file url
-    // let url: URL?
 
     /// Image format, default to source image format
     var format: ImageFormat?
@@ -55,5 +52,5 @@ public struct ImageSettings {
 
     /// Image specific operations like crop, filter, atd.
     /// Only one operation of each type is applied
-    // let edit: Set<ImageOperation> = []
+    let edit: Set<ImageOperation>
 }
