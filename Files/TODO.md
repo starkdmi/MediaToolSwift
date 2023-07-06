@@ -19,6 +19,10 @@ __Codecs__
 VP9, AV1
 ```
 
+__Base__
+- __Video thumbnails cancellation feature__ - generator.cancelAllCGImageGeneration()
+- __Video thumbnails threading__ - check the main thread isn't busy
+
 __Video Preview__ - animated image/video file with a little of best video frames stitched together at a small frame rate, GIF can be used instead of WebP
 
 __Insert video__ - insert/add video track before/after the source video
@@ -50,7 +54,12 @@ AAC, Opus, FLAC
 ## Image
 | Convert | Resize | Crop | Rotate | Flip | Filter | Background | Blurhash | Custom FPS | Thumbnail | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| 🚧 | 🚧 | 🚧 | ➖ | ➖ | ➖ | ➖ | 🚧 | Animated 🚧 | Animated 🚧 | 🚧 |
+| ✔️ | 🚧 | ✔️ | ✔️ | ➖ | ➖ | ➖ | 🚧 | Animated 🚧 | Animated 🚧 | 🚧 |
+
+__Base__
+- __Metadata__
+- __Lossless__
+- __Animated__
 
 __Info__
 ```
