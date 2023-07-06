@@ -21,6 +21,8 @@ VP9, AV1
 
 __Video Preview__ - animated image/video file with a little of best video frames stitched together at a small frame rate, GIF can be used instead of WebP
 
+__Insert video__ - insert/add video track before/after the source video
+
 __Advanced Cutting__ - select multiple ranges of audio/video track and stitch them together while removing unselected parts. this feature can be done without re-encoding video frames (losslessly)
 
 __Frame rate and resolution upscaling__ - combine nearest frames to produce middle one, upscale/enlarge/unblur pixels
