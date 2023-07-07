@@ -86,16 +86,25 @@ public enum ImageFormat: CaseIterable {
         }
     }
 
-    /// Init `ImageFormat` using corresponding `UTType`
-    @available(macOS 11, iOS 14, tvOS 14, *)
-    public init?(_ type: UTType) {
-        if let value = ImageFormat.allCases.first(where: { format in
-            if let cfString = format.rawValue, cfString == (type.identifier as CFString) {
+    /// Init `ImageFormat` using UTType CFString
+    public init?(_ cfString: CFString) {
+        if let format = ImageFormat.allCases.first(where: { format in
+            if let identifier = format.rawValue, identifier == cfString {
                 return true
             }
             return false
         }) {
-            self = value
+            self = format
+        } else {
+            return nil
+        }
+    }
+
+    /// Init `ImageFormat` using corresponding `UTType`
+    @available(macOS 11, iOS 14, tvOS 14, *)
+    public init?(_ type: UTType) {
+        if let format = Self(type.identifier as CFString) {
+            self = format
         } else {
             return nil
         }
@@ -111,14 +120,9 @@ public enum ImageFormat: CaseIterable {
             }
         } else {
             // Fallback on earlier versions
-            if let identifier = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, filenameExtension as CFString, nil)?.takeRetainedValue(),
-                let value = ImageFormat.allCases.first(where: { format in
-                if let cfString = format.rawValue, cfString == identifier {
-                    return true
-                }
-                return false
-            }) {
-                self = value
+            let utType = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, filenameExtension as CFString, nil)?.takeRetainedValue()
+            if let utType = utType, let format = ImageFormat(utType) {
+                self = format
             } else {
                 return nil
             }
