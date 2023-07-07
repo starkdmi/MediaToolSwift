@@ -31,7 +31,7 @@ public struct ImageSettings {
     /// Image resolution to fit in, default to source resolution
     let size: CGSize?
 
-    /// Image quality, from 0.0 to 1.0, not all `ImageFormat` supported
+    /// Image quality, from 0.0 to 1.0 where 1.0 is lossless, not all `ImageFormat` supported
     let quality: Double?
 
     /// Animated image frame rate
