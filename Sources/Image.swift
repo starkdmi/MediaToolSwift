@@ -46,7 +46,11 @@ public struct ImageTool {
         var settings = settings
         // When destination format is `nil` use the source image format
         if settings.format == nil {
-            if let format = ImageFormat(source.pathExtension) {
+            if let utType = cgImage.utType, let format = ImageFormat(utType) {
+                // Get format from CGImage
+                settings.format = format
+            } else if let format = ImageFormat(source.pathExtension) {
+                // Get format from file extension
                 settings.format = format
             } else {
                 throw CompressionError.unsupportedImageFormat
@@ -80,7 +84,10 @@ public struct ImageTool {
 
         switch format {
         case .heif, .heif10:
-            let ciImage = CIImage(cgImage: image)
+            let ciImage = CIImage(cgImage: image, options: [
+                .applyOrientationProperty: true
+            ])
+            // let ciImage = CIImage(cgImage: image)
             let ciContext = CIContext()
 
             var optionsDict: [CIImageRepresentationOption: Any] = [:]
@@ -91,49 +98,24 @@ public struct ImageTool {
             }
 
             // Pixel format
-            let pixelFormat: CIFormat
-            switch (image.bitsPerPixel, image.bitsPerComponent) {
-            case (32, 32), (32, 64), (32, 128):
-                pixelFormat = .RGBAf
-            case (16, 32), (16, 64), (32, 32):
-                pixelFormat = .RGBAh
-            case (32, 16), (16, 16):
-                pixelFormat = .RGBA16
-            case (32, 8):
-                pixelFormat = .RGBA8
-            case (16, 8):
-                pixelFormat = .RG8
-            case (8, 8):
-                pixelFormat = .R8
-            default:
-                pixelFormat = .BGRA8
-            }
+            let pixelFormat = image.getPixelFormat()
 
+            // Image Format and Color Space
             var format = settings.format
-            var colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
-            let hasAlpha = image.alphaInfo == CGImageAlphaInfo.first || image.alphaInfo == CGImageAlphaInfo.last // premultiplied skipped
-            if hasAlpha {
-                // HDR doesn't supported when alpha channel
+            let colorSpace: CGColorSpace
+            if image.hasAlpha {
+                // HDR doesn't supported when alpha channel is present
                 if format == .heif10 {
                     format = .heif
                 }
+                colorSpace = image.getColorSpace(extendedColorSpace: false)
             } else {
                 // Possible HDR content
-                let isHDR = image.bitsPerPixel >= 32 && image.bitsPerComponent >= 8
+                let isHDR = image.isHDR
                 if isHDR, format == .heif {
                     format = .heif10
-
-                    let validColorSpace: Bool
-                    if #available(macOS 11, iOS 14, tvOS 14, *) {
-                        validColorSpace = CGColorSpaceUsesExtendedRange(colorSpace) || CGColorSpaceUsesITUR_2100TF(colorSpace)
-                    } else {
-                        validColorSpace = CGColorSpaceUsesExtendedRange(colorSpace)
-                    }
-                    if validColorSpace {
-                        // Replace color space with the HDR supported one
-                        colorSpace = CGColorSpace(name: CGColorSpace.extendedSRGB)! // CGColorSpaceCreateExtended(colorSpace)!
-                    }
                 }
+                colorSpace = image.getColorSpace(extendedColorSpace: isHDR)
             }
 
             do {
