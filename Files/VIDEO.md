@@ -122,6 +122,19 @@ CompressionVideoSettings(edit: [
 ```
 Complex example is stored in [Video Tests](../Tests/VideoTests.swift#:~:text=testImageProcessing) under `testImageProcessing()`.
 
+## Thumbnails
+Generate video thumbnails at specified times. Time specified in seconds. Available image formats are: `HEIF`, `PNG`, `JPEG`, `GIF`, `TIFF`, `BMP`, `ICO`. Use `ImageSettings` to adjust the image options and to post process the video thumbnails.
+
+__Usage__
+```Swift
+try await VideoTool.thumbnailFiles(of: asset, at: [
+        .init(time: 3.5, url: url1), 
+        .init(time: 5.2, url: url2)
+    ],
+    settings: .init(format: .png, size: .hd)
+)
+```
+
 ## Frame Rate adjustment
 Set custom video frame rate. Will not increase source video frame rate. Slo-mo supported but should preserver frame rate higher than 120 to display as Slo-mo on Apple devices.
 
