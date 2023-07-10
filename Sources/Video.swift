@@ -714,7 +714,7 @@ public struct VideoTool {
             if videoSettings.profile == nil {
                 // Video Profile should be adjusted for HDR content support when Video Composition is used
                 let bitsPerComponent = videoDesc.bitsPerComponent ?? (isHDR ? 10 : 8)
-                if let profile = CompressionVideoProfile.profile(for: sourceVideoCodec, bitsPerComponent: bitsPerComponent) {
+                if let profile = CompressionVideoProfile.profile(for: videoCodec!, bitsPerComponent: bitsPerComponent) {
                     videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
                     videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
                 }
