@@ -49,11 +49,16 @@ public struct ImageTool {
             if let utType = cgImage.utType, let format = ImageFormat(utType) {
                 // Get format from CGImage
                 settings.format = format
-            } else if let format = ImageFormat(source.pathExtension) {
+            } else if let format = ImageFormat(destination.pathExtension) {
                 // Get format from file extension
                 settings.format = format
             } else {
                 throw CompressionError.unsupportedImageFormat
+            }
+
+            // Fix HEIF format based on bit depth
+            if settings.format == .heif, cgImage.isHDR {
+                settings.format = .heif10
             }
         }
 
@@ -87,7 +92,6 @@ public struct ImageTool {
             let ciImage = CIImage(cgImage: image, options: [
                 .applyOrientationProperty: true
             ])
-            // let ciImage = CIImage(cgImage: image)
             let ciContext = CIContext()
 
             var optionsDict: [CIImageRepresentationOption: Any] = [:]
@@ -97,32 +101,17 @@ public struct ImageTool {
                 ]
             }
 
-            // Pixel format
-            let pixelFormat = image.getPixelFormat()
-
-            // Image Format and Color Space
-            var format = settings.format
-            let colorSpace: CGColorSpace
-            if image.hasAlpha {
-                // HDR doesn't supported when alpha channel is present
-                if format == .heif10 {
-                    format = .heif
-                }
-                colorSpace = image.getColorSpace(extendedColorSpace: false)
-            } else {
-                // Possible HDR content
-                let isHDR = image.isHDR
-                if isHDR, format == .heif {
-                    format = .heif10
-                }
-                colorSpace = image.getColorSpace(extendedColorSpace: isHDR)
-            }
-
             do {
                 switch format {
                 case .heif:
+                    let pixelFormat = CIFormat.RGBA16
+                    let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+
                     try ciContext.writeHEIFRepresentation(of: ciImage, to: url, format: pixelFormat, colorSpace: colorSpace, options: optionsDict)
                 case .heif10:
+                    let pixelFormat = CIFormat.RGBA16
+                    let colorSpace = CGColorSpace(name: CGColorSpace.extendedSRGB)!
+
                     if #available(macOS 12, iOS 15, tvOS 15, *) {
                         try ciContext.writeHEIF10Representation(of: ciImage, to: url, colorSpace: colorSpace, options: optionsDict)
                     } else {
@@ -145,9 +134,9 @@ public struct ImageTool {
         case .jpeg2000:
             fallthrough
         #endif
-        case .jpeg, .gif, .bmp, .ico, .png, .tiff:
+        case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic: // .heics
             // print(CGImageDestinationCopyTypeIdentifiers()) // supported output image formats when using `CGImageDestination` methods
-            guard let format = format.rawValue, let destination = CGImageDestinationCreateWithURL(url as CFURL, format, 1, nil) else {
+            guard let utType = format.utType, let destination = CGImageDestinationCreateWithURL(url as CFURL, utType, 1, nil) else {
                 throw CompressionError.failedToCreateImageFile
             }
 

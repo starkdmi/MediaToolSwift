@@ -5,15 +5,19 @@ import MobileCoreServices
 #endif
 
 /// Image formats
-public enum ImageFormat: CaseIterable {
-    /// HEIF image format
+public enum ImageFormat: String, CaseIterable {
+    /// HEIC (HEIF with HEVC compression) image format
     case heif
 
     /// HEIF 10 bit image format
     case heif10
 
-    /// HEIC sequence image format
-    // case heics // UTType("public.heics")
+    /// HEIC format with the QuickTime 'nclc' profile
+    case heic
+
+    /// HEIFS (HEIC sequence) image format
+    /// Warning: Displayed darker in macOS Preview app
+    // case heics
 
     /// PNG image format
     case png
@@ -39,10 +43,13 @@ public enum ImageFormat: CaseIterable {
     case ico
 
     /// Corresponding `kUTType`
-    public var rawValue: CFString? {
+    public var utType: CFString? {
         switch self {
-        case .heif, .heif10:
-            return nil
+        case .heif, .heif10, .heic:
+            return AVFileType.heic as CFString
+        /*case .heics:
+            guard let identifier = UTType("public.heics")?.identifier else { return nil }
+            return identifier as CFString*/
         case .png:
             if #available(macOS 11, iOS 14, tvOS 14, *) {
                 return UTType.png.identifier as CFString
@@ -87,9 +94,10 @@ public enum ImageFormat: CaseIterable {
     }
 
     /// Init `ImageFormat` using UTType CFString
+    /// Warning: `ImageFormat.heif` is returned for all the HEIF related formats
     public init?(_ cfString: CFString) {
         if let format = ImageFormat.allCases.first(where: { format in
-            if let identifier = format.rawValue, identifier == cfString {
+            if let utType = format.utType, utType == cfString {
                 return true
             }
             return false
@@ -137,4 +145,5 @@ public enum ImageFormat: CaseIterable {
     /// https://github.com/ainame/Swift-WebP - no animated sequence support
     /// https://github.com/awxkee/webp.swift - animated supported
     /// https://github.com/TimOliver/WebPKit - no animated sequence support
+    /// Live Photos - `UTType.livePhoto`
 }

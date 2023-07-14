@@ -10,78 +10,51 @@ public extension CGImage {
 
     /// HDR data presence
     var isHDR: Bool {
-        return bitsPerPixel >= 32 && bitsPerComponent >= 8
-    }
-
-    /// Detect Image Pixel Format based on bits information
-    func getPixelFormat() -> CIFormat {
-        switch (bitsPerPixel, bitsPerComponent) {
-        case (32, 32), (32, 64), (32, 128):
-            return .RGBAf
-        case (16, 32), (16, 64), (32, 32):
-            return .RGBAh
-        case (32, 16), (16, 16):
-            return .RGBA16
-        case (32, 8):
-            return .RGBA8
-        case (16, 8):
-            return .RG8
-        case (8, 8):
-            return .R8
-        default:
-            return .BGRA8
-        }
-    }
-
-    /// Color space
-    func getColorSpace(extendedColorSpace: Bool) -> CGColorSpace {
-        var colorSpace = self.colorSpace ?? CGColorSpaceCreateDeviceRGB()
-
-        // Replace color space with the HDR supported one when required
-        if #available(macOS 11, iOS 14, tvOS 14, *) {
-            if CGColorSpaceUsesExtendedRange(colorSpace) || CGColorSpaceUsesITUR_2100TF(colorSpace) {
-                colorSpace = CGColorSpace(name: CGColorSpace.extendedSRGB)! // CGColorSpaceCreateExtended(colorSpace)!
+        var hdrColorSpace = true
+        if let colorSpace = self.colorSpace {
+            if #available(macOS 11, iOS 14, tvOS 14, *) {
+                if CGColorSpaceUsesExtendedRange(colorSpace) || CGColorSpaceUsesITUR_2100TF(colorSpace) {
+                    hdrColorSpace = true
+                } else {
+                    hdrColorSpace = false
+                }
+            } else if CGColorSpaceUsesExtendedRange(colorSpace) {
+                hdrColorSpace = true
+            } else {
+                hdrColorSpace = false
             }
-        } else if CGColorSpaceUsesExtendedRange(colorSpace) {
-            colorSpace = CGColorSpace(name: CGColorSpace.extendedSRGB)! // CGColorSpaceCreateExtended(colorSpace)!
         }
 
-        return colorSpace
+        return bitsPerComponent > 8 && hdrColorSpace
     }
 
     /// Apply multiple image operations on image
     func applyingOperations(_ operations: Set<ImageOperation>) -> CGImage {
-        var image = self
-        let operations = operations.sorted()
+        let image = self
+        let size = CGSize(width: self.width, height: self.height)
 
-        var ciImage: CIImage?
-        var ciContext: CIContext?
-        func getCIImage() -> CIImage {
-            if ciContext == nil {
-                ciContext = CIContext()
-            }
-            return ciImage ?? CIImage(cgImage: image, options: [.applyOrientationProperty: true])
-        }
-        
-        for operation in operations {
+        // Convert to CIImage
+        let context = CIContext()
+        var ciImage = CIImage(cgImage: image, options: [.applyOrientationProperty: true])
+
+        // Apply operations in sorted order
+        for operation in operations.sorted() {
             switch operation {
             case .crop(let options):
-                if let cropped = image.cropping(to: options.makeCroppingRectangle(in: CGSize(width: image.width, height: image.height))) {
-                    image = cropped
-                }
+                let rect = options.makeCroppingRectangle(in: size)
+                ciImage = ciImage.cropped(to: rect)
+                    .transformed(by: CGAffineTransform(translationX: -rect.origin.x, y: -rect.origin.y))
             case .rotate(let value):
-                ciImage = getCIImage().transformed(by: CGAffineTransform(rotationAngle: value.radians))
+                ciImage = ciImage
+                    .transformed(by: CGAffineTransform(rotationAngle: value.radians))
             }
         }
 
-        if let ciImage = ciImage {
-            let pixelFormat = image.getPixelFormat()
-            let colorSpace = image.getColorSpace(extendedColorSpace: !image.hasAlpha && image.isHDR)
-            if let modified = ciContext!.createCGImage(ciImage, from: ciImage.extent, format: pixelFormat, colorSpace: colorSpace) {
-                image = modified
-            }
+        // Create a CGImage
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+            return image
         }
 
-        return image
+        return cgImage
     }
 }
