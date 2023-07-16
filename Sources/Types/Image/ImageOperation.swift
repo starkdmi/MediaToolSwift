@@ -1,9 +1,5 @@
 import Foundation
-/*#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif*/
+import CoreImage
 
 /// Image operations
 public enum ImageOperation: Equatable, Hashable, Comparable {
@@ -13,6 +9,9 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
     /// Rotation
     case rotate(Rotate)
 
+    /// Custom image processing function, appplied after all the other image operations
+    case imageProcessing((_ image: CIImage) -> CIImage)
+
     /// Hashable conformance
     public func hash(into hasher: inout Hasher) {
         switch self {
@@ -20,6 +19,8 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
             hasher.combine(value)
         case .rotate(let value):
             hasher.combine(value)
+        case .imageProcessing(_):
+            hasher.combine("ImageProcessing")
         }
     }
 
@@ -42,6 +43,9 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
             return 1
         case .rotate(_):
             return 2
+        case .imageProcessing(_):
+            // Should be executed after all the operations
+            return 100
         }
     }
 

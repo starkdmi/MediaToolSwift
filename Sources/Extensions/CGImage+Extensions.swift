@@ -47,6 +47,8 @@ public extension CGImage {
             case .rotate(let value):
                 ciImage = ciImage
                     .transformed(by: CGAffineTransform(rotationAngle: value.radians))
+            case .imageProcessing(let function):
+                ciImage = function(ciImage)
             }
         }
 
