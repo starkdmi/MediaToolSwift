@@ -10,12 +10,14 @@ public struct ImageTool {
     ///   - source: Input image URL
     ///   - destination: Output image URL
     ///   - settings: Image format options
+    ///   - skipMetadata: Whether copy or not source image metadata to destination image file
     ///   - overwrite: Replace destination file if exists, for `false` error will be raised when file already exists
     ///   - deleteSourceFile: Delete source file on success 
     public static func convert(
         source: URL,
         destination: URL,
         settings: ImageSettings = ImageSettings(),
+        skipMetadata: Bool = false,
         overwrite: Bool = false,
         deleteSourceFile: Bool = false
     ) async throws -> ImageInfo {
@@ -41,6 +43,14 @@ public struct ImageTool {
         // Read image file to `CGImage
         guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil), let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
             throw CompressionError.failedToReadImage
+        }
+
+        // Source Metadata
+        let properties: [CFString: Any]?
+        if !skipMetadata {
+            properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
+        } else {
+            properties = nil
         }
 
         var settings = settings
@@ -71,7 +81,7 @@ public struct ImageTool {
         }
 
         // Save image to destination in specified `ImageFormat` and `ImageSettings`
-        try saveImage(image, at: destination, overwrite: overwrite, settings: settings)
+        try saveImage(image, at: destination, overwrite: overwrite, settings: settings, properties: properties as CFDictionary?)
 
         // Delete original
         if deleteSourceFile {
@@ -82,16 +92,23 @@ public struct ImageTool {
     }
 
     /// Save `CGImage` to file in `ImageFormat` with `ImageSettings` applying
-    public static func saveImage(_ image: CGImage, at url: URL, overwrite: Bool = false, settings: ImageSettings) throws {
+    public static func saveImage(_ image: CGImage, at url: URL, overwrite: Bool = false, settings: ImageSettings, properties: CFDictionary? = nil) throws {
         guard let format = settings.format else {
             throw CompressionError.unknownImageFormat
         }
 
         switch format {
         case .heif, .heif10:
-            let ciImage = CIImage(cgImage: image, options: [
+            // Base options
+            var options: [CIImageOption: Any] = [
                 .applyOrientationProperty: true
-            ])
+            ]
+            // Metadata
+            if let properties = properties {
+                options[.properties] = properties
+            }
+
+            let ciImage = CIImage(cgImage: image, options: options)
             let ciContext = CIContext()
 
             var optionsDict: [CIImageRepresentationOption: Any] = [:]
@@ -161,6 +178,34 @@ public struct ImageTool {
                 let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
                 let bgraColor = CGColor(colorSpace: colorSpace, components: [blue, green, red, 1.0])
                 imageOptions[kCGImageDestinationBackgroundColor] = bgraColor
+            }
+
+            // Metadata
+            if let properties = properties, let dictionaries = properties as? [CFString: Any] {
+                // GPS
+                if let gps = dictionaries[kCGImagePropertyGPSDictionary] {
+                    imageOptions[kCGImagePropertyGPSDictionary] = gps
+                }
+
+                // Exif
+                if let exif = dictionaries[kCGImagePropertyExifDictionary] {
+                    imageOptions[kCGImagePropertyExifDictionary] = exif
+                }
+
+                // TIFF
+                if let tiff = dictionaries[kCGImagePropertyTIFFDictionary] {
+                    imageOptions[kCGImagePropertyTIFFDictionary] = tiff
+                }
+
+                // MakerApple
+                if let apple = dictionaries[kCGImagePropertyMakerAppleDictionary] {
+                    imageOptions[kCGImagePropertyMakerAppleDictionary] = apple
+                }
+
+                // IPTC
+                if let apple = dictionaries[kCGImagePropertyIPTCDictionary] {
+                    imageOptions[kCGImagePropertyIPTCDictionary] = apple
+                }
             }
 
             CGImageDestinationAddImage(destination, image, imageOptions as CFDictionary)
