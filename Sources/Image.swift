@@ -81,7 +81,7 @@ public struct ImageTool {
         }
 
         // Save image to destination in specified `ImageFormat` and `ImageSettings`
-        try saveImage(image, at: destination, overwrite: overwrite, settings: settings, properties: properties as CFDictionary?)
+        try saveImage(image, at: destination, overwrite: overwrite, settings: settings, properties: properties)
 
         // Delete original
         if deleteSourceFile {
@@ -92,7 +92,7 @@ public struct ImageTool {
     }
 
     /// Save `CGImage` to file in `ImageFormat` with `ImageSettings` applying
-    public static func saveImage(_ image: CGImage, at url: URL, overwrite: Bool = false, settings: ImageSettings, properties: CFDictionary? = nil) throws {
+    public static func saveImage(_ image: CGImage, at url: URL, overwrite: Bool = false, settings: ImageSettings, properties: [CFString: Any]? = nil) throws {
         guard let format = settings.format else {
             throw CompressionError.unknownImageFormat
         }
@@ -181,29 +181,29 @@ public struct ImageTool {
             }
 
             // Metadata
-            if let properties = properties, let dictionaries = properties as? [CFString: Any] {
+            if let properties = properties {
                 // GPS
-                if let gps = dictionaries[kCGImagePropertyGPSDictionary] {
+                if let gps = properties[kCGImagePropertyGPSDictionary] {
                     imageOptions[kCGImagePropertyGPSDictionary] = gps
                 }
 
                 // Exif
-                if let exif = dictionaries[kCGImagePropertyExifDictionary] {
+                if let exif = properties[kCGImagePropertyExifDictionary] {
                     imageOptions[kCGImagePropertyExifDictionary] = exif
                 }
 
                 // TIFF
-                if let tiff = dictionaries[kCGImagePropertyTIFFDictionary] {
+                if let tiff = properties[kCGImagePropertyTIFFDictionary] {
                     imageOptions[kCGImagePropertyTIFFDictionary] = tiff
                 }
 
                 // MakerApple
-                if let apple = dictionaries[kCGImagePropertyMakerAppleDictionary] {
+                if let apple = properties[kCGImagePropertyMakerAppleDictionary] {
                     imageOptions[kCGImagePropertyMakerAppleDictionary] = apple
                 }
 
                 // IPTC
-                if let apple = dictionaries[kCGImagePropertyIPTCDictionary] {
+                if let apple = properties[kCGImagePropertyIPTCDictionary] {
                     imageOptions[kCGImagePropertyIPTCDictionary] = apple
                 }
             }
