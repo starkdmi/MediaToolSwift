@@ -29,13 +29,21 @@ public extension CGImage {
     }
 
     /// Apply multiple image operations on image
-    func applyingOperations(_ operations: Set<ImageOperation>) -> CGImage {
+    func applyingOperations(_ operations: Set<ImageOperation>, resize: CGSize? = nil) -> CGImage {
         let image = self
         let size = CGSize(width: self.width, height: self.height)
 
         // Convert to CIImage
         let context = CIContext()
         var ciImage = CIImage(cgImage: image, options: [.applyOrientationProperty: true])
+
+        // Resize
+        if let resize = resize {
+            let scaleX = resize.width / size.width
+            let scaleY = resize.height / size.height
+            let scaleTransform = CGAffineTransform(scaleX: scaleX, y: scaleY)
+            ciImage = ciImage.transformed(by: scaleTransform)
+        }
 
         // Apply operations in sorted order
         for operation in operations.sorted() {

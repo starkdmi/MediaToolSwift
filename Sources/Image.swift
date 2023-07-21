@@ -72,10 +72,19 @@ public struct ImageTool {
             }
         }
 
+        // Calculate new size (without upscaling)
+        var shouldResize = false
+        var size = CGSize(width: cgImage.width, height: cgImage.height)
+        if let resize = settings.size, size.width > resize.width || size.height > resize.height {
+            let rect = AVMakeRect(aspectRatio: size, insideRect: CGRect(origin: CGPoint.zero, size: resize))
+            size = rect.size
+            shouldResize = true
+        }
+
         // Edit
         let image: CGImage
-        if !settings.edit.isEmpty {
-            image = cgImage.applyingOperations(settings.edit)
+        if !settings.edit.isEmpty || shouldResize {
+            image = cgImage.applyingOperations(settings.edit, resize: shouldResize ? size : nil)
         } else {
             image = cgImage
         }
