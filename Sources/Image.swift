@@ -84,7 +84,7 @@ public struct ImageTool {
         // Edit
         let image: CGImage
         if !settings.edit.isEmpty || shouldResize {
-            image = cgImage.applyingOperations(settings.edit, resize: shouldResize ? size : nil)
+            image = ImageOperation.apply(cgImage, operations: settings.edit, resize: shouldResize ? size : nil)
         } else {
             image = cgImage
         }
