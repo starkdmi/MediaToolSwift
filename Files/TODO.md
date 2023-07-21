@@ -58,12 +58,11 @@ AAC, Opus, FLAC
 ```
 
 ## Image
-| Convert | Resize | Crop | Rotate | Flip | Filter | Background | Blurhash | Custom FPS | Thumbnail | Info |
+| Convert | Resize | Crop | Rotate | Flip & Mirror | Filter | Background | Blurhash | Custom FPS | Thumbnail | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| ✔️ | 🚧 | ✔️ | ✔️ | ➖ | ➖ | ➖ | 🚧 | Animated 🚧 | Animated 🚧 | 🚧 |
+| ✔️ | ✔️ | ✔️ | ✔️ | ✔️ | ✔️ | ➖ | 🚧 | Animated 🚧 | Animated 🚧 | 🚧 |
 
 __Base__
-- __Metadata__
 - __Animated__
 
 __Info__
@@ -71,11 +70,6 @@ __Info__
 format, resolution, filesize, hasAlpha, isAnimated, pixel format,
 animated - duration, frame rate,
 metadata - date, location, device/camera/lens
-```
-
-__Formats__
-```
-JPEG, PNG, TIFF, GIF, HEIF (No built-in WEBP support)
 ```
 
 __Panoramas, Portraits, Live Photos, Raw Images__
