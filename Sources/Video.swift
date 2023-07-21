@@ -1213,7 +1213,7 @@ public struct VideoTool {
 
                 // Image operations
                 if !settings.edit.isEmpty {
-                    image = image.applyingOperations(settings.edit)
+                    image = ImageOperation.apply(image, operations: settings.edit)
                 }
 
                 // Write an image
