@@ -105,6 +105,8 @@ public struct ImageTool {
         guard let format = settings.format else {
             throw CompressionError.unknownImageFormat
         }
+        let embedThumbnail = settings.embedThumbnail ? kCFBooleanTrue! : kCFBooleanFalse!
+        let optimizeColors = settings.optimizeColorForSharing ? kCFBooleanTrue! : kCFBooleanFalse!
 
         switch format {
         case .heif, .heif10:
@@ -120,11 +122,12 @@ public struct ImageTool {
             let ciImage = CIImage(cgImage: image, options: options)
             let ciContext = CIContext()
 
-            var optionsDict: [CIImageRepresentationOption: Any] = [:]
+            var optionsDict: [CIImageRepresentationOption: Any] = [
+                CIImageRepresentationOption(rawValue: kCGImageDestinationEmbedThumbnail as String): embedThumbnail,
+                CIImageRepresentationOption(rawValue: kCGImageDestinationOptimizeColorForSharing as String): optimizeColors
+            ]
             if let quality = settings.quality {
-                optionsDict = [
-                    CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): quality
-                ]
+                optionsDict[CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)] = quality
             }
 
             do {
@@ -167,8 +170,8 @@ public struct ImageTool {
             }
 
             var imageOptions: [CFString: Any] = [
-                kCGImageDestinationEmbedThumbnail: settings.embedThumbnail ? kCFBooleanTrue : kCFBooleanFalse,
-                kCGImageDestinationOptimizeColorForSharing: settings.optimizeColorForSharing ? kCFBooleanTrue : kCFBooleanFalse
+                kCGImageDestinationEmbedThumbnail: embedThumbnail,
+                kCGImageDestinationOptimizeColorForSharing: optimizeColors
                 // kCGImageDestinationImageMaxPixelSize: 256 // use to resize with aspect ratio
             ]
 

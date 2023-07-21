@@ -42,10 +42,10 @@ public struct ImageSettings {
     let preserveAlphaChannel: Bool
 
     /// Embed light version of image to file, JPEG and HEIF only, default to false
-    let embedThumbnail: Bool // false
+    let embedThumbnail: Bool
 
     /// Modify image color space to support older devices, default to false
-    let optimizeColorForSharing: Bool // false
+    let optimizeColorForSharing: Bool
 
     /// Background color for image formats without transparency support, default to white
     let backgroundColor: CGColor?
