@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import CoreImage
 
 public extension CGImage {
@@ -26,5 +27,78 @@ public extension CGImage {
         }
 
         return bitsPerComponent > 8 && hdrColorSpace
+    }
+
+    /// Apply multiple image operations and settings on `CGImage`
+    func edit(settings: ImageSettings) -> CGImage {
+        var size = CGSize(width: self.width, height: self.height)
+
+        let shouldResize: Bool
+        if let resize = settings.size, size.width > resize.width || size.height > resize.height {
+            shouldResize = true
+        } else {
+            shouldResize = false
+        }
+
+        let shouldReplaceAlpha = !settings.preserveAlphaChannel && self.hasAlpha
+
+        // Skip if nothing is changed
+        guard !settings.edit.isEmpty || shouldResize || shouldReplaceAlpha else {
+            return self
+        }
+
+        // Convert to CIImage
+        let context = CIContext()
+        var ciImage = CIImage(cgImage: self, options: [.applyOrientationProperty: true])
+
+        // Resize (without upscaling)
+        if shouldResize, var resize = settings.size {
+            // Calculate size to fit in
+            let rect = AVMakeRect(aspectRatio: size, insideRect: CGRect(origin: CGPoint.zero, size: resize))
+            resize = rect.size
+
+            // Scale down
+            let scaleX = resize.width / size.width
+            let scaleY = resize.height / size.height
+            ciImage = ciImage
+                .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            size = resize
+        }
+
+        // Apply operations in sorted order
+        for operation in settings.edit.sorted() {
+            switch operation {
+            case .crop(let options):
+                let rect = options.makeCroppingRectangle(in: size)
+                ciImage = ciImage.cropped(to: rect)
+                    .transformed(by: CGAffineTransform(translationX: -rect.origin.x, y: -rect.origin.y))
+            case .rotate(let value):
+                ciImage = ciImage
+                    .transformed(by: CGAffineTransform(rotationAngle: value.radians))
+            case .flip:
+                ciImage = ciImage
+                    .transformed(by: CGAffineTransform(scaleX: 1.0, y: -1.0))
+            case .mirror:
+                ciImage = ciImage
+                    .transformed(by: CGAffineTransform(scaleX: -1.0, y: 1.0))
+            case .imageProcessing(let function):
+                ciImage = function(ciImage)
+            }
+        }
+
+        // Alpha channel
+        if shouldReplaceAlpha {
+            // Stack over solid color
+            let color = CIColor(cgColor: settings.backgroundColor ?? .black)
+            let background = CIImage(color: color).cropped(to: ciImage.extent)
+            ciImage = ciImage.composited(over: background)
+        }
+
+        // Create a CGImage
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+            return self
+        }
+
+        return cgImage
     }
 }

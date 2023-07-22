@@ -1211,9 +1211,9 @@ public struct VideoTool {
                 var image = item.image
                 let url = requests[index].url
 
-                // Image operations
+                // Edit
                 if !settings.edit.isEmpty {
-                    image = ImageOperation.apply(image, operations: settings.edit)
+                    image = image.edit(settings: settings)
                 }
 
                 // Write an image

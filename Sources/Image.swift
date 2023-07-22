@@ -41,7 +41,7 @@ public struct ImageTool {
         }
 
         // Read image file to `CGImage
-        guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil), let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+        guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil), var cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
             throw CompressionError.failedToReadImage
         }
 
@@ -72,32 +72,18 @@ public struct ImageTool {
             }
         }
 
-        // Calculate new size (without upscaling)
-        var shouldResize = false
-        var size = CGSize(width: cgImage.width, height: cgImage.height)
-        if let resize = settings.size, size.width > resize.width || size.height > resize.height {
-            let rect = AVMakeRect(aspectRatio: size, insideRect: CGRect(origin: CGPoint.zero, size: resize))
-            size = rect.size
-            shouldResize = true
-        }
-
         // Edit
-        let image: CGImage
-        if !settings.edit.isEmpty || shouldResize {
-            image = ImageOperation.apply(cgImage, operations: settings.edit, resize: shouldResize ? size : nil)
-        } else {
-            image = cgImage
-        }
+        cgImage = cgImage.edit(settings: settings)
 
         // Save image to destination in specified `ImageFormat` and `ImageSettings`
-        try saveImage(image, at: destination, overwrite: overwrite, settings: settings, properties: properties)
+        try saveImage(cgImage, at: destination, overwrite: overwrite, settings: settings, properties: properties)
 
         // Delete original
         if deleteSourceFile {
             try? FileManager.default.removeItem(atPath: source.path)
         }
 
-        return ImageInfo(format: settings.format!, size: CGSize(width: image.width, height: image.height))
+        return ImageInfo(format: settings.format!, size: CGSize(width: cgImage.width, height: cgImage.height))
     }
 
     /// Save `CGImage` to file in `ImageFormat` with `ImageSettings` applying
