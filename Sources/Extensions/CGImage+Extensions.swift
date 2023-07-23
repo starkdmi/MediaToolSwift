@@ -89,7 +89,7 @@ public extension CGImage {
         // Alpha channel
         if shouldReplaceAlpha {
             // Stack over solid color
-            let color = CIColor(cgColor: settings.backgroundColor ?? .black)
+            let color = CIColor(cgColor: settings.backgroundColor ?? CGColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)) // black
             let background = CIImage(color: color).cropped(to: ciImage.extent)
             ciImage = ciImage.composited(over: background)
         }
