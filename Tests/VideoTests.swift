@@ -6,8 +6,16 @@ import Foundation
 import AVFoundation
 import VideoToolbox
 import CoreVideo
-import Accelerate
+import Vision
+import Accelerate.vImage
+import UniformTypeIdentifiers
 import QuartzCore
+#if os(macOS)
+import ImageIO
+import AppKit
+#else
+import UIKit
+#endif
 
 struct ConfigList {
     let filename: String
@@ -583,13 +591,22 @@ class MediaToolSwiftTests: XCTestCase {
         do {
             let files = try! FileManager.default.contentsOfDirectory(at: Self.tempDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
             for file in files where !(
-                file.pathExtension.lowercased() == "mov"  ||
-                file.pathExtension.lowercased() == "mp4"  ||
-                file.pathExtension.lowercased() == "m4v"  ||
-                file.pathExtension.lowercased() == "jpg"  ||
-                file.pathExtension.lowercased() == "jpeg" ||
-                file.pathExtension.lowercased() == "png"  ||
-                file.pathExtension.lowercased() == "gif"
+                file.pathExtension.lowercased() == "mov"   ||
+                file.pathExtension.lowercased() == "mp4"   ||
+                file.pathExtension.lowercased() == "m4v"   ||
+                file.pathExtension.lowercased() == "jpg"   ||
+                file.pathExtension.lowercased() == "jpeg"  ||
+                file.pathExtension.lowercased() == "png"   ||
+                file.pathExtension.lowercased() == "bmp"   ||
+                file.pathExtension.lowercased() == "tiff"  ||
+                file.pathExtension.lowercased() == "ico"   ||
+                file.pathExtension.lowercased() == "gif"   ||
+                file.pathExtension.lowercased() == "heic"  ||
+                file.pathExtension.lowercased() == "heif"  ||
+                file.pathExtension.lowercased() == "heics" ||
+                file.pathExtension.lowercased() == "webp"  ||
+                file.pathExtension.lowercased() == "raw" ||
+                file.hasDirectoryPath
             ) {
                 try FileManager.default.removeItem(at: file)
             }
@@ -612,54 +629,6 @@ class MediaToolSwiftTests: XCTestCase {
     #else
     let osAdditionalTimeout: TimeInterval = 0
     #endif
-    
-    func testThumbnail() async {
-        let expectation = XCTestExpectation(description: "Test thumbnail")
-        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destination = Self.tempDirectory.appendingPathComponent("thumbnail_oludeniz.jpg")
-        try? FileManager.default.removeItem(at: destination)
-        
-        let asset = AVAsset(url: source)
-        let videoTrack = await asset.getFirstTrack(withMediaType: .video)
-        
-        // TODO: Parameters: Time, Time Tolerance, Formats (bmp, jpeg, png, tiff), Quality
-        
-        let timeScale = CMTimeScale(videoTrack!.nominalFrameRate)
-        let time = CMTimeMakeWithSeconds(5.5, preferredTimescale: timeScale)
-        
-        // AVAssetImageGenerator - https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/creating_images_from_a_video_asset
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        //generator.maximumSize = CGSize(width: 300, height: 0)
-        
-        // Tolerance
-        // generator.requestedTimeToleranceBefore = CMTime(seconds: 0.01, preferredTimescale: timeScale) // .zero
-        // generator.requestedTimeToleranceAfter = CMTime(seconds: 0.01, preferredTimescale: timeScale) // .zero
-        
-        // if #available(macOS 13, iOS 16, tvOS 16, *)
-        // let (image, actualTime) = try! await generator.images(at: [time])
-        // else
-        generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)], completionHandler: { (requestedTime, image, actualTime, result, error) in
-            
-            // TODO: HDR Lost (?)
-
-            #if os(OSX)
-            let thumbnail = NSImage(cgImage: image!, size: CGSize(width: image!.width, height: image!.height))
-            let jpegData = NSBitmapImageRep(data: thumbnail.tiffRepresentation!)!
-                .representation(using: .jpeg, properties: [.compressionFactor: 0.95])!
-            #else
-            let thumbnail = UIImage(cgImage: image!)
-            let jpegData = thumbnail.jpegData(compressionQuality: 0.95)!
-            #endif
-            
-            let url = Self.tempDirectory.appendingPathComponent("oludeniz.jpg")
-            // _ = url.startAccessingSecurityScopedResource()
-            try! jpegData.write(to: url, options: .atomic)
-
-            Self.fulfill(expectation) // expectation.fulfill()
-        })
-        await fulfillment(of: [expectation], timeout: 5)
-    }
 
     func testSingle() async {
         let expectation = XCTestExpectation(description: "Test Single")
@@ -675,9 +644,18 @@ class MediaToolSwiftTests: XCTestCase {
                 bitrate: .source,
                 edit: [
                     .crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center)),
-                    //  .cut(from: 0.5, to: 7.5),
-                    // .rotate(.clockwise), .rotate(.angle(.pi)),
+                    // .cut(from: 0.5, to: 7.5),
+                    // .rotate(.clockwise), .rotate(.angle(.pi/2)),
                     // .mirror,
+                    .imageProcessing { image, size, time in
+                        /*image.applyingFilter("CIGaussianBlur", parameters: [
+                            "inputRadius": 7.5
+                        ])*/
+                        image.applyingFilter("CIMotionBlur", parameters: [
+                            "inputAngle": Double.pi/2, // 0
+                            "inputRadius": 5
+                        ])
+                    }
                 ]
             ),
             skipAudio: true,
@@ -695,6 +673,78 @@ class MediaToolSwiftTests: XCTestCase {
 
         await fulfillment(of: [expectation], timeout: 5 + osAdditionalTimeout)
     }
+
+    #if os(macOS)
+    func testThumbnails() async {
+        let thumbnailsDirectory = Self.tempDirectory.appendingPathComponent("thumbnails")
+        // Create directory if non exists
+        var isDirectory: ObjCBool = true
+        if !FileManager.default.fileExists(atPath: thumbnailsDirectory.path, isDirectory: &isDirectory) {
+            try! FileManager.default.createDirectory(atPath: thumbnailsDirectory.path, withIntermediateDirectories: false)
+        }
+
+        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV") // chromecast.mp4 transparent_ball_hevc.mov oludeniz.MOV
+        let asset = AVAsset(url: source)
+
+        let formats: [ImageFormat: String] = [
+            .heif: ".heic",
+            .heic: ".c.heic",
+            .heif10: ".10.heic",
+            .png: ".png",
+            .jpeg: ".jpg",
+            .jpeg2000: ".jpeg",
+            .gif: ".gif",
+            .tiff: ".tiff",
+            .bmp: ".bmp",
+            //.ico: ".ico"
+        ]
+        
+        for (format, ext) in formats {
+            let imageUrl = thumbnailsDirectory.appendingPathComponent("thumb\(ext)")
+            if FileManager.default.fileExists(atPath: imageUrl.path) {
+                try! FileManager.default.removeItem(atPath: imageUrl.path)
+            }
+            
+            let settings = ImageSettings(
+                format: format,
+                // size: .hd,
+                edit: [
+                    //.crop(.init(size: CGSize(width: 256.0, height: 256.0)))
+                    .crop(.init(size: CGSize(width: 720, height: 720), aligment: .center)),
+                    //.rotate(.clockwise)
+                    /*.imageProcessing { image in
+                     // This will extend the image frame by a little (!)
+                     image.applyingFilter("CIGaussianBlur", parameters: [
+                     "inputRadius": 7.5
+                     ])
+                     }*/
+                ]
+            )
+
+            _ = try! await VideoTool.thumbnailFiles(of: asset, at: [.init(time: 4.1, url: imageUrl)], settings: settings, timeToleranceBefore: .zero, timeToleranceAfter: .zero)
+        }
+
+        // Check files exists
+        for (_, ext) in formats {
+            let imageUrl = thumbnailsDirectory.appendingPathComponent("thumb\(ext)")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: imageUrl.path))
+        }
+
+        // Check the HDR data persist
+        let heic10URL = thumbnailsDirectory.appendingPathComponent("thumb.10.heic")
+        let heicImageSource = CGImageSourceCreateWithURL(heic10URL as CFURL, nil)!
+        let heicCGImage = CGImageSourceCreateImageAtIndex(heicImageSource, 0, nil)!
+        XCTAssertTrue(heicCGImage.isHDR, "No HDR data found")
+
+        // Delete thumbnails
+        do {
+            let files = try! FileManager.default.contentsOfDirectory(at: thumbnailsDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+            for file in files {
+                try FileManager.default.removeItem(at: file)
+            }
+        } catch { }
+    }
+    #endif
 
     /// Video overlay, apply CIFilters, and many more using custom CIImage processor
     func testImageProcessing() async {
@@ -926,6 +976,9 @@ class MediaToolSwiftTests: XCTestCase {
                 bitrate: .encoder,
                 edit: [
                     .imageProcessing(imageProcessor),
+                    /*.imageProcessing { (image: CIImage, size: CGSize, atTime: Double) -> CIImage in
+                        return image
+                    },*/
                     //.crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center)),
                     //.cut(from: 0.5, to: 7.5)
                     //.rotate(.clockwise), .rotate(.angle(.pi))
