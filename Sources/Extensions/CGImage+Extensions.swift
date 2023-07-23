@@ -9,9 +9,11 @@ public extension CGImage {
         return alphaInfo == CGImageAlphaInfo.first || alphaInfo == CGImageAlphaInfo.last
     }
 
-    /// HDR data presence
+    /// High Dynamic Range
     var isHDR: Bool {
-        var hdrColorSpace = true
+        return bitsPerComponent > 8
+
+        /*var hdrColorSpace = true
         if let colorSpace = self.colorSpace {
             if #available(macOS 11, iOS 14, tvOS 14, *) {
                 if CGColorSpaceUsesExtendedRange(colorSpace) || CGColorSpaceUsesITUR_2100TF(colorSpace) {
@@ -26,7 +28,7 @@ public extension CGImage {
             }
         }
 
-        return bitsPerComponent > 8 && hdrColorSpace
+        return bitsPerComponent > 8 && hdrColorSpace*/
     }
 
     /// Apply multiple image operations and settings on `CGImage`
