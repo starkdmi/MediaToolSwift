@@ -1198,9 +1198,43 @@ public struct VideoTool {
         timeToleranceBefore: Double = .infinity,
         timeToleranceAfter: Double = .infinity
     ) async throws -> [VideoThumbnailFile] {
+        var thumbSize = settings.size
+
+        // Calculate max size based on Crop, Rotate and Resize operations
+        // And request lower resolution thumbnail even before applying them
+        if !settings.edit.isEmpty, let videoTrack = await asset.getFirstTrack(withMediaType: .video) {
+            // Video size
+            var videoRect = CGRect(origin: .zero, size: videoTrack.naturalSizeWithOrientation)
+            if let resize = settings.size {
+                videoRect = AVMakeRect(aspectRatio: videoRect.size, insideRect: CGRect(origin: CGPoint.zero, size: resize))
+            }
+
+            // Temp image
+            var ciImage = CIImage(color: .black).cropped(to: videoRect)
+
+            // Apply operations in sorted order
+            for operation in settings.edit.sorted() {
+                switch operation {
+                case .crop(let options):
+                    let rect = options.makeCroppingRectangle(in: videoRect.size)
+                    ciImage = ciImage.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.origin.x, y: -rect.origin.y))
+                case .rotate(let value):
+                    ciImage = ciImage.transformed(by: CGAffineTransform(rotationAngle: value.radians))
+                /*case .imageProcessing(let function):
+                    ciImage = function(ciImage)*/
+                default:
+                    // Unnecessary for the size calculation operations
+                    break
+                }
+            }
+
+            // Final max size of an image after operations applied
+            thumbSize = CGSize(width: ciImage.extent.origin.x + ciImage.extent.size.width, height: ciImage.extent.origin.y + ciImage.extent.size.height)
+        }
+
         // Request the images at specific times
         let seconds = requests.map({ $0.time })
-        let items = try await thumbnailImages(for: asset, at: seconds, size: settings.size, transfrom: transfrom, timeToleranceBefore: timeToleranceBefore, timeToleranceAfter: timeToleranceAfter)
+        let items = try await thumbnailImages(for: asset, at: seconds, size: thumbSize, transfrom: transfrom, timeToleranceBefore: timeToleranceBefore, timeToleranceAfter: timeToleranceAfter)
         guard items.count > 0 else { return [] }
 
         var thumbnails: [VideoThumbnailFile] = []
