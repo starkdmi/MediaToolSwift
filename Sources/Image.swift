@@ -40,23 +40,72 @@ public struct ImageTool {
             }
         }
 
-        // Read image file to `CGImage
-        guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil), var cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+        // Read image file
+        guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil) else {
             throw CompressionError.failedToReadImage
         }
 
+        // Read frames to the `CGImage` array
+        let frameCount = CGImageSourceGetCount(imageSource)
+        // Image frames
+        var images: [ImageFrame] = []
+        images.reserveCapacity(frameCount)
         // Source Metadata
-        let properties: [CFString: Any]?
-        if !skipMetadata {
-            properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
-        } else {
-            properties = nil
+        var metadata: [CFString: Any]?
+        for index in 0 ..< frameCount {
+            // Get the image
+            guard let cgImage = CGImageSourceCreateImageAtIndex(imageSource, index, nil) else {
+                continue
+            }
+            var frame = ImageFrame(image: cgImage)
+
+            // Frame specific properties
+            if let frameProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, index, nil) as? [CFString: Any] {
+                if !skipMetadata && metadata == nil {
+                    // Get the Metadata once
+                    metadata = frameProperties
+                }
+
+                if let gifProperties = frameProperties[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
+                    frame.delayTime = gifProperties[kCGImagePropertyGIFDelayTime] as? Double
+                    frame.unclampedDelayTime = gifProperties[kCGImagePropertyGIFUnclampedDelayTime]  as? Double
+                    frame.loopCount = gifProperties[kCGImagePropertyGIFLoopCount] as? Int
+                    frame.frameInfoArray = gifProperties[kCGImagePropertyGIFFrameInfoArray] as? [CFDictionary]
+                    frame.canvasWidth = gifProperties[kCGImagePropertyGIFCanvasPixelWidth] as? Double
+                    frame.canvasHeight = gifProperties[kCGImagePropertyGIFCanvasPixelHeight] as? Double
+                } else if let heicsProperties = frameProperties[kCGImagePropertyHEICSDictionary] as? [CFString: Any] {
+                    frame.delayTime = heicsProperties[kCGImagePropertyHEICSDelayTime] as? Double
+                    frame.unclampedDelayTime = heicsProperties[kCGImagePropertyHEICSUnclampedDelayTime]  as? Double
+                    frame.loopCount = heicsProperties[kCGImagePropertyHEICSLoopCount] as? Int
+                    frame.frameInfoArray = heicsProperties[kCGImagePropertyHEICSFrameInfoArray] as? [CFDictionary]
+                    frame.canvasWidth = heicsProperties[kCGImagePropertyHEICSCanvasPixelWidth] as? Double
+                    frame.canvasHeight = heicsProperties[kCGImagePropertyHEICSCanvasPixelHeight] as? Double
+                } else if #available(macOS 11, iOS 14, tvOS 14, *), let webPProperties = frameProperties[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
+                    frame.delayTime = webPProperties[kCGImagePropertyWebPDelayTime] as? Double
+                    frame.unclampedDelayTime = webPProperties[kCGImagePropertyWebPUnclampedDelayTime]  as? Double
+                    frame.loopCount = webPProperties[kCGImagePropertyWebPLoopCount] as? Int
+                    frame.frameInfoArray = webPProperties[kCGImagePropertyWebPFrameInfoArray] as? [CFDictionary]
+                    frame.canvasWidth = webPProperties[kCGImagePropertyWebPCanvasPixelWidth] as? Double
+                    frame.canvasHeight = webPProperties[kCGImagePropertyWebPCanvasPixelHeight] as? Double
+                } else if let pngProperties = frameProperties[kCGImagePropertyPNGDictionary] as? [CFString: Any] {
+                    frame.delayTime = pngProperties[kCGImagePropertyAPNGDelayTime] as? Double
+                    frame.unclampedDelayTime = pngProperties[kCGImagePropertyAPNGUnclampedDelayTime]  as? Double
+                    frame.loopCount = pngProperties[kCGImagePropertyAPNGLoopCount] as? Int
+                    frame.frameInfoArray = pngProperties[kCGImagePropertyAPNGFrameInfoArray] as? [CFDictionary]
+                    frame.canvasWidth = pngProperties[kCGImagePropertyAPNGCanvasPixelWidth] as? Double
+                    frame.canvasHeight = pngProperties[kCGImagePropertyAPNGCanvasPixelHeight] as? Double
+                }
+            }
+
+            images.append(frame)
         }
+        // guard images.count == frameCount else { Some frames skipped }
+        guard let first = images.first?.image else { throw CompressionError.emptyImage }
 
         var settings = settings
         // When destination format is `nil` use the source image format
         if settings.format == nil {
-            if let utType = cgImage.utType, let format = ImageFormat(utType) {
+            if let utType = first.utType, let format = ImageFormat(utType) {
                 // Get format from CGImage
                 settings.format = format
             } else if let format = ImageFormat(destination.pathExtension) {
@@ -67,30 +116,38 @@ public struct ImageTool {
             }
 
             // Fix HEIF format based on bit depth
-            if settings.format == .heif, cgImage.isHDR {
+            if settings.format == .heif, first.isHDR {
                 settings.format = .heif10
             }
         }
 
         // Edit
-        cgImage = cgImage.edit(settings: settings)
+        for index in 0 ..< images.count {
+            images[index].image = images[index].image.edit(settings: settings, index: index)
+        }
 
         // Save image to destination in specified `ImageFormat` and `ImageSettings`
-        try saveImage(cgImage, at: destination, overwrite: overwrite, settings: settings, properties: properties)
+        try saveImage(images, at: destination, overwrite: overwrite, settings: settings, metadata: metadata)
 
         // Delete original
         if deleteSourceFile {
             try? FileManager.default.removeItem(atPath: source.path)
         }
 
-        return ImageInfo(format: settings.format!, size: CGSize(width: cgImage.width, height: cgImage.height))
+        return ImageInfo(format: settings.format!, size: CGSize(width: first.width, height: first.height))
     }
 
     /// Save `CGImage` to file in `ImageFormat` with `ImageSettings` applying
-    public static func saveImage(_ image: CGImage, at url: URL, overwrite: Bool = false, settings: ImageSettings, properties: [CFString: Any]? = nil) throws {
-        guard let format = settings.format else {
-            throw CompressionError.unknownImageFormat
-        }
+    public static func saveImage(
+        _ frames: [ImageFrame],
+        at url: URL,
+        overwrite: Bool = false,
+        settings: ImageSettings,
+        metadata: [CFString: Any]? = nil
+    ) throws {
+        guard let format = settings.format else { throw CompressionError.unknownImageFormat }
+        guard let first = frames.first?.image else { throw CompressionError.emptyImage }
+
         let embedThumbnail = settings.embedThumbnail ? kCFBooleanTrue! : kCFBooleanFalse!
         let optimizeColors = settings.optimizeColorForSharing ? kCFBooleanTrue! : kCFBooleanFalse!
 
@@ -101,11 +158,11 @@ public struct ImageTool {
                 .applyOrientationProperty: true
             ]
             // Metadata
-            if let properties = properties {
-                options[.properties] = properties
+            if let metadata = metadata {
+                options[.properties] = metadata
             }
 
-            let ciImage = CIImage(cgImage: image, options: options)
+            let ciImage = CIImage(cgImage: first, options: options)
             let ciContext = CIContext()
 
             var optionsDict: [CIImageRepresentationOption: Any] = [
@@ -149,9 +206,9 @@ public struct ImageTool {
         case .jpeg2000:
             fallthrough
         #endif
-        case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic: // .heics
+        case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic, .heics:
             // print(CGImageDestinationCopyTypeIdentifiers()) // supported output image formats when using `CGImageDestination` methods
-            guard let utType = format.utType, let destination = CGImageDestinationCreateWithURL(url as CFURL, utType, 1, nil) else {
+            guard let utType = format.utType, let destination = CGImageDestinationCreateWithURL(url as CFURL, utType, frames.count, nil) else {
                 throw CompressionError.failedToCreateImageFile
             }
 
@@ -173,41 +230,87 @@ public struct ImageTool {
                 let blue = components[2]
 
                 // Convert color to BGRA format
-                let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+                let colorSpace = first.colorSpace ?? CGColorSpaceCreateDeviceRGB()
                 let bgraColor = CGColor(colorSpace: colorSpace, components: [blue, green, red, 1.0])
                 imageOptions[kCGImageDestinationBackgroundColor] = bgraColor
             }
 
             // Metadata
-            if let properties = properties {
+            if let metadata = metadata {
                 // GPS
-                if let gps = properties[kCGImagePropertyGPSDictionary] {
+                if let gps = metadata[kCGImagePropertyGPSDictionary] {
                     imageOptions[kCGImagePropertyGPSDictionary] = gps
                 }
 
                 // Exif
-                if let exif = properties[kCGImagePropertyExifDictionary] {
+                if let exif = metadata[kCGImagePropertyExifDictionary] {
                     imageOptions[kCGImagePropertyExifDictionary] = exif
                 }
 
                 // TIFF
-                if let tiff = properties[kCGImagePropertyTIFFDictionary] {
+                if let tiff = metadata[kCGImagePropertyTIFFDictionary] {
                     imageOptions[kCGImagePropertyTIFFDictionary] = tiff
                 }
 
                 // MakerApple
-                if let apple = properties[kCGImagePropertyMakerAppleDictionary] {
+                if let apple = metadata[kCGImagePropertyMakerAppleDictionary] {
                     imageOptions[kCGImagePropertyMakerAppleDictionary] = apple
                 }
 
                 // IPTC
-                if let apple = properties[kCGImagePropertyIPTCDictionary] {
+                if let apple = metadata[kCGImagePropertyIPTCDictionary] {
                     imageOptions[kCGImagePropertyIPTCDictionary] = apple
                 }
             }
 
-            CGImageDestinationAddImage(destination, image, imageOptions as CFDictionary)
+            // Set all frame properties
+            CGImageDestinationSetProperties(destination, imageOptions as CFDictionary)
 
+            // Insert all the frames
+            for frame in frames {
+                let properties: [CFString: Any]?
+                switch format {
+                case .gif:
+                    properties = [
+                        kCGImagePropertyGIFDictionary: [
+                            kCGImagePropertyGIFDelayTime: frame.delayTime as Any,
+                            kCGImagePropertyGIFUnclampedDelayTime: frame.unclampedDelayTime as Any,
+                            kCGImagePropertyGIFLoopCount: frame.loopCount as Any,
+                            kCGImagePropertyGIFFrameInfoArray: frame.frameInfoArray as Any,
+                            kCGImagePropertyGIFCanvasPixelWidth: frame.canvasWidth as Any,
+                            kCGImagePropertyGIFCanvasPixelHeight: frame.canvasHeight as Any
+                        ] as [CFString: Any]
+                    ]
+                case .heics:
+                    properties = [
+                        kCGImagePropertyHEICSDictionary: [
+                            kCGImagePropertyHEICSDelayTime: frame.delayTime as Any,
+                            kCGImagePropertyHEICSUnclampedDelayTime: frame.unclampedDelayTime as Any,
+                            kCGImagePropertyHEICSLoopCount: frame.loopCount as Any,
+                            kCGImagePropertyHEICSFrameInfoArray: frame.frameInfoArray as Any,
+                            kCGImagePropertyHEICSCanvasPixelWidth: frame.canvasWidth as Any,
+                            kCGImagePropertyHEICSCanvasPixelHeight: frame.canvasHeight as Any
+                        ] as [CFString: Any]
+                    ]
+                case .png:
+                    properties = [
+                        kCGImagePropertyPNGDictionary: [
+                            kCGImagePropertyAPNGDelayTime: frame.delayTime as Any,
+                            kCGImagePropertyAPNGUnclampedDelayTime: frame.unclampedDelayTime as Any,
+                            kCGImagePropertyAPNGLoopCount: frame.loopCount as Any,
+                            kCGImagePropertyAPNGFrameInfoArray: frame.frameInfoArray as Any,
+                            kCGImagePropertyAPNGCanvasPixelWidth: frame.canvasWidth as Any,
+                            kCGImagePropertyAPNGCanvasPixelHeight: frame.canvasHeight as Any
+                        ] as [CFString: Any]
+                    ]
+                default:
+                    properties = nil
+                }
+
+                CGImageDestinationAddImage(destination, frame.image, properties as CFDictionary?)
+            }
+
+            // Write
             if CGImageDestinationFinalize(destination) == false {
                 throw CompressionError.failedToSaveImage
             }

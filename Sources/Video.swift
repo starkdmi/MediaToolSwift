@@ -1251,7 +1251,8 @@ public struct VideoTool {
                 }
 
                 // Write an image
-                try ImageTool.saveImage(image, at: url, settings: settings)
+                let frames = [ImageFrame(image: image)]
+                try ImageTool.saveImage(frames, at: url, settings: settings)
 
                 // Add to success array
                 thumbnails.append(VideoThumbnailFile(url: url, format: settings.format, size: CGSize(width: image.width, height: image.height), time: item.actualTime))

@@ -16,7 +16,8 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
     case mirror
 
     /// Custom image processing function, appplied after all the other image operations
-    case imageProcessing((_ image: CIImage) -> CIImage)
+    /// Index used as a frame number, `0` for static images
+    case imageProcessing((_ image: CIImage, _ index: Int) -> CIImage)
 
     /// Hashable conformance
     public func hash(into hasher: inout Hasher) {

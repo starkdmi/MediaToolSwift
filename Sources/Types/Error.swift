@@ -44,4 +44,5 @@ public struct CompressionError: LocalizedError, Equatable {
     public static let failedToReadImage = CompressionError(description: "Failed to read image")
     public static let failedToCreateImageFile = CompressionError(description: "Failed to create destination for file.")
     public static let failedToSaveImage = CompressionError(description: "Failed to save image")
+    public static let emptyImage = CompressionError(description: "Image frames are missing")
 }

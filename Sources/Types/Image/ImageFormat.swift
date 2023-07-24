@@ -4,7 +4,7 @@ import AVFoundation
 import MobileCoreServices
 #endif
 
-/// Image formats
+/// Image formats, only formats with encoding/writing support are included
 public enum ImageFormat: String, CaseIterable {
     /// HEIC (HEIF with HEVC compression) image format
     case heif
@@ -17,9 +17,9 @@ public enum ImageFormat: String, CaseIterable {
 
     /// HEIFS (HEIC sequence) image format
     /// Warning: Displayed darker in macOS Preview app
-    // case heics
+    case heics
 
-    /// PNG image format
+    /// PNG image format, with support of animated images (APNG)
     case png
 
     /// JPEG image format
@@ -42,14 +42,17 @@ public enum ImageFormat: String, CaseIterable {
     /// Icon image format, squared only with 6, 32, 48, 128, or 256 pixels wide
     case ico
 
+    /// Decoding of static and animated images already supported
+    /// The encoding may possible using - https://github.com/SDWebImage/SDWebImageWebPCoder
+    // case webp // UTType.webP
+
     /// Corresponding `kUTType`
     public var utType: CFString? {
         switch self {
         case .heif, .heif10, .heic:
             return AVFileType.heic as CFString
-        /*case .heics:
-            guard let identifier = UTType("public.heics")?.identifier else { return nil }
-            return identifier as CFString*/
+        case .heics:
+            return "public.heics" as CFString
         case .png:
             if #available(macOS 11, iOS 14, tvOS 14, *) {
                 return UTType.png.identifier as CFString
@@ -136,14 +139,4 @@ public enum ImageFormat: String, CaseIterable {
             }
         }
     }
-
-    // MARK: Animated Images
-
-    /// APNG and GIF built-in support (?) - https://developer.apple.com/documentation/imageio/3333271-cganimateimageaturlwithblock
-    /// WebP 3-rd party encoders:
-    /// https://github.com/SDWebImage/SDWebImageWebPCoder - animated supported
-    /// https://github.com/ainame/Swift-WebP - no animated sequence support
-    /// https://github.com/awxkee/webp.swift - animated supported
-    /// https://github.com/TimOliver/WebPKit - no animated sequence support
-    /// Live Photos - `UTType.livePhoto`
 }

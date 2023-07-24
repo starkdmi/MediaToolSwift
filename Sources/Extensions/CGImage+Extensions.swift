@@ -32,7 +32,7 @@ public extension CGImage {
     }
 
     /// Apply multiple image operations and settings on `CGImage`
-    func edit(settings: ImageSettings) -> CGImage {
+    func edit(settings: ImageSettings, index: Int = 0) -> CGImage {
         var size = CGSize(width: self.width, height: self.height)
 
         let shouldResize: Bool
@@ -84,7 +84,7 @@ public extension CGImage {
                 ciImage = ciImage
                     .transformed(by: CGAffineTransform(scaleX: -1.0, y: 1.0))
             case .imageProcessing(let function):
-                ciImage = function(ciImage)
+                ciImage = function(ciImage, index)
             }
         }
 
