@@ -52,6 +52,7 @@ public struct ImageTool {
         var animationDuration: Double?
         var animationFrameRate: Int?
         let isAnimationSupportedFormat = settings.format?.isAnimationSupported ?? ((sourcePathFormat?.isAnimationSupported ?? true) && (destinationPathFormat?.isAnimationSupported ?? true))
+        var canvasSize: CGSize?
 
         var images: [ImageFrame] = []
         var metadata: [CFString: Any]?
@@ -73,6 +74,7 @@ public struct ImageTool {
                         metadata = frameProperties
                     }
 
+                    // Animation info
                     if let gifProperties = frameProperties[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
                         frame.delayTime = gifProperties[kCGImagePropertyGIFDelayTime] as? Double
                         frame.unclampedDelayTime = gifProperties[kCGImagePropertyGIFUnclampedDelayTime]  as? Double
@@ -102,6 +104,11 @@ public struct ImageTool {
                         frame.canvasWidth = pngProperties[kCGImagePropertyAPNGCanvasPixelWidth] as? Double
                         frame.canvasHeight = pngProperties[kCGImagePropertyAPNGCanvasPixelHeight] as? Double
                     }
+
+                    // Canvas size
+                    if let width = frame.canvasWidth, let height = frame.canvasHeight {
+                        canvasSize = CGSize(width: width, height: height)
+                    }
                 }
 
                 images.append(frame)
@@ -121,7 +128,7 @@ public struct ImageTool {
             }
         }
         guard let first = images.first?.image else { throw CompressionError.emptyImage }
-
+ 
         // Frame Rate, algorithm from the Video.swift is used
         if let frameRate = settings.frameRate, images.count > 1 {
             var duration = 0.0
@@ -210,7 +217,7 @@ public struct ImageTool {
 
         return ImageInfo(
             format: settings.format!,
-            size: CGSize(width: first.width, height: first.height),
+            size: canvasSize ?? CGSize(width: first.width, height: first.height),
             isAnimated: images.count > 1,
             frameRate: animationFrameRate,
             duration: animationDuration
