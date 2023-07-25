@@ -39,67 +39,87 @@ public struct ImageTool {
                 throw CompressionError.destinationFileExists
             }
         }
+        // Get formats from the file extensions
+        let sourcePathFormat = ImageFormat(source.pathExtension)
+        let destinationPathFormat = ImageFormat(destination.pathExtension)
 
         // Read image file
         guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil) else {
             throw CompressionError.failedToReadImage
         }
 
-        // Read frames to the `CGImage` array
-        let totalFrames = CGImageSourceGetCount(imageSource)
-        // Image frames
+        // Animated image specific variables
+        var animationDuration: Double?
+        var animationFrameRate: Int?
+        let isAnimationSupportedFormat = settings.format?.isAnimationSupported ?? ((sourcePathFormat?.isAnimationSupported ?? true) && (destinationPathFormat?.isAnimationSupported ?? true))
+
         var images: [ImageFrame] = []
-        images.reserveCapacity(totalFrames)
-        // Source Metadata
         var metadata: [CFString: Any]?
-        for index in 0 ..< totalFrames {
-            // Get the image
-            guard let cgImage = CGImageSourceCreateImageAtIndex(imageSource, index, nil) else {
-                continue
-            }
-            var frame = ImageFrame(image: cgImage)
+        if isAnimationSupportedFormat {
+            // Read frames to the `CGImage` array
+            let totalFrames = CGImageSourceGetCount(imageSource)
+            images.reserveCapacity(totalFrames)
+            for index in 0 ..< totalFrames {
+                // Get the image
+                guard let cgImage = CGImageSourceCreateImageAtIndex(imageSource, index, nil) else {
+                    continue
+                }
+                var frame = ImageFrame(image: cgImage)
 
-            // Frame specific properties
-            if let frameProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, index, nil) as? [CFString: Any] {
-                if !skipMetadata && metadata == nil {
-                    // Get the Metadata once
-                    metadata = frameProperties
+                // Frame specific properties
+                if let frameProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, index, nil) as? [CFString: Any] {
+                    // Source Metadata, retrieve once
+                    if !skipMetadata && metadata == nil {
+                        metadata = frameProperties
+                    }
+
+                    if let gifProperties = frameProperties[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
+                        frame.delayTime = gifProperties[kCGImagePropertyGIFDelayTime] as? Double
+                        frame.unclampedDelayTime = gifProperties[kCGImagePropertyGIFUnclampedDelayTime]  as? Double
+                        frame.loopCount = gifProperties[kCGImagePropertyGIFLoopCount] as? Int
+                        frame.frameInfoArray = gifProperties[kCGImagePropertyGIFFrameInfoArray] as? [CFDictionary]
+                        frame.canvasWidth = gifProperties[kCGImagePropertyGIFCanvasPixelWidth] as? Double
+                        frame.canvasHeight = gifProperties[kCGImagePropertyGIFCanvasPixelHeight] as? Double
+                    } else if let heicsProperties = frameProperties[kCGImagePropertyHEICSDictionary] as? [CFString: Any] {
+                        frame.delayTime = heicsProperties[kCGImagePropertyHEICSDelayTime] as? Double
+                        frame.unclampedDelayTime = heicsProperties[kCGImagePropertyHEICSUnclampedDelayTime]  as? Double
+                        frame.loopCount = heicsProperties[kCGImagePropertyHEICSLoopCount] as? Int
+                        frame.frameInfoArray = heicsProperties[kCGImagePropertyHEICSFrameInfoArray] as? [CFDictionary]
+                        frame.canvasWidth = heicsProperties[kCGImagePropertyHEICSCanvasPixelWidth] as? Double
+                        frame.canvasHeight = heicsProperties[kCGImagePropertyHEICSCanvasPixelHeight] as? Double
+                    } else if #available(macOS 11, iOS 14, tvOS 14, *), let webPProperties = frameProperties[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
+                        frame.delayTime = webPProperties[kCGImagePropertyWebPDelayTime] as? Double
+                        frame.unclampedDelayTime = webPProperties[kCGImagePropertyWebPUnclampedDelayTime]  as? Double
+                        frame.loopCount = webPProperties[kCGImagePropertyWebPLoopCount] as? Int
+                        frame.frameInfoArray = webPProperties[kCGImagePropertyWebPFrameInfoArray] as? [CFDictionary]
+                        frame.canvasWidth = webPProperties[kCGImagePropertyWebPCanvasPixelWidth] as? Double
+                        frame.canvasHeight = webPProperties[kCGImagePropertyWebPCanvasPixelHeight] as? Double
+                    } else if let pngProperties = frameProperties[kCGImagePropertyPNGDictionary] as? [CFString: Any] {
+                        frame.delayTime = pngProperties[kCGImagePropertyAPNGDelayTime] as? Double
+                        frame.unclampedDelayTime = pngProperties[kCGImagePropertyAPNGUnclampedDelayTime]  as? Double
+                        frame.loopCount = pngProperties[kCGImagePropertyAPNGLoopCount] as? Int
+                        frame.frameInfoArray = pngProperties[kCGImagePropertyAPNGFrameInfoArray] as? [CFDictionary]
+                        frame.canvasWidth = pngProperties[kCGImagePropertyAPNGCanvasPixelWidth] as? Double
+                        frame.canvasHeight = pngProperties[kCGImagePropertyAPNGCanvasPixelHeight] as? Double
+                    }
                 }
 
-                if let gifProperties = frameProperties[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
-                    frame.delayTime = gifProperties[kCGImagePropertyGIFDelayTime] as? Double
-                    frame.unclampedDelayTime = gifProperties[kCGImagePropertyGIFUnclampedDelayTime]  as? Double
-                    frame.loopCount = gifProperties[kCGImagePropertyGIFLoopCount] as? Int
-                    frame.frameInfoArray = gifProperties[kCGImagePropertyGIFFrameInfoArray] as? [CFDictionary]
-                    frame.canvasWidth = gifProperties[kCGImagePropertyGIFCanvasPixelWidth] as? Double
-                    frame.canvasHeight = gifProperties[kCGImagePropertyGIFCanvasPixelHeight] as? Double
-                } else if let heicsProperties = frameProperties[kCGImagePropertyHEICSDictionary] as? [CFString: Any] {
-                    frame.delayTime = heicsProperties[kCGImagePropertyHEICSDelayTime] as? Double
-                    frame.unclampedDelayTime = heicsProperties[kCGImagePropertyHEICSUnclampedDelayTime]  as? Double
-                    frame.loopCount = heicsProperties[kCGImagePropertyHEICSLoopCount] as? Int
-                    frame.frameInfoArray = heicsProperties[kCGImagePropertyHEICSFrameInfoArray] as? [CFDictionary]
-                    frame.canvasWidth = heicsProperties[kCGImagePropertyHEICSCanvasPixelWidth] as? Double
-                    frame.canvasHeight = heicsProperties[kCGImagePropertyHEICSCanvasPixelHeight] as? Double
-                } else if #available(macOS 11, iOS 14, tvOS 14, *), let webPProperties = frameProperties[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
-                    frame.delayTime = webPProperties[kCGImagePropertyWebPDelayTime] as? Double
-                    frame.unclampedDelayTime = webPProperties[kCGImagePropertyWebPUnclampedDelayTime]  as? Double
-                    frame.loopCount = webPProperties[kCGImagePropertyWebPLoopCount] as? Int
-                    frame.frameInfoArray = webPProperties[kCGImagePropertyWebPFrameInfoArray] as? [CFDictionary]
-                    frame.canvasWidth = webPProperties[kCGImagePropertyWebPCanvasPixelWidth] as? Double
-                    frame.canvasHeight = webPProperties[kCGImagePropertyWebPCanvasPixelHeight] as? Double
-                } else if let pngProperties = frameProperties[kCGImagePropertyPNGDictionary] as? [CFString: Any] {
-                    frame.delayTime = pngProperties[kCGImagePropertyAPNGDelayTime] as? Double
-                    frame.unclampedDelayTime = pngProperties[kCGImagePropertyAPNGUnclampedDelayTime]  as? Double
-                    frame.loopCount = pngProperties[kCGImagePropertyAPNGLoopCount] as? Int
-                    frame.frameInfoArray = pngProperties[kCGImagePropertyAPNGFrameInfoArray] as? [CFDictionary]
-                    frame.canvasWidth = pngProperties[kCGImagePropertyAPNGCanvasPixelWidth] as? Double
-                    frame.canvasHeight = pngProperties[kCGImagePropertyAPNGCanvasPixelHeight] as? Double
-                }
+                images.append(frame)
             }
-
+            // guard images.count == totalFrames else { Some frames skipped }
+        } else {
+            // Process as static image, read only first frame
+            guard let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+                throw CompressionError.emptyImage
+            }
+            let frame = ImageFrame(image: cgImage)
             images.append(frame)
+
+            // Metadata
+            if !skipMetadata, let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] {
+                metadata = properties
+            }
         }
-        // guard images.count == totalFrames else { Some frames skipped }
         guard let first = images.first?.image else { throw CompressionError.emptyImage }
 
         // Frame Rate, algorithm from the Video.swift is used
@@ -110,19 +130,21 @@ public struct ImageTool {
             }
 
             if duration != 0.0 {
+                animationDuration = duration
                 let nominalFrameRate = Double(images.count) / duration
+                let nominalFrameRateRounded = Int(nominalFrameRate.rounded())
 
-                if frameRate < Int(nominalFrameRate.rounded()) {
+                if frameRate < nominalFrameRateRounded {
                     let scaleFactor = Double(frameRate) / nominalFrameRate
                     // Find frames which will be written
-                    let targetFrames = Int(round(Double(totalFrames) * scaleFactor))
+                    let targetFrames = Int(round(Double(images.count) * scaleFactor))
                     var frames: Set<Int> = []
                     frames.reserveCapacity(targetFrames)
                     // Add first frame index (starting from one)
                     frames.insert(1)
                     // Find other desired frame indexes
                     for index in 1 ..< targetFrames {
-                        frames.insert(Int(ceil(Double(totalFrames) * Double(index) / Double(targetFrames - 1))))
+                        frames.insert(Int(ceil(Double(images.count) * Double(index) / Double(targetFrames - 1))))
                     }
 
                     var newImages: [ImageFrame] = []
@@ -145,6 +167,9 @@ public struct ImageTool {
 
                     // Update the frames array
                     images = newImages
+                    animationFrameRate = frameRate
+                } else {
+                    animationFrameRate = nominalFrameRateRounded
                 }
             } else {
                 // Frame rate adjustment isn't possible - source duration is unknown
@@ -157,8 +182,8 @@ public struct ImageTool {
             if let utType = first.utType, let format = ImageFormat(utType) {
                 // Get format from CGImage
                 settings.format = format
-            } else if let format = ImageFormat(destination.pathExtension) {
-                // Get format from file extension
+            } else if let format = destinationPathFormat {
+                // File extension format
                 settings.format = format
             } else {
                 throw CompressionError.unsupportedImageFormat
@@ -183,7 +208,13 @@ public struct ImageTool {
             try? FileManager.default.removeItem(atPath: source.path)
         }
 
-        return ImageInfo(format: settings.format!, size: CGSize(width: first.width, height: first.height))
+        return ImageInfo(
+            format: settings.format!,
+            size: CGSize(width: first.width, height: first.height),
+            isAnimated: images.count > 1,
+            frameRate: animationFrameRate,
+            duration: animationDuration
+        )
     }
 
     /// Save `CGImage` to file in `ImageFormat` with `ImageSettings` applying

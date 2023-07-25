@@ -18,13 +18,11 @@ public struct ImageInfo {
     // let hasAlpha: Bool
 
     /// Animation presence
-    // let isAnimated: Bool
+    let isAnimated: Bool
 
     /// Animated image frame rate
-    // let frameRate: Int?
+    let frameRate: Int?
 
     /// Animated image duration
-    // let duration: Double
-
-    /// Metadata - date, location, device/camera/lens
+    let duration: Double?
 }
