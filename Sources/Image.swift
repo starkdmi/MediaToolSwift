@@ -46,13 +46,13 @@ public struct ImageTool {
         }
 
         // Read frames to the `CGImage` array
-        let frameCount = CGImageSourceGetCount(imageSource)
+        let totalFrames = CGImageSourceGetCount(imageSource)
         // Image frames
         var images: [ImageFrame] = []
-        images.reserveCapacity(frameCount)
+        images.reserveCapacity(totalFrames)
         // Source Metadata
         var metadata: [CFString: Any]?
-        for index in 0 ..< frameCount {
+        for index in 0 ..< totalFrames {
             // Get the image
             guard let cgImage = CGImageSourceCreateImageAtIndex(imageSource, index, nil) else {
                 continue
@@ -99,8 +99,57 @@ public struct ImageTool {
 
             images.append(frame)
         }
-        // guard images.count == frameCount else { Some frames skipped }
+        // guard images.count == totalFrames else { Some frames skipped }
         guard let first = images.first?.image else { throw CompressionError.emptyImage }
+
+        // Frame Rate, algorithm from the Video.swift is used
+        if let frameRate = settings.frameRate, images.count > 1 {
+            var duration = 0.0
+            for frame in images {
+                duration += frame.unclampedDelayTime ?? frame.delayTime ?? 0.0
+            }
+
+            if duration != 0.0 {
+                let nominalFrameRate = Double(images.count) / duration
+
+                if frameRate < Int(nominalFrameRate.rounded()) {
+                    let scaleFactor = Double(frameRate) / nominalFrameRate
+                    // Find frames which will be written
+                    let targetFrames = Int(round(Double(totalFrames) * scaleFactor))
+                    var frames: Set<Int> = []
+                    frames.reserveCapacity(targetFrames)
+                    // Add first frame index (starting from one)
+                    frames.insert(1)
+                    // Find other desired frame indexes
+                    for index in 1 ..< targetFrames {
+                        frames.insert(Int(ceil(Double(totalFrames) * Double(index) / Double(targetFrames - 1))))
+                    }
+
+                    var newImages: [ImageFrame] = []
+                    for index in 0 ..< images.count {
+                        guard frames.contains(index) else {
+                            // Drop the frame
+                            continue
+                        }
+
+                        // Increase frame delay
+                        var frame = images[index]
+                        let delay = frame.unclampedDelayTime ?? frame.delayTime ?? 0.0
+                        let newDelay = delay * (1.0 / scaleFactor)
+                        frame.unclampedDelayTime = newDelay
+                        frame.delayTime = min(0.1, round(newDelay * 10.0) / 10.0)
+
+                        // Add the frame
+                        newImages.append(frame)
+                    }
+
+                    // Update the frames array
+                    images = newImages
+                }
+            } else {
+                // Frame rate adjustment isn't possible - source duration is unknown
+            }
+        }
 
         var settings = settings
         // When destination format is `nil` use the source image format
