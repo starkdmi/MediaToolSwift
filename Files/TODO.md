@@ -5,6 +5,7 @@
 - __VP9 and AV1 video codecs support using VideoToolBox__ - VTDecompressionSession and VTCompressionSession can be used inside sample buffer processing block for frame by frame decoding/encoding
 - __Multiple video/audio/metadata tracks support__ - option to save all video/audio/metadata tracks from source file to output (now only first track for each track media type is stored)
 - __Command line tool__ - command line application like avconvert and ffmpeg
+- __visionOS support__
 
 ## Video
 __Info__ - function to extract info from a video file:
@@ -58,20 +59,24 @@ AAC, Opus, FLAC
 ```
 
 ## Image
-| Convert | Resize | Crop | Rotate | Flip & Mirror | Filter | Background | Blurhash | Custom FPS | Thumbnail | Info |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| ✔️ | ✔️ | ✔️ | ✔️ | ✔️ | ✔️ | ➖ | 🚧 | Animated 🚧 | Animated 🚧 | 🚧 |
-
-__Base__
-- __Animated__
+| Convert | Resize | Crop | Rotate, Flip, Mirror | Filter\* | Background | Blurhash | Custom FPS | Info |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| ✔️ | ✔️ | ✔️ | ✔️ | ✔️ | ➖ | ➖ | ✔️ | ✔️ |
 
 __Info__
 ```
-format, resolution, filesize, hasAlpha, isAnimated, pixel format,
+format, resolution, filesize, has alpha, is animated, pixel format,
 animated - duration, frame rate,
 metadata - date, location, device/camera/lens
 ```
 
+__Formats__
+```
+WebP
+```
+
 __Panoramas, Portraits, Live Photos, Raw Images__
+- Live Photo = Heic image + QuickTime video, [LivePhoto.Swift](https://github.com/LimitPoint/LivePhoto), `UTType.livePhoto`
+- Panoramas = extra wide photo (?)
 
 __AI__ - [FILM: Frame Interpolation](https://film-net.github.io/)
