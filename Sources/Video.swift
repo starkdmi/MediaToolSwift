@@ -1238,9 +1238,10 @@ public struct VideoTool {
         guard items.count > 0 else { return [] }
 
         var thumbnails: [VideoThumbnailFile] = []
-        // Save image in options.format applying options
-        for index in 0...items.count-1 {
-            do {
+        // Save images in parallel with options applied
+        let queue = DispatchQueue(label: "MediaToolSwift.video.thumbnails", attributes: .concurrent)
+        await withThrowingTaskGroup(of: VideoThumbnailFile.self, body: { group in
+            for index in 0 ..< items.count {
                 let item = items[index]
                 var image = item.image
                 let url = requests[index].url
@@ -1250,14 +1251,23 @@ public struct VideoTool {
                     image = image.edit(settings: settings)
                 }
 
-                // Write an image
+                // Add a task
                 let frames = [ImageFrame(image: image)]
-                try ImageTool.saveImage(frames, at: url, settings: settings)
+                let size = CGSize(width: image.width, height: image.height)
+                group.addTask {
+                    // Write an image
+                    try await ImageTool.saveImageAsync(frames, at: url, settings: settings, queue: queue)
+                    return VideoThumbnailFile(url: url, format: settings.format, size: size, time: item.actualTime)
+                }
+            }
 
-                // Add to success array
-                thumbnails.append(VideoThumbnailFile(url: url, format: settings.format, size: CGSize(width: image.width, height: image.height), time: item.actualTime))
-            } catch { } // skip
-        }
+            // Wait for all the concurrent tasks
+            do {
+                for try await result in group {
+                    thumbnails.append(result)
+                }
+            } catch { }
+        })
 
         return thumbnails
     }

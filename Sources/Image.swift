@@ -208,7 +208,7 @@ public struct ImageTool {
         }
 
         // Save image to destination in specified `ImageFormat` and `ImageSettings`
-        try saveImage(images, at: destination, overwrite: overwrite, settings: settings, metadata: metadata)
+        try await saveImageAsync(images, at: destination, overwrite: overwrite, settings: settings, metadata: metadata)
 
         // Delete original
         if deleteSourceFile {
@@ -401,6 +401,48 @@ public struct ImageTool {
             if CGImageDestinationFinalize(destination) == false {
                 throw CompressionError.failedToSaveImage
             }
+        }
+    }
+
+    /// Save `CGImage` to file, the `DispatchQueue` based shortcut
+    public static func saveImageDetached(
+        _ frames: [ImageFrame],
+        at url: URL,
+        overwrite: Bool = false,
+        settings: ImageSettings,
+        metadata: [CFString: Any]? = nil,
+        queue: DispatchQueue? = nil,
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) {
+        let savingQueue = queue ?? DispatchQueue(label: "MediaToolSwift.image.save")
+        savingQueue.async {
+            do {
+                try saveImage(frames, at: url, overwrite: overwrite, settings: settings, metadata: metadata)
+                completion(.success(url))
+            } catch let error {
+                completion(.failure(error))
+            }
+        }
+    }
+
+    /// Save `CGImage` to file, the `Task` based shortcut
+    public static func saveImageAsync(
+        _ frames: [ImageFrame],
+        at url: URL,
+        overwrite: Bool = false,
+        settings: ImageSettings,
+        metadata: [CFString: Any]? = nil,
+        queue: DispatchQueue? = nil
+    ) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            saveImageDetached(frames, at: url, overwrite: overwrite, settings: settings, metadata: metadata, queue: queue, completion: { result in
+                switch result {
+                case .success(_):
+                    continuation.resume()
+                case .failure(_):
+                    continuation.resume(throwing: CompressionError.failedToSaveImage)
+                }
+            })
         }
     }
 }
