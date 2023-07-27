@@ -1089,6 +1089,7 @@ public struct VideoTool {
     ///     - timeToleranceBefore: Time tolerance before specified time, in seconds
     ///     - timeToleranceBefore: Time tolerance after specified time, in seconds
     /// - Returns: Array of image thumbnail objects
+    /// Warning: Call this function from `DispatchQueue` for non-blocking experience
     public static func thumbnailImages(
         for asset: AVAsset,
         at seconds: [Double],
