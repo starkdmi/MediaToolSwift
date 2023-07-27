@@ -12,7 +12,8 @@ public struct ImageTool {
     ///   - settings: Image format options
     ///   - skipMetadata: Whether copy or not source image metadata to destination image file
     ///   - overwrite: Replace destination file if exists, for `false` error will be raised when file already exists
-    ///   - deleteSourceFile: Delete source file on success 
+    ///   - deleteSourceFile: Delete source file on success
+    /// Warning: Call this function from `DispatchQueue` for non-blocking experience
     public static func convert(
         source: URL,
         destination: URL,
@@ -128,7 +129,7 @@ public struct ImageTool {
             }
         }
         guard let first = images.first?.image else { throw CompressionError.emptyImage }
- 
+
         // Frame Rate, algorithm from the Video.swift is used
         if let frameRate = settings.frameRate, images.count > 1 {
             var duration = 0.0
@@ -203,9 +204,23 @@ public struct ImageTool {
         }
 
         // Edit
-        for index in 0 ..< images.count {
-            images[index].image = images[index].image.edit(settings: settings, index: index)
-        }
+        await withThrowingTaskGroup(of: (Int, CGImage).self, body: { [settings] group in
+            for index in 0 ..< images.count {
+                let input = images[index].image
+                // Add an editing task
+                group.addTask {
+                    let output = input.edit(settings: settings, index: index)
+                    return (index, output)
+                }
+            }
+
+            // Wait for all the concurrent tasks
+            do {
+                for try await result in group {
+                    images[result.0].image = result.1
+                }
+            } catch { }
+        })
 
         // Save image to destination in specified `ImageFormat` and `ImageSettings`
         try await saveImageAsync(images, at: destination, overwrite: overwrite, settings: settings, metadata: metadata)
