@@ -4,9 +4,12 @@ public enum Rotate: Equatable, Hashable {
     case clockwise
 
     /// Rotate in a leftward direction
-    case counterclockwise
+    case counterClockwise
 
-    /// Custom rotation angle in radians, most likely will be displayed as nearest 90' value
+    /// Rotate upside down
+    case upsideDown
+
+    /// Custom rotation angle in radians, most likely will be displayed as nearest 90' value when applied to video
     case angle(Double)
 
     /// Angle
@@ -14,8 +17,10 @@ public enum Rotate: Equatable, Hashable {
         switch self {
         case .clockwise:
             return .pi/2
-        case .counterclockwise:
+        case .counterClockwise:
             return -.pi/2
+        case .upsideDown:
+            return .pi
         case .angle(let value):
             return value
         }

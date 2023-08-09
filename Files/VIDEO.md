@@ -93,7 +93,7 @@ CompressionVideoSettings(edit: [.cut(from: 0.5, to: 7.5)])
 Video transfrom operation, applied without re-encoding.
 ```Swift
 // Rotate
-CompressionVideoSettings(edit: [.rotate(.clockwise))]) // counterclockwise
+CompressionVideoSettings(edit: [.rotate(.clockwise))]) // counterClockwise
 CompressionVideoSettings(edit: [.rotate(.angle(.pi/2))])
 // Mirror and Flip
 CompressionVideoSettings(edit: [.mirror, .flip])
