@@ -47,7 +47,7 @@ struct ContentView: View {
     var body: some View {
         if sourceURL == nil {
             // Video picker
-            PhotosPicker(selection: $selectedVideos, maxSelectionCount: 1, matching: .videos) {
+            PhotosPicker(selection: $selectedVideos, maxSelectionCount: 1, matching: .videos) { // preferredItemEncoding: .current
                 Text("Select video from Photos")
             }
             .onChange(of: selectedVideos) { items in
