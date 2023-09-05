@@ -123,6 +123,12 @@ public enum ImageFormat: String, CaseIterable {
 
     /// Init `ImageFormat` using file extension
     public init?(_ filenameExtension: String) {
+        // Extension `.heif` isn't associated with HEIF image internally
+        var filenameExtension = filenameExtension
+        if filenameExtension == "heif" {
+            filenameExtension = "heic"
+        }
+
         if #available(macOS 11, iOS 14, tvOS 14, *) {
             if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
                 self = format
@@ -143,5 +149,14 @@ public enum ImageFormat: String, CaseIterable {
     /// Indicator of animation supported format
     public var isAnimationSupported: Bool {
         return self == .gif || self == .heics || self == .png
+    }
+
+    /// Format works in old color format and low quality
+    internal var isLowQuality: Bool {
+        #if os(macOS)
+        return self == .gif || self == .jpeg2000
+        #else
+        return self == .gif
+        #endif
     }
 }
