@@ -1,4 +1,4 @@
-import Foundation
+import CoreImage
 
 /// Image info
 public struct ImageInfo {
@@ -15,14 +15,28 @@ public struct ImageInfo {
     // let pixelFormat: FourCharCode
 
     /// Alpha channel presence
-    // let hasAlpha: Bool
+    let hasAlpha: Bool
 
-    /// Animation presence
-    let isAnimated: Bool
+    /// HDR data presence
+    let isHDR: Bool
+
+    /// Bit depth | bits per component
+    // let bitDepth: Int
+
+    /// Image orientation
+    var orientation: CGImagePropertyOrientation?
+
+    /// Image frames amount, one for static images
+    let framesCount: Int
 
     /// Animated image frame rate
     let frameRate: Int?
 
     /// Animated image duration
     let duration: Double?
+
+    /// Animation presence
+    var isAnimated: Bool {
+        return framesCount > 1
+    }
 }
