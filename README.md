@@ -105,7 +105,7 @@ __Image converter focused on:__
 - Orientation
 - Multiple Frameworks
 
-__Features__
+__[Features](Files/IMAGE.md)__
 | Convert | Resize | Crop | Rotate, Flip, Mirror | Image Processing | FPS | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | ✔️ | ✔️ | ✔️ | ✔️ | 🚧 | ✔️ | ✔️ |
