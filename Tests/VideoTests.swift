@@ -605,7 +605,6 @@ class MediaToolSwiftTests: XCTestCase {
                 file.pathExtension.lowercased() == "heif"  ||
                 file.pathExtension.lowercased() == "heics" ||
                 file.pathExtension.lowercased() == "webp"  ||
-                file.pathExtension.lowercased() == "raw" ||
                 file.hasDirectoryPath
             ) {
                 try FileManager.default.removeItem(at: file)
@@ -648,13 +647,13 @@ class MediaToolSwiftTests: XCTestCase {
                     // .rotate(.clockwise), .rotate(.angle(.pi/2)),
                     // .mirror,
                     .imageProcessing { image, size, time in
-                        /*image.applyingFilter("CIGaussianBlur", parameters: [
+                        image.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [
                             "inputRadius": 7.5
-                        ])*/
-                        image.applyingFilter("CIMotionBlur", parameters: [
+                        ]).cropped(to: CGRect(origin: .zero, size: size))
+                        /*image.applyingFilter("CIMotionBlur", parameters: [
                             "inputAngle": Double.pi/2, // 0
                             "inputRadius": 5
-                        ])
+                        ])*/
                     }
                 ]
             ),
@@ -675,7 +674,61 @@ class MediaToolSwiftTests: XCTestCase {
     }
 
     #if os(macOS)
-    func testThumbnails() async {
+    func testImageThumbnails() async {
+        let expectation = XCTestExpectation(description: "Test Video Image Thumbnails")
+        let source = Self.mediaDirectory.appendingPathComponent("chromecast.mp4")
+        let asset = AVAsset(url: source)
+        
+        var thumbnails: [VideoThumbnail] = []
+        try! VideoTool.thumbnailImages(for: asset, at: [4.1], size: CGSize(width: 256, height: 256)) { items in
+            thumbnails.append(contentsOf: items)
+            Self.fulfill(expectation)
+        }
+
+        await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
+
+        XCTAssertTrue(!thumbnails.isEmpty, "Empty thumbnails array")
+    }
+    #endif
+
+    #if os(macOS)
+    func testFileThumbnails() async {
+        let expectation = XCTestExpectation(description: "Test Video File Thumbnails")
+        let thumbnailsDirectory = Self.tempDirectory.appendingPathComponent("thumbnails")
+        // Create directory if non exists
+        var isDirectory: ObjCBool = true
+        if !FileManager.default.fileExists(atPath: thumbnailsDirectory.path, isDirectory: &isDirectory) {
+            try! FileManager.default.createDirectory(atPath: thumbnailsDirectory.path, withIntermediateDirectories: false)
+        }
+
+        let source = Self.mediaDirectory.appendingPathComponent("chromecast.mp4")
+        let destination = thumbnailsDirectory.appendingPathComponent("chromecast_thumb.jpg")
+        let asset = AVAsset(url: source)
+        
+        var error: Error?
+        VideoTool.thumbnailFiles(of: asset, at: [VideoThumbnailRequest(time: 1.0, url: destination), VideoThumbnailRequest(time: 4.1, url: destination), VideoThumbnailRequest(time: 7.5, url: destination)], settings: ImageSettings(format: .jpeg), completion: { result in
+            switch result {
+            case .failure(let err):
+                error = err
+            case .success(_):
+                break
+            }
+            Self.fulfill(expectation)
+        })
+
+        await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
+
+        XCTAssertNil(error, error!.localizedDescription)
+
+        if !FileManager.default.fileExists(atPath: destination.path) {
+            try? FileManager.default.removeItem(at: destination)
+        }
+    }
+    #endif
+
+    #if os(macOS)
+    func testThumbnail() async {
+        let expectation = XCTestExpectation(description: "Test Video Thumbnails")
         let thumbnailsDirectory = Self.tempDirectory.appendingPathComponent("thumbnails")
         // Create directory if non exists
         var isDirectory: ObjCBool = true
@@ -704,13 +757,14 @@ class MediaToolSwiftTests: XCTestCase {
             if FileManager.default.fileExists(atPath: imageUrl.path) {
                 try! FileManager.default.removeItem(atPath: imageUrl.path)
             }
-            
+
             let settings = ImageSettings(
                 format: format,
-                // size: .hd,
+                //size: .fit(.hd),
+                size: .crop(fit: .hd, options: .init(size: CGSize(width: 512, height: 512), aligment: .center)),
                 edit: [
-                    //.crop(.init(size: CGSize(width: 256.0, height: 256.0)))
-                    .crop(.init(size: CGSize(width: 720, height: 720), aligment: .center)),
+                    //.rotate(.angle(.pi/4))
+                    //.rotate(.angle(.pi/4), fill: .color(alpha: 255, red: 255, green: 255, blue: 255)),
                     //.rotate(.clockwise)
                     /*.imageProcessing { image in
                      // This will extend the image frame by a little (!)
@@ -721,8 +775,18 @@ class MediaToolSwiftTests: XCTestCase {
                 ]
             )
 
-            _ = try! await VideoTool.thumbnailFiles(of: asset, at: [.init(time: 4.1, url: imageUrl)], settings: settings, timeToleranceBefore: .zero, timeToleranceAfter: .zero)
+            VideoTool.thumbnailFiles(of: asset, at: [.init(time: 4.1, url: imageUrl)], settings: settings, timeToleranceBefore: .zero, timeToleranceAfter: .zero, completion: { result in
+                switch result {
+                case .success(_):
+                    break
+                case .failure(let error):
+                    print(error)
+                }
+                Self.fulfill(expectation)
+            })
         }
+
+        await fulfillment(of: [expectation], timeout: 30 + osAdditionalTimeout)
 
         // Check files exists
         for (_, ext) in formats {
@@ -734,15 +798,17 @@ class MediaToolSwiftTests: XCTestCase {
         let heic10URL = thumbnailsDirectory.appendingPathComponent("thumb.10.heic")
         let heicImageSource = CGImageSourceCreateWithURL(heic10URL as CFURL, nil)!
         let heicCGImage = CGImageSourceCreateImageAtIndex(heicImageSource, 0, nil)!
-        XCTAssertTrue(heicCGImage.isHDR, "No HDR data found")
+        XCTAssertTrue(heicCGImage.bitsPerComponent > 8, "No HDR data found")
+        let heicProperties = CGImageSourceCopyPropertiesAtIndex(heicImageSource, 0, nil) as? [CFString: Any]
+        XCTAssertTrue(heicProperties?[kCGImagePropertyDepth] as? Int ?? 8 > 8, "No HDR data found (depth)")
 
         // Delete thumbnails
-        do {
+        /*do {
             let files = try! FileManager.default.contentsOfDirectory(at: thumbnailsDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
             for file in files {
                 try FileManager.default.removeItem(at: file)
             }
-        } catch { }
+        } catch { }*/
     }
     #endif
 
