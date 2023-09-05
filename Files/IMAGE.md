@@ -61,7 +61,7 @@ ImageSettings(size: .crop(fit: .fhd, options: .init(size: CGSize(width: 512, hei
 ```
 
 ## Rotate
-Rotate an image. There are three fill options (for non-90 degree multiply angles) - crop, color or blur.
+Rotate an image. There are three fill options (for non-90 degree multiply angles) - crop, color or blur. Blur is not available using `CGImage` framework. Transparent color replaced with black on unsupported image formats.
 
 __Showcase__
 | <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/f3dffc9c-e83b-4729-9ed2-89e433e30705'/> | <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/bff8d555-f58c-4f41-a2b1-f879a82a420f'/> |
@@ -71,7 +71,6 @@ __Showcase__
 | [iphone_13.heic](Tests/media/iphone_13_hdr_gain_map.HEIC) rotated by 30 with blurred extend | [iphone_x.heic](Tests/media/iphone_x.HEIC) rotated by 45 and with blurred extend using vImage |
 | <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/39b80124-2c55-4cc0-a3cc-c052aeea4e1a'/> | <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/c6f584c0-d489-4ef4-9f0f-ca1a344e4190'/> |
 | [starkdev.png](Tests/media/starkdev.png) rotated by 45 with transparent color extend | [iphone_x.jpg](Tests/media/iphone_x.jpg) rotated by 30 and cropped to fill |
-
 <!--<picture><source srcset="starfield_animation_30.webp" /><source srcset="starfield_animation_30.gif" /><img src="starfield_animation_30.webp" alt="starfield_animation.heif rotated by 30 degree with blurred extend" /></picture>-->
 
 __Usage__
