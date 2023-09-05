@@ -25,12 +25,12 @@ public struct Crop: Equatable, Hashable {
     }
 
     /// Cropping area size
-    public var cropSize: CGSize {
+    internal var cropSize: CGSize {
         return self.size ?? self.rect?.size ?? .zero
     }
 
     /// Calculate cropping rectangle
-    public func makeCroppingRectangle(in size: CGSize) -> CGRect {
+    internal func makeCroppingRectangle(in size: CGSize) -> CGRect {
         if let aligment = self.alignment, let cropSize = self.size {
             let cropOrigin: CGPoint
             switch aligment {

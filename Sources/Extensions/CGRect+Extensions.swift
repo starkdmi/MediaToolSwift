@@ -1,7 +1,7 @@
 import AVFoundation
 
-/// Public extension on `CGRect`
-public extension CGRect {
+/// Extensions on `CGRect`
+internal extension CGRect {
     /// Rectangle which covers all provided points
     init(containing points: [CGPoint]) {
         var minX = CGFloat.greatestFiniteMagnitude

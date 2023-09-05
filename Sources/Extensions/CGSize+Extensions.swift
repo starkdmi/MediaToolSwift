@@ -1,6 +1,6 @@
 import AVFoundation
 
-/// Public extension on `CGSize` providing most common video reolution constants and some image related size operations
+/// Extensions on `CGSize` providing most common video reolution constants and some image related size operations
 public extension CGSize {
     /// Aspect fit resolution for Ultra HD - 3840x2160
     static let uhd = CGSize(width: 3840, height: 3840)
@@ -21,7 +21,7 @@ public extension CGSize {
     }
 
     /// Oriented size
-    func oriented(_ orientation: CGImagePropertyOrientation?) -> CGSize {
+    internal func oriented(_ orientation: CGImagePropertyOrientation?) -> CGSize {
         let width = self.width
         let height = self.height
 
@@ -36,7 +36,7 @@ public extension CGSize {
     }
 
     /// Round decimal point
-    /*var rounded: CGSize {
+    /*internal var rounded: CGSize {
         return CGSize(
             width: self.width.rounded(),
             height: self.height.rounded()
@@ -44,7 +44,7 @@ public extension CGSize {
     }*/
 
     /// Calculate filled image size after rotation
-    func rotateFilling(angle: Double) -> CGSize {
+    internal func rotateFilling(angle: Double) -> CGSize {
         let width = self.width
         let height = self.height
 

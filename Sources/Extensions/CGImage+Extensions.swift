@@ -4,7 +4,7 @@ import CoreImage
 import Accelerate.vImage
 
 /// Extensions on `CGImage`
-public extension CGImage {
+internal extension CGImage {
     /// Alpha channel presence
     var hasAlpha: Bool {
         // let alphaInfo = CGImageAlphaInfo(rawValue: self.bitmapInfo.rawValue & CGBitmapInfo.alphaInfoMask.rawValue) ??  self.alphaInfo

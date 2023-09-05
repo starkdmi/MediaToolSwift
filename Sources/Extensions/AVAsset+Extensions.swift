@@ -1,7 +1,7 @@
 import AVFoundation
 
-/// Public extension for AVAsset
-public extension AVAsset {
+/// Extensions on `AVAsset`
+internal extension AVAsset {
     /// Load tracks using newer API if possible and the deprecated one otherwise
     /// - Parameter type: Media type
     /// - Returns: List of tracks or nil

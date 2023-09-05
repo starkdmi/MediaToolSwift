@@ -147,7 +147,7 @@ public enum ImageFormat: String, CaseIterable {
     }
 
     /// Indicator of animation supported format
-    public var isAnimationSupported: Bool {
+    internal var isAnimationSupported: Bool {
         return self == .gif || self == .heics || self == .png
     }
 

@@ -1,7 +1,7 @@
 import CoreMedia
 
-/// Public extension on `CMTimeRange`
-public extension CMTimeRange {
+/// Extensions on `CMTimeRange`
+internal extension CMTimeRange {
     /// Initialize `CMTimeScale` using start and end points, video duration in seconds and time scale
     init?(start: Double, end: Double, duration: Double, timescale: CMTimeScale) {
         guard start < duration else { return nil }

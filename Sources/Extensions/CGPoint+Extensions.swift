@@ -1,7 +1,7 @@
 import AVFoundation
 
-/// Public extension on `CGPoint`
-public extension CGPoint {
+/// Extensions on `CGPoint`
+internal extension CGPoint {
     /// Rotate point relative to another point
     func rotate(by angle: CGFloat, around center: CGPoint) -> CGPoint {
         let translatedPoint = CGPoint(x: self.x - center.x, y: self.y - center.y)

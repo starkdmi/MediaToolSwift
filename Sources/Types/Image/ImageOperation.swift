@@ -48,7 +48,7 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
     }
 
     /// Determine if `ImageOperation` is rotation and the angle isn't multiply of 90 degree
-    public var isRotationByCustomAngle: Bool {
+    internal var isRotationByCustomAngle: Bool {
         if case .rotate(let rotation, _) = self {
             // Small threshold is used for small difference between types
             return abs(rotation.radians).truncatingRemainder(dividingBy: .pi/2) > 1e-6
@@ -90,7 +90,7 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
     }
 }
 
-public extension Set where Element == ImageOperation {
+internal extension Set where Element == ImageOperation {
     /// Determine if any `ImageOperation` is rotation and the angle isn't multiply of 90 degree
     var containsRotationByCustomAngle: Bool {
         return self.contains(where: { $0.isRotationByCustomAngle })

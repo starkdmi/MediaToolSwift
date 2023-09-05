@@ -5,7 +5,7 @@ import CoreGraphics
 import CoreImage
 
 /// vImage editing implementation
-public extension vImage {
+internal extension vImage {
     /** Apply multiple image operations and settings on `CGImage`
         - Resize using vImage or CGImage
         + Crop using vImage
@@ -227,7 +227,7 @@ public extension vImage {
 }
 
 /// vImage related extensions
-public extension vImage_Buffer {
+internal extension vImage_Buffer {
     /// Unpremultiply alpha channel
     mutating func unpremultiply() throws {
         let error = vImageUnpremultiplyData_ARGB8888(&self, &self, vImage_Flags(kvImageNoFlags))
@@ -521,7 +521,7 @@ public extension vImage_Buffer {
 }
 
 /// vImage format extension
-public extension vImage_CGImageFormat {
+internal extension vImage_CGImageFormat {
     /// Custom `vImage_CGImageFormat` initializer
     init(
         _ image: CGImage,
@@ -559,7 +559,7 @@ public extension vImage_CGImageFormat {
 }
 
 /// vImage error extension
-public extension vImage_Error {
+internal extension vImage_Error {
     /// Throws when containing an error
     func check() throws {
         guard self == kvImageNoError else {
@@ -569,7 +569,7 @@ public extension vImage_Error {
 }
 
 /// Converter extension for standard `vImage` <-> `CGImage` conversions
-public extension vImageConverter {
+internal extension vImageConverter {
     /// Make `vImage` <-> `CGImage` converter using base format in combination with one of source or destination
     static func create(from sourceFormat: vImage_CGImageFormat? = nil, to destinationFormat: vImage_CGImageFormat? = nil) -> vImageConverter? {
         // Hardcoded working format
@@ -602,7 +602,7 @@ public extension vImageConverter {
 }
 
 /// Wrapping `UnsafeMutableRawPointer` for optional usage
-public struct TemporaryBuffer {
+internal struct TemporaryBuffer {
     var buffer: UnsafeMutableRawPointer! = nil
 
     var isInitialized: Bool {

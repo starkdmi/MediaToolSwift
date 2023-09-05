@@ -3,7 +3,7 @@ import AVFoundation
 import CoreImage
 
 /// Extensions on `CIImage`
-public extension CIImage {
+internal extension CIImage {
     /// Crop `CIImage`
     func crop(using options: Crop, orientation: CGImagePropertyOrientation? = nil) -> CIImage? {
         let size = self.extent.size.oriented(orientation)

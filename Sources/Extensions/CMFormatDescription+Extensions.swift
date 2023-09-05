@@ -1,7 +1,7 @@
 import AVFoundation
 
-/// Public extension for `CMFormatDescription` on `AVAssetTrack`
-public extension CMFormatDescription {
+/// Extensions on `CMFormatDescription` of `AVAssetTrack`
+internal extension CMFormatDescription {
     /// Boolean indicator of transparency presence in format description
     var hasAlphaChannel: Bool {
         // Method #1 - Check .containsAlphaChannel extension value

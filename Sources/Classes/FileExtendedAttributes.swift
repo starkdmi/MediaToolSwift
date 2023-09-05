@@ -6,7 +6,7 @@ import ObjCExceptionCatcher
 #endif
 
 /// Static methods used to set extended attributes on files
-class FileExtendedAttributes {
+internal class FileExtendedAttributes {
     // Extended attribute keys
     static let extendedAttributesKey = "NSFileExtendedAttributes"
     static let whereFromsKey = "com.apple.metadata:kMDItemWhereFroms"

@@ -1,7 +1,7 @@
 import CoreGraphics
 
-/// Public `CGContext` extensions
-public extension CGContext {
+/// Extensions on `CGContext`
+internal extension CGContext {
     /// Create `CGContext` from `CGImage`
     static func make(_ image: CGImage, width: Int? = nil, height: Int? = nil) -> CGContext? {
         let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()

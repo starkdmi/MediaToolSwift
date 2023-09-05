@@ -1,7 +1,7 @@
 import AVFoundation
 
-/// Public extension for `AVAssetTrack`
-public extension AVAssetTrack {
+/// Extensions on `AVAssetTrack`
+internal extension AVAssetTrack {
     /// Apply fixes to the rotations or flips
     /// Fix transform translation issue from https://stackoverflow.com/a/64161545/4833705
     var fixedPreferredTransform: CGAffineTransform {
