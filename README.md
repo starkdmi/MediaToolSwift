@@ -54,9 +54,9 @@ let task = await VideoTool.convert(
 
             // modify video frames as images
             .imageProcessing { image, _, _ in
-                image.applyingFilter("CIGaussianBlur", parameters: [
+                image.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [
                     "inputRadius": 7.5
-                ])
+                ]).cropped(to: CGRect(origin: .zero, size: size))
             }
         ]
     ),
@@ -96,6 +96,57 @@ task.cancel()
 ```
 Complex example can be found in [this](Example/) directory.
 
+## Image 
+__Image converter focused on:__
+- Popular image formats
+- Animated image sequences
+- HDR content
+- Metadata
+- Orientation
+- Multiple Frameworks
+
+__Features__
+| Convert | Resize | Crop | Rotate, Flip, Mirror | Image Processing | FPS | Info |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| ✔️ | ✔️ | ✔️ | ✔️ | 🚧 | ✔️ | ✔️ |
+
+__Supported image formats:__
+- HEIF
+- HEIF 10-bit
+- HEIC
+- HEICS (HEIFS)\*
+- PNG\*
+- GIF\*
+- JPEG
+- TIFF
+- BMP
+- JPEG 2000
+- ICO
+
+> Additionally decoding is supported for: WebP\*, AVIF and others
+
+\* - _support animated image sequences_
+
+__Example:__
+```Swift
+let info = try ImageTool.convert(
+    source: source,
+    destination: destination,
+    settings: .init(
+        format: .png,
+        size: .fit(.fhd), // size to fit in
+        // size: .crop(options: .init(size: CGSize(width: 512, height: 512), aligment: .center)), // or cropping area
+        // quality, frame rate, background color, atd.
+        edit: [
+            .rotate(.clockwise), // rotate and crop
+            // .rotate(.angle(.pi/4), fill: .blur(kernel: 55)), // rotate extend blurred
+            // .rotate(.angle(.pi/4), fill: .color(alpha: 255, red: 255, green: 255, blue: 255)), // rotate extend with color
+            // flip, mirror, atd.
+        ]
+    )
+)
+```
+
 ## Requirements
 * macOS 11.0+
 * iOS 13.0+
@@ -106,14 +157,14 @@ Complex example can be found in [this](Example/) directory.
 To install library with Swift Package Manager, add the following code to your __Package.swift__ file:
 ```
 dependencies: [
-    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.0.7"))
+    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.0.8"))
 ]
 ```
 
 ### CocoaPods
 To install library with CocoaPods, add the following line to your __Podfile__ file:
 ```
-pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.7'
+pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.8'
 ```
 
 ## Documentation
