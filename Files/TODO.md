@@ -78,6 +78,7 @@ PDF
 ```
 
 __Base__
+- Quality options should also apply to lossless formats to decrease file size when converting PNG to PNG
 - Prefer `CIImage` load/edit when output format is HEIF/HEIF10
 - `CGColorSpace` and `CIFormat` optional parameters
 - Reuse `CGContext` for similar operations on animated images (inout parameter or store in `ImageProcessor` with all temp buffers and contexts)
