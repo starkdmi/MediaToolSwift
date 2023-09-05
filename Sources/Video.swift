@@ -3,6 +3,7 @@ import Foundation
 import CoreMedia
 import CoreImage
 import VideoToolbox
+import Accelerate
 
 // To support both SwiftPM and CocoaPods
 #if canImport(ObjCExceptionCatcher)
@@ -1088,17 +1089,17 @@ public struct VideoTool {
     ///     - transfrom: Apply preferred source video tranformations if `true`
     ///     - timeToleranceBefore: Time tolerance before specified time, in seconds
     ///     - timeToleranceBefore: Time tolerance after specified time, in seconds
-    /// - Returns: Array of image thumbnail objects
-    /// Warning: Call this function from `DispatchQueue` for non-blocking experience
+    ///     - completion: The completion callback with an array of thumbnail objects as images
     public static func thumbnailImages(
         for asset: AVAsset,
         at seconds: [Double],
-        size: CGSize?,
+        size: CGSize? = nil,
         transfrom: Bool = true,
         timeToleranceBefore: Double = .infinity,
-        timeToleranceAfter: Double = .infinity
-    ) async throws -> [VideoThumbnail] {
-        guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
+        timeToleranceAfter: Double = .infinity,
+        completion: @escaping ([VideoThumbnail]) -> Void
+    ) throws {
+        guard let videoTrack = asset.tracks(withMediaType: .video).first else {
             throw CompressionError.videoTrackNotFound
         }
 
@@ -1156,30 +1157,18 @@ public struct VideoTool {
         }
 
         var thumbnails: [VideoThumbnail] = []
-        if #available(macOS 13, iOS 16, tvOS 16, *) {
-            for await result in generator.images(for: seconds) {
-                let requestedTime = result.requestedTime
-                if let image = try? result.image, let actualTime = try? result.actualTime {
-                    thumbnails.append(VideoThumbnail(image: image, requestedTime: requestedTime.seconds, actualTime: actualTime.seconds))
-                }
+        let nsSeconds = seconds.map({ NSValue(time: $0) })
+        var counter = seconds.count
+        generator.generateCGImagesAsynchronously(forTimes: nsSeconds, completionHandler: { (requestedTime, image, actualTime, _, _) in
+            if let image = image {
+                thumbnails.append(VideoThumbnail(image: image, requestedTime: requestedTime.seconds, actualTime: actualTime.seconds))
             }
-        } else {
-            await withUnsafeContinuation { continuation in
-                let nsSeconds = seconds.map({ NSValue(time: $0) })
-                var count = seconds.count
-                generator.generateCGImagesAsynchronously(forTimes: nsSeconds, completionHandler: { (requestedTime, image, actualTime, _, _) in
-                    if let image = image {
-                        thumbnails.append(VideoThumbnail(image: image, requestedTime: requestedTime.seconds, actualTime: actualTime.seconds))
-                    }
-                    count -= 1
-                    if count <= 0 || thumbnails.count == seconds.count {
-                        continuation.resume()
-                    }
-                })
-            }
-        }
 
-        return thumbnails
+            counter -= 1
+            if counter <= 0 || thumbnails.count == seconds.count {
+                completion(thumbnails)
+            }
+        })
     }
 
     /// Generate multiple file thumbnails
@@ -1190,86 +1179,150 @@ public struct VideoTool {
     ///     - transfrom: Apply preferred source video tranformations if `true`
     ///     - timeToleranceBefore: Time tolerance before specified time, in seconds
     ///     - timeToleranceBefore: Time tolerance after specified time, in seconds
-    /// - Returns: Array of file thumbnail objects
+    ///     - completion: The completion callback with array of file thumbnail objects or an error
     public static func thumbnailFiles(
         of asset: AVAsset,
         at requests: [VideoThumbnailRequest],
         settings: ImageSettings,
         transfrom: Bool = true,
         timeToleranceBefore: Double = .infinity,
-        timeToleranceAfter: Double = .infinity
-    ) async throws -> [VideoThumbnailFile] {
-        var thumbSize = settings.size
-
-        // Calculate max size based on Crop, Rotate and Resize operations
-        // And request lower resolution thumbnail even before applying them
-        if !settings.edit.isEmpty, let videoTrack = await asset.getFirstTrack(withMediaType: .video) {
-            // Video size
-            var videoRect = CGRect(origin: .zero, size: videoTrack.naturalSizeWithOrientation)
-            if let resize = settings.size {
-                videoRect = AVMakeRect(aspectRatio: videoRect.size, insideRect: CGRect(origin: CGPoint.zero, size: resize))
-            }
-
-            // Temp image
-            var ciImage = CIImage(color: .black).cropped(to: videoRect)
-
-            // Apply operations in sorted order
-            for operation in settings.edit.sorted() {
-                switch operation {
-                case .crop(let options):
-                    let rect = options.makeCroppingRectangle(in: videoRect.size)
-                    ciImage = ciImage.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.origin.x, y: -rect.origin.y))
-                case .rotate(let value):
-                    ciImage = ciImage.transformed(by: CGAffineTransform(rotationAngle: value.radians))
-                /*case .imageProcessing(let function):
-                    ciImage = function(ciImage)*/
-                default:
-                    // Unnecessary for the size calculation operations
-                    break
-                }
-            }
-
-            // Final max size of an image after operations applied
-            thumbSize = CGSize(width: ciImage.extent.origin.x + ciImage.extent.size.width, height: ciImage.extent.origin.y + ciImage.extent.size.height)
+        timeToleranceAfter: Double = .infinity,
+        completion: @escaping (Result<[VideoThumbnailFile], CompressionError>) -> Void
+    ) {
+        var thumbSize: CGSize?
+        var crop: Crop?
+        switch settings.size {
+        case .fit(let size):
+            thumbSize = size
+        case .crop(let size, let options):
+            thumbSize = size
+            crop = options
+        case .original:
+            break
         }
+
+        // Warning: `thumbSize` set the min size, not the fitting area, so the additional resizing will be applied if not `nil`
+        let shouldResize = thumbSize != nil
+
+        /*var isHDRVideo: Bool?
+        if let videoTrack = await asset.getFirstTrack(withMediaType: .video) {
+            let videoDesc = videoTrack.formatDescriptions.first as! CMFormatDescription
+            isHDRVideo = videoDesc.isHDRVideo
+        }*/
 
         // Request the images at specific times
         let seconds = requests.map({ $0.time })
-        let items = try await thumbnailImages(for: asset, at: seconds, size: thumbSize, transfrom: transfrom, timeToleranceBefore: timeToleranceBefore, timeToleranceAfter: timeToleranceAfter)
-        guard items.count > 0 else { return [] }
-
-        var thumbnails: [VideoThumbnailFile] = []
-        // Save images in parallel with options applied
-        let queue = DispatchQueue(label: "MediaToolSwift.video.thumbnails", attributes: .concurrent)
-        await withThrowingTaskGroup(of: VideoThumbnailFile.self, body: { group in
-            for index in 0 ..< items.count {
-                let item = items[index]
-                var image = item.image
-                let url = requests[index].url
-
-                // Edit
-                if !settings.edit.isEmpty {
-                    image = image.edit(settings: settings)
+        do {
+            try thumbnailImages(for: asset, at: seconds, size: thumbSize, transfrom: transfrom, timeToleranceBefore: timeToleranceBefore, timeToleranceAfter: timeToleranceAfter) { items in
+                if items.isEmpty {
+                    completion(.success([]))
+                    return
                 }
 
-                // Add a task
-                let frames = [ImageFrame(image: image)]
-                let size = CGSize(width: image.width, height: image.height)
-                group.addTask {
-                    // Write an image
-                    try await ImageTool.saveImageAsync(frames, at: url, settings: settings, queue: queue)
-                    return VideoThumbnailFile(url: url, format: settings.format, size: size, time: item.actualTime)
+                // `CImage` variables
+                lazy var context = CIContext(options: [.highQualityDownsample: true])
+                // `vImage` variables
+                var format: vImage_CGImageFormat?
+                var tempBuffer: TemporaryBuffer?
+                var converterIn: vImageConverter?, converterOut: vImageConverter?
+
+                var thumbnails: [VideoThumbnailFile] = []
+                // Save images in parallel with options applied
+                let thumbnailQueue = DispatchQueue(label: "MediaToolSwift.video.thumbnails", qos: .userInitiated, attributes: .concurrent)
+                let semaphore = DispatchSemaphore(value: 16)
+                let group = DispatchGroup()
+                for index in 0 ..< items.count {
+                    let item = items[index]
+                    var image = item.image
+                    let url = requests[index].url
+
+                    var ciImage: CIImage?
+                    // Warning: video thumbnails using generator are always 8 bit per component
+                    let isHDR = image.bitsPerComponent > 8 // || isHDRVideo
+                    let fallbackToCIImage = settings.preferredFramework == .ciImage || isHDR || settings.format == .heif || settings.format == .heif10
+
+                    // Process as `CIImage`
+                    if fallbackToCIImage {
+                        // Convert to CIImage
+                        ciImage = CIImage(cgImage: image, options: [.applyOrientationProperty: false])
+
+                        // Apply edits
+                        ciImage = ciImage?.edit(
+                            operations: settings.edit,
+                            size: settings.size,
+                            shouldResize: shouldResize,
+                            hasAlpha: image.hasAlpha,
+                            preserveAlpha: settings.preserveAlphaChannel,
+                            backgroundColor: settings.backgroundColor,
+                            index: index
+                        )
+                    }
+
+                    // Process as `CGImage` using `vImage`
+                    if ciImage == nil || !fallbackToCIImage {
+                        if !settings.edit.isEmpty || (!settings.preserveAlphaChannel && image.hasAlpha) || shouldResize {
+                            if format == nil {
+                                format = vImage_CGImageFormat(image)
+                                converterIn = vImageConverter.create(from: format)
+                                converterOut = vImageConverter.create(to: format)
+                            }
+
+                            if let edited = try? vImage.edit(
+                                image: image,
+                                operations: settings.edit,
+                                size: settings.size,
+                                shouldResize: shouldResize,
+                                hasAlpha: image.hasAlpha,
+                                preserveAlpha: settings.preserveAlphaChannel,
+                                backgroundColor: settings.backgroundColor,
+                                index: index,
+                                format: format,
+                                converterIn: converterIn,
+                                converterOut: converterOut,
+                                tempBuffer: &tempBuffer // doesn't support parallel threads, equals to `nil`
+                            ) {
+                                image = edited
+                            }
+                        } else if let options = crop {
+                            // Crop using `CGImage` to prevent conversion to `vImage` just for cropping
+                            if let cropped = image.crop(using: options) {
+                                image = cropped
+                            }
+
+                            // Convert color space for BMP images, as it doesn't support some video codec color spaces
+                            if settings.format == .bmp,
+                                let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+                                let converted = image.convertColorSpace(to: colorSpace) {
+                                image = converted
+                            }
+                        }
+                    }
+
+                    thumbnailQueue.async(group: group) {
+                        do {
+                            semaphore.wait()
+
+                            // Write an image
+                            let frames = [ImageFrame(cgImage: image, ciImage: ciImage)]
+                            try ImageTool.saveImage(frames, at: url, settings: settings)
+
+                            // Add to array
+                            let size = ciImage?.extent.size ?? image.size
+                            thumbnails.append(VideoThumbnailFile(url: url, format: settings.format, size: size, time: item.actualTime))
+
+                            semaphore.signal()
+                        } catch { }
+                    }
+                }
+
+                group.notify(queue: thumbnailQueue) {
+                    completion(.success(thumbnails))
                 }
             }
-
-            // Wait for all the concurrent tasks
-            do {
-                for try await result in group {
-                    thumbnails.append(result)
-                }
-            } catch { }
-        })
-
-        return thumbnails
+        } catch let error as CompressionError {
+            completion(.failure(error))
+        } catch {
+            completion(.failure(CompressionError.failedToGenerateThumbnails))
+        }
     }
 }

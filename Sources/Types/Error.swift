@@ -45,4 +45,6 @@ public struct CompressionError: LocalizedError, Equatable {
     public static let failedToCreateImageFile = CompressionError(description: "Failed to create destination for file.")
     public static let failedToSaveImage = CompressionError(description: "Failed to save image")
     public static let emptyImage = CompressionError(description: "Image frames are missing")
+    public static let failedToGenerateThumbnails = CompressionError(description: "Failed to generate thumbnails from a video file")
+    // public static let blurNotAllowed = CompressionError(description: "Blur filling is not allowed for images with alpha channel")
 }

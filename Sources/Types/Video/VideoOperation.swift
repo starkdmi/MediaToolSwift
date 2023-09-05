@@ -37,7 +37,7 @@ public enum VideoOperation: Equatable, Hashable {
     var transform: CGAffineTransform? {
         switch self {
         case .rotate(let value):
-            return CGAffineTransform(rotationAngle: value.radians)
+            return CGAffineTransform(rotationAngle: CGFloat(value.radians))
         case .flip:
             return CGAffineTransform(scaleX: 1.0, y: -1.0)
         case .mirror:

@@ -10,10 +10,10 @@ public enum Rotate: Equatable, Hashable {
     case upsideDown
 
     /// Custom rotation angle in radians, most likely will be displayed as nearest 90' value when applied to video
-    case angle(Double)
+    case angle(Float)
 
     /// Angle
-    var radians: Double {
+    var radians: Float {
         switch self {
         case .clockwise:
             return .pi/2

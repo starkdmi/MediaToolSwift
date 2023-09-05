@@ -136,7 +136,7 @@ try await VideoTool.thumbnailFiles(of: asset, at: [
 ```
 
 ## Frame Rate adjustment
-Set custom video frame rate. Will not increase source video frame rate. Slo-mo supported but should preserver frame rate higher than 120 to display as Slo-mo on Apple devices.
+Set custom video frame rate. Will not increase source video frame rate. Slo-mo supported but should preserve frame rate higher than 120 to display as Slo-mo on Apple devices.
 
 __Usage__
 ```Swift
