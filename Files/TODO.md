@@ -1,11 +1,12 @@
 ## Main
 - __AVAssetReaderOutput.alwaysCopiesSampleData__ - `videoOutput.alwaysCopiesSampleData` set to `false` may improve the perfomance, default to `true`. Check if applicable
 - __AVAssetWriterInput.performsMultiPassEncodingIfSupported__ - `videoInput.performsMultiPassEncodingIfSupported` may improve the compression in some cases, check availability via `videoInput.canPerformMultiplePasses`
-- __Logger__ - Simple logging feature plus operations descriptions like - https://stackoverflow.com/a/23271969/20387962
+- __Logger__ - Simple logging feature plus operations descriptions like [this](https://stackoverflow.com/a/23271969/20387962). Add kvImagePrintDiagnosticsToConsole to each kVImageFlags in vImage code.
 - __VP9 and AV1 video codecs support using VideoToolBox__ - VTDecompressionSession and VTCompressionSession can be used inside sample buffer processing block for frame by frame decoding/encoding
 - __Multiple video/audio/metadata tracks support__ - option to save all video/audio/metadata tracks from source file to output (now only first track for each track media type is stored)
 - __Command line tool__ - command line application like avconvert and ffmpeg
-- __visionOS support__
+- __Mac Catalyst support__ - macCatalyst(.v13.1)
+- __visionOS support__ - SwiftPM 5.9 - visionOS(.v1.0)
 
 ## Video
 __Info__ - function to extract info from a video file:
@@ -22,9 +23,12 @@ VP9, AV1
 ```
 
 __Base__
-- __Video thumbnails size performance__ - calculate max size based on ImageOperations (Crop, Rotate) and request a low-res thumbnail even before cropping, rotating
-- __Video thumbnails cancellation feature__ - generator.cancelAllCGImageGeneration()
+- __vImage Image Processing__ - another callback with `vImage` instead of `CIImage` - [docs](https://developer.apple.com/documentation/accelerate/applying_vimage_operations_to_video_sample_buffers), [docs](https://developer.apple.com/documentation/accelerate/core_video_interoperability),
+    [github demo](https://github.com/madhaviKumari/ApplyingVImageOperationsToVideoSampleBuffers)
 - __Video thumbnails threading__ - check the main thread isn't busy
+- __Video thumbnails cancellation feature__ - generator.cancelAllCGImageGeneration()
+- __Video thumbnails progress feature__
+- __Video thumbnails overwrite option__
 
 __Video to GIF__
 
@@ -36,6 +40,8 @@ __Insert video__ - insert/add video track before/after the source video
 
 __Advanced Cutting__ - select multiple ranges of audio/video track and stitch them together while removing unselected parts. this feature can be done without re-encoding video frames (losslessly)
 
+__Editor (Example)__ - Draw on video in real time playback [HandDrawn](https://github.com/starkdmi/HandDrawn) or something like [this](https://github.com/ltebean/LTVideoRecorder). Each Curve, shape added to current video frame, pause/continue feature.
+
 __Frame rate and resolution upscaling__ - combine nearest frames to produce middle one, upscale/enlarge/unblur pixels
 
 __Video Stabilization__ - only using native Swift code (no 3rd party libraries like OpenCV and ffmpeg)
@@ -44,9 +50,9 @@ __Video Stabilization__ - only using native Swift code (no 3rd party libraries l
 __AI__ - face landmark, pose detections, atd. using Vision framework
 
 ## Audio
-| Convert | Cut | Speed | Waveform | Info |
-| :---: | :---: | :---: | :---: | :---: |
-| 🚧 | ➖ | ➖ | 🚧 | 🚧 |
+| Convert | Cut | Speed | Waveform | Custom Chunk Processor | Info |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| 🚧 | 🚧 | 🚧 | ➖ | ➖ | 🚧 |
 
 __Info__
 ``` 
@@ -60,8 +66,8 @@ AAC, Opus, FLAC
 
 ## Image
 | Convert | Resize | Crop | Rotate, Flip, Mirror | Filter\* | Background | Blurhash | Custom FPS | Info |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| ✔️ | ✔️ | ✔️ | ✔️ | ✔️ | ➖ | ➖ | ✔️ | ✔️ |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| ✔️ | ✔️ | ✔️ | ✔️ | 🚧 | ➖ | ➖ | ✔️ | ✔️ |
 
 __Info__
 ```
@@ -73,10 +79,33 @@ metadata - date, location, device/camera/lens
 __Formats__
 ```
 WebP
+
+[AVIF](https://github.com/SDWebImage/SDWebImageAVIFCoder)
+
+SVG (PNG, JPEG, ... in SVG tag) - https://github.com/dagronf/SwiftImageReadWrite
+
+PDF
 ```
+
+__Base__
+- Prefer `CIImage` load/edit when output format is HEIF/HEIF10
+- `CGColorSpace` and `CIFormat` optional parameters
+- Reuse `CGContext` for similar operations on animated images (inout parameter or store in `ImageProcessor` with all temp buffers and contexts)
+- `vImageScale_ARGB8888` takes temporary buffer as argument - reuse (but not the same one used for rotation)
+- `CGImage` loading should accept floating point via `kCGImageSourceShouldAllowFloat`?
+- Test images with HDR Gain Map, fallback to `CIImage` if contains gain map?
+- Frame rate adjustment performance improvement - when `settings.frameRate` is specified, load properties, calculate duration and frame rate and do NOT load unused frames.
+- Animated image concurency
+- Instead of custom `imageProcessing()` for images use the `CGAffineTransform`? Supported by all three image frameworks.
+- New image/video operation - blur region of interest - `vImage_Buffer.blurred_ARGB8888(regionOfInterest:blurRadius:)`
+- Strip GPS metadata using `kCGImageMetadataShouldExcludeGPS`?
+- Resolve invalid frame rate
 
 __Panoramas, Portraits, Live Photos, Raw Images__
 - Live Photo = Heic image + QuickTime video, [LivePhoto.Swift](https://github.com/LimitPoint/LivePhoto), `UTType.livePhoto`
 - Panoramas = extra wide photo (?)
+
+__BlurHash__
+Can be implemented using [BlurHashKit](https://github.com/woltapp/blurhash/blob/master/Swift/BlurHashEncode.swift) Swift implementation - one standalone files - rewrite to use `CGImage` instead of `UIImage`.
 
 __AI__ - [FILM: Frame Interpolation](https://film-net.github.io/)
