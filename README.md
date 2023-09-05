@@ -1,7 +1,7 @@
 ## MediaToolSwift
 > Advanced media converter for iOS, macOS and tvOS
 
-## Video
+## VideoTool
 __Video compressor focused on:__
 - Multiple video and audio codecs
 - Lossless
@@ -96,7 +96,7 @@ task.cancel()
 ```
 Complex example can be found in [this](Example/) directory.
 
-## Image 
+## ImageTool
 __Image converter focused on:__
 - Popular image formats
 - Animated image sequences
@@ -170,4 +170,4 @@ pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', 
 ## Documentation
 Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
 
-More info on video features and operations can be found [here](Files/VIDEO.md).
+More info on video and image features and operations can be found [here](Files/VIDEO.md) and [here](Files/IMAGE.md) respectively.

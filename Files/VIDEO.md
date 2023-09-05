@@ -131,7 +131,7 @@ try await VideoTool.thumbnailFiles(of: asset, at: [
         .init(time: 3.5, url: url1), 
         .init(time: 5.2, url: url2)
     ],
-    settings: .init(format: .png, size: .hd)
+    settings: .init(format: .png, size: .fit(.hd))
 )
 ```
 
