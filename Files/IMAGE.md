@@ -55,21 +55,22 @@ __Usage__
 ```Swift
 ImageSettings(size: .crop(options: .init(size: CGSize(width: 720, height: 720), aligment: .center)))
 ImageSettings(size: .crop(options: .init(origin: CGPoint(x: 256, y: 256), size: CGSize(width: 1080, height: 1080))))
+
+// Crop and scale to fit
+ImageSettings(size: .crop(fit: .fhd, options: .init(size: CGSize(width: 512, height: 512), aligment: .center)))
 ```
 
 ## Rotate
 Rotate an image. There are three fill options (for non-90 degree multiply angles) - crop, color or blur.
 
 __Showcase__
-| <img src='starfield_animation_30.gif'/> | <img src='rally_burst_10.gif'/> |
-| --- | --- |
+| <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/f3dffc9c-e83b-4729-9ed2-89e433e30705'/> | <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/bff8d555-f58c-4f41-a2b1-f879a82a420f'/> |
+| :-: | :-: |
 | [starfield_animation.heif](Tests/media/starfield_animation.heif) rotated by 30 degree with blurred extend | [rally_burst.heic](Tests/media/rally_burst.heic) rotated by 10 degree with blurred extend |
-
-| <img src='iphone_13_30.jpg'/> | <img src='iphone_x_45_vi.png'/> |
-| [iphone_13.heic](Tests/media/iphone_13_hdr_gain_map.HEIC) rotate by 30 and blur | [iphone_x.heic](Tests/media/iphone_x.HEIC) rotate by 45 and blur (vImage) |
-
-| <img src='starkdev_45.png'/> | <img src='iphone_x_30_crop.jpg'/> |
-| [starkdev.png](Tests/media/starkdev.png) rotate by 45 with transparent color extend | [iphone_x.jpg](Tests/media/iphone_x.jpg) rotate by 30 and crop to fill |
+| <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/aae9096d-683b-4e9b-bbd5-38987d92a97f'/> | <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/a405b8d5-b66b-4716-9fa4-ece7b38474f7'/> |
+| [iphone_13.heic](Tests/media/iphone_13_hdr_gain_map.HEIC) rotated by 30 with blurred extend | [iphone_x.heic](Tests/media/iphone_x.HEIC) rotated by 45 and with blurred extend using vImage |
+| <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/39b80124-2c55-4cc0-a3cc-c052aeea4e1a'/> | <img src='https://github.com/starkdmi/MediaToolSwift/assets/21260939/c6f584c0-d489-4ef4-9f0f-ca1a344e4190'/> |
+| [starkdev.png](Tests/media/starkdev.png) rotated by 45 with transparent color extend | [iphone_x.jpg](Tests/media/iphone_x.jpg) rotated by 30 and cropped to fill |
 
 <!--<picture><source srcset="starfield_animation_30.webp" /><source srcset="starfield_animation_30.gif" /><img src="starfield_animation_30.webp" alt="starfield_animation.heif rotated by 30 degree with blurred extend" /></picture>-->
 
