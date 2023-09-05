@@ -5,8 +5,8 @@
 - __VP9 and AV1 video codecs support using VideoToolBox__ - VTDecompressionSession and VTCompressionSession can be used inside sample buffer processing block for frame by frame decoding/encoding
 - __Multiple video/audio/metadata tracks support__ - option to save all video/audio/metadata tracks from source file to output (now only first track for each track media type is stored)
 - __Command line tool__ - command line application like avconvert and ffmpeg
-- __Mac Catalyst support__ - macCatalyst(.v13.1)
-- __visionOS support__ - SwiftPM 5.9 - visionOS(.v1.0)
+- __Mac Catalyst support__ - .macCatalyst(.v13)
+- __visionOS support__ - SwiftPM 5.9 - .visionOS(.v1.0)
 
 ## Video
 __Info__ - function to extract info from a video file:
@@ -65,16 +65,6 @@ AAC, Opus, FLAC
 ```
 
 ## Image
-| Convert | Resize | Crop | Rotate, Flip, Mirror | Filter\* | Background | Blurhash | Custom FPS | Info |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| ✔️ | ✔️ | ✔️ | ✔️ | 🚧 | ➖ | ➖ | ✔️ | ✔️ |
-
-__Info__
-```
-format, resolution, filesize, has alpha, is animated, pixel format,
-animated - duration, frame rate,
-metadata - date, location, device/camera/lens
-```
 
 __Formats__
 ```
@@ -100,6 +90,8 @@ __Base__
 - New image/video operation - blur region of interest - `vImage_Buffer.blurred_ARGB8888(regionOfInterest:blurRadius:)`
 - Strip GPS metadata using `kCGImageMetadataShouldExcludeGPS`?
 - Resolve invalid frame rate
+- Background remover
+- BlurHash
 
 __Panoramas, Portraits, Live Photos, Raw Images__
 - Live Photo = Heic image + QuickTime video, [LivePhoto.Swift](https://github.com/LimitPoint/LivePhoto), `UTType.livePhoto`
