@@ -366,7 +366,7 @@ public struct VideoTool {
     }
 
     /// Initialize track, reader and writer for video 
-    private static func initVideo(asset: AVAsset, videoSettings: CompressionVideoSettings) async throws -> VideoVariables {
+    internal static func initVideo(asset: AVAsset, videoSettings: CompressionVideoSettings) async throws -> VideoVariables {
         var variables = VideoVariables()
 
         // Get first video track, an error is raised if none found 
@@ -378,7 +378,7 @@ public struct VideoTool {
         let durationInSeconds = asset.duration.seconds
         let nominalFrameRate = videoTrack.nominalFrameRate
         let naturalTimeScale = await videoTrack.getVideoTimeScale()
-        let totalFrames = Int64(ceil(durationInSeconds * Double(nominalFrameRate)))
+        var totalFrames = Int64(ceil(durationInSeconds * Double(nominalFrameRate)))
         // ffmpeg command to get frames amount:
         // ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -print_format csv video.mp4
 
@@ -616,6 +616,10 @@ public struct VideoTool {
                 if variables.range == nil,
                    let range = CMTimeRange(start: start, end: end, duration: durationInSeconds, timescale: naturalTimeScale) {
                     variables.range = range
+
+                    // Update frames amount
+                    let durationInSeconds = range.duration.seconds
+                    totalFrames = Int64(ceil(durationInSeconds * Double(nominalFrameRate)))
                 }
             case .crop(let options):
                 guard videoSettings.size == nil else {
@@ -762,6 +766,8 @@ public struct VideoTool {
             for index in 1 ..< targetFrames {
                 frames.insert(Int(ceil(Double(totalFrames) * Double(index) / Double(targetFrames - 1))))
             }
+            // Update frames amount
+            // totalFrames = Int64(frames.count)
 
             var frameIndex: Int = 0
             var previousPresentationTimeStamp: CMTime?
@@ -828,7 +834,7 @@ public struct VideoTool {
     }
 
     /// Initialize track, reader and writer for audio 
-    private static func initAudio(asset: AVAsset, audioSettings: CompressionAudioSettings?) async throws -> AudioVariables {
+    internal static func initAudio(asset: AVAsset, audioSettings: CompressionAudioSettings?) async throws -> AudioVariables {
         var variables = AudioVariables()
 
         // Load first audio track if any
@@ -866,6 +872,12 @@ public struct VideoTool {
                 }
 
                 bitsPerChannel = Int(basicDescription?.mBitsPerChannel ?? 0)
+
+                // Floating-point LPCM must be 32-bit
+                if isFloat == true, bitsPerChannel != 32 {
+                    bitsPerChannel = 32
+                }
+
                 if bitsPerChannel == nil || bitsPerChannel == 0 {
                     // Calculate bits per channel based on bitrate, channels amount and audio quality
                     let bitrate: Int
@@ -1032,7 +1044,7 @@ public struct VideoTool {
     }
 
     /// Initialize timed metadata track, reader, writer and collect metadata information
-    private static func initMetadata(asset: AVAsset, skipSourceMetadata: Bool, customMetadata: [AVMetadataItem]) async -> MetadataVariables {
+    internal static func initMetadata(asset: AVAsset, skipSourceMetadata: Bool, customMetadata: [AVMetadataItem]) async -> MetadataVariables {
         var variables = MetadataVariables()
 
         var hasMetadata = false
