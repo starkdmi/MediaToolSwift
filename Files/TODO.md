@@ -1,14 +1,22 @@
 ## Main
-- __AVAssetReaderOutput.alwaysCopiesSampleData__ - `videoOutput.alwaysCopiesSampleData` set to `false` may improve the perfomance, default to `true`. Check if applicable
-- __AVAssetWriterInput.performsMultiPassEncodingIfSupported__ - `videoInput.performsMultiPassEncodingIfSupported` may improve the compression in some cases, check availability via `videoInput.canPerformMultiplePasses`
 - __Logger__ - Simple logging feature plus operations descriptions like [this](https://stackoverflow.com/a/23271969/20387962). Add kvImagePrintDiagnosticsToConsole to each kVImageFlags in vImage code.
-- __VP9 and AV1 video codecs support using VideoToolBox__ - VTDecompressionSession and VTCompressionSession can be used inside sample buffer processing block for frame by frame decoding/encoding
-- __Multiple video/audio/metadata tracks support__ - option to save all video/audio/metadata tracks from source file to output (now only first track for each track media type is stored)
 - __Command line tool__ - command line application like avconvert and ffmpeg
 - __Mac Catalyst support__ - .macCatalyst(.v13)
 - __visionOS support__ - SwiftPM 5.9 - .visionOS(.v1.0)
 
 ## Video
+__Base__
+- __AVAssetReaderOutput.alwaysCopiesSampleData__ - `videoOutput.alwaysCopiesSampleData` set to `false` may improve the perfomance, default to `true`. Check if applicable
+- __AVAssetWriterInput.performsMultiPassEncodingIfSupported__ - `videoInput.performsMultiPassEncodingIfSupported` may improve the compression in some cases, check availability via `videoInput.canPerformMultiplePasses`
+- __Multiple video/audio/metadata tracks support__ - option to save all video/audio/metadata tracks from source file to output (now only first track for each track media type is stored)
+- __VP9 and AV1 video codecs support using VideoToolBox__ - VTDecompressionSession and VTCompressionSession can be used inside sample buffer processing block for frame by frame decoding/encoding
+- __vImage Image Processing__ - another callback with `vImage` instead of `CIImage` - [docs](https://developer.apple.com/documentation/accelerate/applying_vimage_operations_to_video_sample_buffers), [docs](https://developer.apple.com/documentation/accelerate/core_video_interoperability),
+    [github demo](https://github.com/madhaviKumari/ApplyingVImageOperationsToVideoSampleBuffers)
+- __Video thumbnails threading__ - check the main thread isn't busy
+- __Video thumbnails cancellation feature__ - generator.cancelAllCGImageGeneration()
+- __Video thumbnails progress feature__
+- __Video thumbnails overwrite option__
+
 __Info__ - function to extract info from a video file:
 ```
 resolution, rotation, filesize, duration, frame rate,
@@ -21,14 +29,6 @@ __Codecs__
 ```
 VP9, AV1
 ```
-
-__Base__
-- __vImage Image Processing__ - another callback with `vImage` instead of `CIImage` - [docs](https://developer.apple.com/documentation/accelerate/applying_vimage_operations_to_video_sample_buffers), [docs](https://developer.apple.com/documentation/accelerate/core_video_interoperability),
-    [github demo](https://github.com/madhaviKumari/ApplyingVImageOperationsToVideoSampleBuffers)
-- __Video thumbnails threading__ - check the main thread isn't busy
-- __Video thumbnails cancellation feature__ - generator.cancelAllCGImageGeneration()
-- __Video thumbnails progress feature__
-- __Video thumbnails overwrite option__
 
 __Video to GIF__
 
@@ -50,32 +50,16 @@ __Video Stabilization__ - only using native Swift code (no 3rd party libraries l
 __AI__ - face landmark, pose detections, atd. using Vision framework
 
 ## Audio
-| Convert | Cut | Speed | Waveform | Custom Chunk Processor | Info |
-| :---: | :---: | :---: | :---: | :---: | :---: |
-| 🚧 | 🚧 | 🚧 | ➖ | ➖ | 🚧 |
+| Speed adjustment | [Reverse](https://www.limit-point.com/blog/2022/reverse-audio/) | Waveform | Custom Chunk Processor | Info |
+| :---: | :---: | :---: | :---: | :---: |
+| 🚧 | 🚧 |➖ | ➖ | 🚧 |
 
 __Info__
 ``` 
 format, filesize, bitrate, duration, sample rate, waveform
 ```
 
-__Formats__
-```
-AAC, Opus, FLAC
-```
-
 ## Image
-
-__Formats__
-```
-WebP
-
-[AVIF](https://github.com/SDWebImage/SDWebImageAVIFCoder)
-
-SVG (PNG, JPEG, ... in SVG tag) - https://github.com/dagronf/SwiftImageReadWrite
-
-PDF
-```
 
 __Base__
 - Quality options should also apply to lossless formats to decrease file size when converting PNG to PNG
@@ -93,6 +77,17 @@ __Base__
 - Resolve invalid frame rate
 - Background remover
 - BlurHash
+
+__Formats__
+```
+WebP
+
+[AVIF](https://github.com/SDWebImage/SDWebImageAVIFCoder)
+
+SVG (PNG, JPEG, ... in SVG tag) - https://github.com/dagronf/SwiftImageReadWrite
+
+PDF
+```
 
 __Panoramas, Portraits, Live Photos, Raw Images__
 - Live Photo = Heic image + QuickTime video, [LivePhoto.Swift](https://github.com/LimitPoint/LivePhoto), `UTType.livePhoto`
