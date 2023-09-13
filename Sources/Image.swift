@@ -6,6 +6,7 @@ import Accelerate.vImage
 
 /// Image related singletone interface
 public struct ImageTool {
+
     /// Convert image file
     /// - Parameters:
     ///   - source: Input image URL
