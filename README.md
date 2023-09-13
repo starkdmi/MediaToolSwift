@@ -1,6 +1,26 @@
 ## MediaToolSwift
 > Advanced media converter for iOS, macOS and tvOS
 
+## Requirements
+* macOS 11.0+
+* iOS 13.0+
+* tvOS 13.0+
+
+## Installation
+### Swift Package Manager
+To install library with Swift Package Manager, add the following code to your __Package.swift__ file:
+```
+dependencies: [
+    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.0.8"))
+]
+```
+
+### CocoaPods
+To install library with CocoaPods, add the following line to your __Podfile__ file:
+```
+pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.8'
+```
+
 ## VideoTool
 __Video compressor focused on:__
 - Multiple video and audio codecs
@@ -53,7 +73,7 @@ let task = await VideoTool.convert(
             // crop, flip, mirror, atd.
 
             // modify video frames as images
-            .imageProcessing { image, _, _ in
+            .imageProcessing { image, size, _ in
                 image.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [
                     "inputRadius": 7.5
                 ]).cropped(to: CGRect(origin: .zero, size: size))
@@ -147,24 +167,71 @@ let info = try ImageTool.convert(
 )
 ```
 
-## Requirements
-* macOS 11.0+
-* iOS 13.0+
-* tvOS 13.0+
+## AudioTool
+__Audio converter featuring:__
+- Multiple audio formats
+- Lossless
+- Metadata
+- Hardware Acceleration
+- Progress and cancellation
 
-## Installation
-### Swift Package Manager
-To install library with Swift Package Manager, add the following code to your __Package.swift__ file:
-```
-dependencies: [
-    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.0.8"))
-]
-```
+__Features__
+| Convert | Cut | Info |
+| :---: | :---: | :---: |
+| ✔️ | ⭐️ | 🚧 |
 
-### CocoaPods
-To install library with CocoaPods, add the following line to your __Podfile__ file:
-```
-pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.8'
+⭐️ - _do not require re-encoding (lossless)_
+
+__Supported audio codecs:__
+- AAC
+- Opus
+- FLAC
+- Linear PCM
+- Apple Lossless
+
+> Supported audio file containers are `M4A`, `WAV`, `CAF`, `AIFF`, `AIFC`, `AMR`
+
+__Example:__
+```Swift
+// Run audio conversion
+let task = await AudioTool.convert(
+    source: URL(fileURLWithPath: "input.mp3"),
+    destination: URL(fileURLWithPath: "output.m4a"),
+    // Audio
+    fileType: .m4a,
+    settings: .init(
+        codec: .flac,
+        bitrate: .value(96_000)
+        // quality, sample rate, volume, atd.
+    ),
+    edit: [
+        .cut(from: 2.5, to: 15.0), // cut, in seconds
+    ],
+    // Metadata
+    skipSourceMetadata: false,
+    customMetadata: [],
+    copyExtendedFileMetadata: true,
+    // File options
+    overwrite: false,
+    deleteSourceFile: false,
+    // State notifier
+    callback: { state in
+        switch state {
+        case .started:
+            print("Started")
+        case .progress(let progress):
+            print("Progress: \(progress.fractionCompleted)")
+        case .completed(let url):
+            print("Done: \(url.path)")
+        case .failed(let error):
+            print("Error: \(error.localizedDescription)")
+        case .cancelled:
+            print("Cancelled")
+        }
+})
+
+// Cancel the conversion
+task.cancel()
 ```
 
 ## Documentation
