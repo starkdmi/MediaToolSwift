@@ -168,7 +168,7 @@ let info = try ImageTool.convert(
 ```
 
 ## AudioTool
-__Audio converter featuring:__
+__Audio converter focused on:__
 - Multiple audio formats
 - Lossless
 - Metadata
@@ -182,7 +182,7 @@ __Features__
 
 ⭐️ - _do not require re-encoding (lossless)_
 
-__Supported audio codecs:__
+__Supported audio formats:__
 - AAC
 - Opus
 - FLAC
