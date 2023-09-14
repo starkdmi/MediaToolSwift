@@ -1,5 +1,10 @@
 # MediaToolSwift
 ## This branch provide extended multimedia codecs support, check out [main](https://github.com/starkdmi/MediaToolSwift/tree/main) branch for documentation.
+
+| | WebP |
+| :---: | :---: |
+| __main__ | Decode only |
+| __plus__ | ✔️ |
 ___
 
 ## Requirements
