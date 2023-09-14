@@ -42,9 +42,9 @@ public enum ImageFormat: String, CaseIterable {
     /// Icon image format, squared only with 6, 32, 48, 128, or 256 pixels wide
     case ico
 
-    /// Decoding of static and animated images already supported
-    /// The encoding may possible using - https://github.com/SDWebImage/SDWebImageWebPCoder
-    // case webp // UTType.webP
+    /// Decoding of static and animated images natively supported by `ImageIO`, Encoding implemented using `SDWebImageWebPCoder`
+    /// Warning: Image metadata isn't saved when destination format is `WebP`
+    case webp
 
     /// Corresponding `kUTType`
     public var utType: CFString? {
@@ -92,6 +92,12 @@ public enum ImageFormat: String, CaseIterable {
                 return UTType.ico.identifier as CFString
             } else {
                 return kUTTypeICO
+            }
+        case .webp:
+            if #available(macOS 11, iOS 14, tvOS 14, *) {
+                return UTType.webP.identifier as CFString
+            } else {
+                return "org.webmproject.webp" as CFString
             }
         }
     }
@@ -148,7 +154,7 @@ public enum ImageFormat: String, CaseIterable {
 
     /// Indicator of animation supported format
     internal var isAnimationSupported: Bool {
-        return self == .gif || self == .heics || self == .png
+        return self == .gif || self == .heics || self == .png || self == .webp
     }
 
     /// Format works in old color format and low quality

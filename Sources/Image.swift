@@ -3,6 +3,7 @@ import Foundation
 import CoreImage
 import ImageIO
 import Accelerate.vImage
+import SDWebImageWebPCoder
 
 /// Image related singletone interface
 public struct ImageTool {
@@ -701,6 +702,70 @@ public struct ImageTool {
 
             // Write
             if CGImageDestinationFinalize(destination) == false {
+                throw CompressionError.failedToSaveImage
+            }
+        case .webp:
+            // Collect all the frames
+            var sdFrames: [SDImageFrame] = []
+            lazy var context = CIContext()
+            for index in 0 ..< frames.count {
+                let frame = frames[index]
+
+                let cgImage: CGImage
+                if let ciImage = frame.ciImage {
+                    cgImage = context.createCGImage(ciImage, from: ciImage.extent) ?? frame.cgImage!
+                } else {
+                    cgImage = frame.cgImage!
+                }
+
+                #if os(OSX)
+                let image = NSImage(
+                    cgImage: cgImage,
+                    scale: 1.0,
+                    orientation: orientation ?? .up
+                )
+                #else
+                let image = UIImage(
+                    cgImage: cgImage,
+                    scale: 1.0,
+                    orientation: UIImage.Orientation(rawValue: Int((orientation ?? .up).rawValue)) ?? .up
+                )
+                #endif
+
+                sdFrames.append(SDImageFrame(image: image, duration: frame.unclampedDelayTime ?? frame.delayTime ?? 0.1))
+            }
+
+            // WebP Settings
+            var options: [SDImageCoderOption: Any] = [:]
+            if let quality = settings.quality {
+                options[.encodeCompressionQuality] = quality
+            }
+            /*if settings.preserveAlphaChannel, primaryCGImage?.hasAlpha == true {
+                options[.encodeWebPAlphaQuality] = 0...100 // default is 100
+                options[.encodeWebPAlphaCompression] = 0 || 1 // default is 1
+            }*/
+            if settings.embedThumbnail {
+                options[.encodeEmbedThumbnail] = true
+            }
+            if let backgroundColor = settings.backgroundColor {
+                options[.encodeBackgroundColor] = backgroundColor
+            }
+
+            // Encode WebP
+            let webpData = SDImageWebPCoder.shared.encodedData(
+                with: sdFrames,
+                loopCount: UInt(primaryFrame.loopCount ?? 0),
+                format: .webP,
+                options: options
+            )
+            guard let webpData = webpData else {
+                throw CompressionError.failedToCreateImageFile
+            }
+
+            // Write to file
+            do {
+                try webpData.write(to: url)
+            } catch {
                 throw CompressionError.failedToSaveImage
             }
         }

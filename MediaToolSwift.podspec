@@ -24,4 +24,5 @@ Pod::Spec.new do |spec|
   spec.module_name  = "MediaToolSwift"
   spec.swift_version = "5.8"
   spec.requires_arc = true
+  spec.dependency "SDWebImageWebPCoder"
 end
