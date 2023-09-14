@@ -1,5 +1,5 @@
 # MediaToolSwift
-## This branch provide extended multimedia codecs support to `MediaToolSwift`, check out [main](https://github.com/starkdmi/MediaToolSwift/tree/main) branch for documentation.
+## This branch provide extended multimedia codecs support, check out [main](https://github.com/starkdmi/MediaToolSwift/tree/main) branch for documentation.
 ___
 
 ## Requirements
