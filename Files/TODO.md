@@ -1,8 +1,7 @@
 ## Main
 - __Logger__ - Simple logging feature plus operations descriptions like [this](https://stackoverflow.com/a/23271969/20387962). Add kvImagePrintDiagnosticsToConsole to each kVImageFlags in vImage code.
 - __Command line tool__ - command line application like avconvert and ffmpeg
-- __Mac Catalyst support__ - .macCatalyst(.v13)
-- __visionOS support__ - SwiftPM 5.9 - .visionOS(.v1.0)
+- __Mac Catalyst and Vision OS/Pro support for CocoaPods__ - SwiftPM 5.9
 
 ## Video
 __Base__
@@ -16,6 +15,7 @@ __Base__
 - __Video thumbnails cancellation feature__ - generator.cancelAllCGImageGeneration()
 - __Video thumbnails progress feature__
 - __Video thumbnails overwrite option__
+_ __Audio only__ - remove video and metadata tracks
 
 __Info__ - function to extract info from a video file:
 ```

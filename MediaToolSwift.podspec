@@ -22,6 +22,6 @@ Pod::Spec.new do |spec|
   # spec.tvos.framework = 'UIKit'
   # spec.osx.framework  = 'AppKit'
   spec.module_name  = "MediaToolSwift"
-  spec.swift_version = "5.8"
+  spec.swift_version = "5.9"
   spec.requires_arc = true
 end
