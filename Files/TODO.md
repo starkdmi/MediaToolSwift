@@ -2,6 +2,7 @@
 - __Logger__ - Simple logging feature plus operations descriptions like [this](https://stackoverflow.com/a/23271969/20387962). Add kvImagePrintDiagnosticsToConsole to each kVImageFlags in vImage code.
 - __Command line tool__ - command line application like avconvert and ffmpeg
 - __Mac Catalyst and Vision OS/Pro support for CocoaPods__ - SwiftPM 5.9
+- __Split voices/sounds in Video and Audio__ - Split different noises in audio track into multiple separate audio tracks (wind noise, music, voice #1, voice #2)
 
 ## Video
 __Base__
