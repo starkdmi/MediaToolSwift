@@ -150,8 +150,8 @@ __Supported image formats:__
 __Example:__
 ```Swift
 let info = try ImageTool.convert(
-    source: source,
-    destination: destination,
+    source: URL(fileURLWithPath: "input.webp"),
+    destination: URL(fileURLWithPath: "output.png"),
     settings: .init(
         format: .png,
         size: .fit(.fhd), // size to fit in
