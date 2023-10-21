@@ -130,11 +130,19 @@ public struct AudioTool {
         }
 
         // Append audio to writer
-        guard writer.canAdd(audioVariables.audioInput!) else {
+        /*guard writer.canAdd(audioVariables.audioInput!) else {
             callback(.failed(CompressionError.failedToWriteAudio))
             return task
         }
-        writer.add(audioVariables.audioInput!)
+        writer.add(audioVariables.audioInput!)*/
+        do {
+            try ObjCExceptionCatcher.catchException {
+                writer.add(audioVariables.audioInput!)
+            }
+        } catch let error {
+            callback(.failed(error))
+            return task
+        }
 
         // MARK: Metadata
 
