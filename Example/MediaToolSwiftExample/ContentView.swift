@@ -22,7 +22,7 @@ struct ContentView: View {
     @State private var error: CompressionError?
     @State private var isErrorAlertPresented = false
     // File
-    @State private var fileType: CompressionFileType = .mov
+    @State private var fileType: VideoFileType = .mov
     @State private var overwrite = false
     @State private var sourceFilesize: Double? // MB
     @State private var outputFilesize: Double? // MB
@@ -239,9 +239,9 @@ struct ContentView: View {
                             #endif
 
                             Picker("File Type", selection: $fileType) {
-                                Text("QuickTime - mov").tag(CompressionFileType.mov)
-                                Text("MPEG-4 - mp4").tag(CompressionFileType.mp4)
-                                Text("iTunes - m4v").tag(CompressionFileType.m4v)
+                                Text("QuickTime - mov").tag(VideoFileType.mov)
+                                Text("MPEG-4 - mp4").tag(VideoFileType.mp4)
+                                Text("iTunes - m4v").tag(VideoFileType.m4v)
                             }
                             .pickerStyle(.menu)
                             .frame(maxWidth: 200)

@@ -48,7 +48,7 @@ public struct VideoTool {
     public static func convert(
         source: URL,
         destination: URL,
-        fileType: CompressionFileType = .mov,
+        fileType: VideoFileType = .mov,
         videoSettings: CompressionVideoSettings = CompressionVideoSettings(),
         optimizeForNetworkUse: Bool = true,
         skipAudio: Bool = false,

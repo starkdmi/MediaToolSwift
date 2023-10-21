@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// Video file container
-public enum CompressionFileType: String {
+public enum VideoFileType: String {
     /// MPEG-4
     case mp4
 

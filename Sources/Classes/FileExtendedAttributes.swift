@@ -20,7 +20,7 @@ internal class FileExtendedAttributes {
     ///   - source: Original file path string
     ///   - destination: Destination file path string
     ///   - fileType: Video file container type
-    static func setExtendedMetadata(source: URL, destination: URL, copy: Bool, fileType: CompressionFileType) {
+    static func setExtendedMetadata(source: URL, destination: URL, copy: Bool, fileType: VideoFileType) {
         // Apple file system metadata
         let attributes: [String: Any] = [
             Self.assetTypeKey: "video/\(fileType == .mp4 ? "mp4" : "quicktime")".data(using: .utf8)!
