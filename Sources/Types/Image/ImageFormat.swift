@@ -42,8 +42,8 @@ public enum ImageFormat: String, CaseIterable {
     /// Icon image format, squared only with 6, 32, 48, 128, or 256 pixels wide
     case ico
 
-    /// Decoding of static and animated images already supported
-    /// The encoding may possible using - https://github.com/SDWebImage/SDWebImageWebPCoder
+    /// Decoding of static and animated images is supported by Apple
+    /// The encoding implemented in separate `plus` branch - https://github.com/starkdmi/MediaToolSwift/tree/plus
     // case webp // UTType.webP
 
     /// Corresponding `kUTType`
