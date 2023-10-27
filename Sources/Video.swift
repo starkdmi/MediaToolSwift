@@ -1190,7 +1190,7 @@ public struct VideoTool {
     ///     - settings: Output images settings
     ///     - transfrom: Apply preferred source video tranformations if `true`
     ///     - timeToleranceBefore: Time tolerance before specified time, in seconds
-    ///     - timeToleranceBefore: Time tolerance after specified time, in seconds
+    ///     - timeToleranceAfter: Time tolerance after specified time, in seconds
     ///     - completion: The completion callback with array of file thumbnail objects or an error
     public static func thumbnailFiles(
         of asset: AVAsset,
