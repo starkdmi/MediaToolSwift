@@ -134,18 +134,18 @@ __Supported image formats:__
 - HEIF
 - HEIF 10-bit
 - HEIC
-- HEICS (HEIFS)\*
-- PNG\*
-- GIF\*
+- HEICS (HEIFS) ✨
+- PNG ✨
+- GIF ✨
 - JPEG
 - TIFF
 - BMP
 - JPEG 2000
 - ICO
 
-> Additionally decoding is supported for: WebP\*, AVIF and others
+> Additionally decoding is supported for: WebP ✨, AVIF and others
 
-\* - _support animated image sequences_
+✨ - _support animated image sequences_
 
 __Example:__
 ```Swift
