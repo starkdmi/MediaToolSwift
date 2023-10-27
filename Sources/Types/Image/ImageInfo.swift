@@ -3,7 +3,7 @@ import CoreImage
 /// Image info
 public struct ImageInfo {
     /// Public initializer
-    /*public init(
+    public init(
         format: ImageFormat,
         size: CGSize,
         hasAlpha: Bool,
@@ -21,7 +21,7 @@ public struct ImageInfo {
         self.framesCount = framesCount
         self.frameRate = frameRate
         self.duration = duration
-    }*/
+    }
 
     /// Image format, default to source image format
     public let format: ImageFormat

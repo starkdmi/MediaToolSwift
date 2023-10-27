@@ -18,20 +18,20 @@ public struct CompressionAudioSettings {
     }
 
     /// Audio codec used for compression
-    let codec: CompressionAudioCodec
+    public let codec: CompressionAudioCodec
 
     /// Audio bitrate, used only by AAC and Opus
     /// Enum case `.value(Int)` requires value in bits
     /// Values in range from 64000 to 320000 are valid for AAC audio codec
     /// Values in range from 2000 to 510000 are valid for Opus audio codec
-    let bitrate: CompressionAudioBitrate
+    public let bitrate: CompressionAudioBitrate
 
     /// Audio quality, used by AAC and FLAC
-    let quality: AVAudioQuality?
+    public let quality: AVAudioQuality?
 
     /// Sample rate
-    let sampleRate: Int?
+    public let sampleRate: Int?
 
     /// Audio volume, 0.0 is muted
-    // let volume: Float // [0.0, 1.0]
+    // public let volume: Float // [0.0, 1.0]
 }

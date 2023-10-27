@@ -3,11 +3,11 @@ import AVFoundation
 /// Video thumbnail as `CGImage`
 public struct VideoThumbnail {
     /// Thumbnail image
-    let image: CGImage
+    public let image: CGImage
 
     /// Requested thumbnail time
-    let requestedTime: Double
+    public let requestedTime: Double
 
     /// Actual thumbnail frame time
-    let actualTime: Double
+    public let actualTime: Double
 }
