@@ -1323,12 +1323,19 @@ public struct VideoTool {
                             thumbnails.append(VideoThumbnailFile(url: url, format: settings.format, size: size, time: item.actualTime))
 
                             semaphore.signal()
-                        } catch { }
+                        } catch {
+                            semaphore.signal()
+                        }
                     }
                 }
 
                 group.notify(queue: thumbnailQueue) {
-                    completion(.success(thumbnails))
+                    if thumbnails.isEmpty {
+                        // Complete with failure when empty
+                        completion(.failure(CompressionError.failedToGenerateThumbnails))
+                    } else {
+                        completion(.success(thumbnails))
+                    }
                 }
             }
         } catch let error as CompressionError {
