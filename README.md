@@ -18,7 +18,7 @@ dependencies: [
 ### CocoaPods
 To install library with CocoaPods, add the following line to your __Podfile__ file:
 ```
-pod 'MediaToolSwift', :git => 'https://github.com/starkdmi/MediaToolSwift.git', :version => '1.0.9'
+pod 'MediaToolSwift', '~> 1.0.9'
 ```
 
 ## VideoTool
@@ -175,7 +175,7 @@ __Audio converter focused on:__
 - Hardware Acceleration
 - Progress and cancellation
 
-__Features__
+__[Features](Files/AUDIO.md)__
 | Convert | Cut | Info |
 | :---: | :---: | :---: |
 | ✔️ | ⭐️ | 🚧 |
