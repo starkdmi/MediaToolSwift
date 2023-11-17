@@ -51,6 +51,10 @@ __Video Stabilization__ - only using native Swift code (no 3rd party libraries l
 __AI__ - face landmark, pose detections, atd. using Vision framework
 
 ## Audio
+__Base__
+- __AudioToolbox__ - Instead of using `VideoToolBox` (AVAssetReader/AVAssetWriter) try `AudioToolBox` framework
+- __MP3 support__ - Add `MP3` support to the `plus` branch via [libmp3lame.a](https://github.com/maysamsh/Swift-MP3Converter) (slow, 2MB of size)
+
 | Speed adjustment | [Reverse](https://www.limit-point.com/blog/2022/reverse-audio/) | Waveform | Custom Chunk Processor | Info |
 | :---: | :---: | :---: | :---: | :---: |
 | 🚧 | 🚧 |➖ | ➖ | 🚧 |
