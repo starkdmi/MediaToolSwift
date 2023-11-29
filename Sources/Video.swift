@@ -473,11 +473,13 @@ public struct VideoTool {
         var videoCompressionSettings: [String: Any] = [:]
 
         // Adjust Bitrate
+        var targetBitrate: Float?
         variables.frameRate = videoSettings.frameRate
         if videoCodec == .h264 || videoCodec == .hevc || videoCodec == .hevcWithAlpha {
             // Setting bitrate for jpeg and prores codecs is not allowed
             switch videoSettings.bitrate {
             case .value(let value):
+                targetBitrate = Float(value)
                 videoCompressionSettings[AVVideoAverageBitRateKey] = value
             case .auto:
                 var codecMultiplier: Float = 1.0
@@ -489,7 +491,8 @@ public struct VideoTool {
                 let totalPixels = Float(videoSize.width * videoSize.height)
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
                 let rate = (totalPixels * codecMultiplier * fps) / 8
-                videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
+                targetBitrate = rate.rounded()
+                videoCompressionSettings[AVVideoAverageBitRateKey] = targetBitrate!
             case .source:
                 videoCompressionSettings[AVVideoAverageBitRateKey] = videoTrack.estimatedDataRate.rounded()
             case .encoder:
@@ -657,8 +660,16 @@ public struct VideoTool {
 
         // Compare source video settings with output to possibly skip video compression
         let defaultSettings = CompressionVideoSettings()
+        // Bitrate changes
+        var bitrateChanged = false
+        if let targetBitrate = targetBitrate {
+            let sourceBitrate = videoTrack.estimatedDataRate.rounded()
+            bitrateChanged = targetBitrate < sourceBitrate
+        }
+        // All combined
         if videoCodec == sourceVideoCodec, // output codec equals source video codec
-           videoSettings.bitrate == .auto || videoSettings.bitrate == .encoder, // custom bitrate value is not set
+           bitrateChanged == false, // bitrate not changed
+           // videoSettings.bitrate == .auto || videoSettings.bitrate == .encoder, // custom bitrate value is not set
            videoSettings.quality == defaultSettings.quality, // quality set to default value
            videoSize == sourceVideoSize, // output size equals source resolution
            variables.frameRate == defaultSettings.frameRate, // output frame rate greater or equals source frame rate
@@ -933,10 +944,6 @@ public struct VideoTool {
                 }
 
                 var targetBitrate: Int?
-                if case .value(let bitrate) = audioSettings.bitrate {
-                    targetBitrate = bitrate
-                }
-
                 switch codec {
                 case .aac:
                     // AAC
@@ -953,13 +960,15 @@ public struct VideoTool {
                         // AVEncoderBitRateKey: audioSettings.bitrate ?? 128_000
                         // AVEncoderAudioQualityKey: (audioSettings.quality ?? .high).rawValue
                     ]
-                    if let bitrate = targetBitrate {
+                    if case .value(let bitrate) = audioSettings.bitrate {
                         // Setting wrong bitrate for AAC will crash the execution
                         // MPEG4AAC valid bitrate range is [64, 320]
                         if bitrate < 64000 {
                             targetBitrate = 64000
                         } else if bitrate > 320_000 {
                             targetBitrate = 320_000
+                        } else {
+                            targetBitrate = bitrate
                         }
                         audioParameters![AVEncoderBitRateKey] = targetBitrate!
                     }
@@ -974,7 +983,7 @@ public struct VideoTool {
                         AVNumberOfChannelsKey: channelsPerFrame ?? 2
                         // AVEncoderBitRateKey: audioSettings.bitrate ?? 96000
                     ]
-                    if let bitrate = targetBitrate {
+                    if case .value(let bitrate) = audioSettings.bitrate {
                         // Invalid bitrate will not break the execution for Opus
                         // Fallback to range [2, 510] is done automatically
                         audioParameters![AVEncoderBitRateKey] = bitrate
@@ -983,6 +992,8 @@ public struct VideoTool {
                             targetBitrate = 2000
                         } else if bitrate > 510_000 {
                             targetBitrate = 510_000
+                        } else {
+                            targetBitrate = bitrate
                         }
                     }
                 case .flac:
@@ -995,8 +1006,6 @@ public struct VideoTool {
                     if let quality = audioSettings.quality {
                         audioParameters![AVEncoderAudioQualityKey] = quality.rawValue
                     }
-                    // Bitrate parameter is not used
-                    targetBitrate = nil
                 case .lpcm:
                     // Linear PCM 
                     audioParameters = [
@@ -1008,8 +1017,6 @@ public struct VideoTool {
                         AVLinearPCMIsBigEndianKey: isBigEndian ?? false,
                         AVLinearPCMIsNonInterleaved: false
                     ]
-                    // Bitrate parameter is not used
-                    targetBitrate = nil
                 case .alac:
                     // Apple Lossless
                     audioParameters = [
@@ -1018,8 +1025,6 @@ public struct VideoTool {
                         AVNumberOfChannelsKey: channelsPerFrame ?? 2,
                         AVEncoderBitDepthHintKey: bitsPerChannel ?? 16
                     ]
-                    // Bitrate parameter is not used
-                    targetBitrate = nil
                 case .default:
                     sourceFormatHint = audioDescription
                     variables.hasChanges = false
@@ -1029,14 +1034,15 @@ public struct VideoTool {
                 let defaultSettings = CompressionAudioSettings()
                 // Bitrate changes
                 var bitrateChanged = false
-                if audioSettings.bitrate != defaultSettings.bitrate, let targetBitrate = targetBitrate {
+                if let targetBitrate = targetBitrate {
                     // Retrieve source bitrate for comparison
-                    let sourceBitrate = Int(audioTrack!.estimatedDataRate)
+                    let sourceBitrate = Int(audioTrack!.estimatedDataRate.rounded())
                     bitrateChanged = targetBitrate < sourceBitrate
                 }
                 // All combined
                 if audioFormatID == codec.formatId, // output format equals to source audio format
                    bitrateChanged == false, // bitrate not changed
+                   // audioSettings.bitrate == defaultSettings.bitrate, // default settings is used for bitrate
                    !((audioFormatID == kAudioFormatMPEG4AAC || audioFormatID == kAudioFormatFLAC) && audioSettings.quality != defaultSettings.quality), // default settings is used for quality (aac and flac only)
                    audioSettings.sampleRate == defaultSettings.sampleRate // default settings is used for sample rate
                 {
