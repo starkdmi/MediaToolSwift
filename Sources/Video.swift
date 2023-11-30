@@ -125,27 +125,31 @@ public struct VideoTool {
         }
 
         // Append video to reader
-        guard reader.canAdd(videoVariables.videoOutput) else {
+        /*guard reader.canAdd(videoVariables.videoOutput) else {
             // To get more info about initialization problem can be called in ObjC exception catcher
             callback(.failed(CompressionError.failedToReadVideo))
             return task
         }
         reader.add(videoVariables.videoOutput)
-        /*do {
-            try ObjCExceptionCatcher.catchException {
-                reader.add(videoVariables.videoOutput)
-            }
-        } catch let error {
-            callback(.failed(error))
-            return task
-        }*/
 
         // Append video to writer
         guard writer.canAdd(videoVariables.videoInput) else {
             callback(.failed(CompressionError.failedToWriteVideo))
             return task
         }
-        writer.add(videoVariables.videoInput)
+        writer.add(videoVariables.videoInput)*/
+
+        // Append video to reader and writer with detailed error description
+        do {
+            try ObjCExceptionCatcher.catchException {
+                reader.add(videoVariables.videoOutput)
+                writer.add(videoVariables.videoInput)
+                return
+            }
+        } catch let error {
+            callback(.failed(error))
+            return task
+        }
 
         // MARK: Audio
 
@@ -176,7 +180,7 @@ public struct VideoTool {
 
         if !audioVariables.skipAudio {
             // Append audio to reader
-            guard reader.canAdd(audioVariables.audioOutput!) else {
+            /*guard reader.canAdd(audioVariables.audioOutput!) else {
                 callback(.failed(CompressionError.failedToReadAudio))
                 return task
             }
@@ -187,15 +191,19 @@ public struct VideoTool {
                 callback(.failed(CompressionError.failedToWriteAudio))
                 return task
             }
-            writer.add(audioVariables.audioInput!)
-            /*do {
+            writer.add(audioVariables.audioInput!)*/
+
+            // Append audio to reader and writer with detailed error description
+            do {
                 try ObjCExceptionCatcher.catchException {
+                    reader.add(audioVariables.audioOutput!)
                     writer.add(audioVariables.audioInput!)
+                    return
                 }
             } catch let error {
                 callback(.failed(error))
                 return task
-            }*/
+            }
         }
 
         // MARK: Metadata
