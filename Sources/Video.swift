@@ -255,7 +255,8 @@ public struct VideoTool {
         callback(.started)
 
         // Progress related variables
-        let progress = Progress(totalUnitCount: videoVariables.totalFrames)
+        let totalFrames = videoVariables.totalFrames!
+        let progress = Progress(totalUnitCount: totalFrames)
         var frames = 0 // amound of proceed frames
 
         let group = DispatchGroup()
@@ -302,8 +303,12 @@ public struct VideoTool {
                     // Progress
                     if input.mediaType == .video {
                         frames += 1
-                        progress.completedUnitCount = Int64(frames)
-                        callback(.progress(progress))
+                        // Can be called more often than actual video frames amount
+                        let count = Int64(frames)
+                        if count <= totalFrames {
+                            progress.completedUnitCount = count
+                            callback(.progress(progress))
+                        }
                     }
                 }
 
@@ -340,8 +345,8 @@ public struct VideoTool {
                 callback(.failed(error))
             } else if !task.isCancelled || success == processes {
                 // Confirm the progress is 1.0
-                if progress.completedUnitCount != frames {
-                    progress.completedUnitCount = Int64(frames)
+                if progress.completedUnitCount != progress.totalUnitCount {
+                    progress.completedUnitCount = Int64(progress.totalUnitCount)
                     callback(.progress(progress))
                 }
 
