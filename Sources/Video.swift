@@ -188,6 +188,14 @@ public struct VideoTool {
                 return task
             }
             writer.add(audioVariables.audioInput!)
+            /*do {
+                try ObjCExceptionCatcher.catchException {
+                    writer.add(audioVariables.audioInput!)
+                }
+            } catch let error {
+                callback(.failed(error))
+                return task
+            }*/
         }
 
         // MARK: Metadata
@@ -1060,7 +1068,6 @@ public struct VideoTool {
                    !((audioFormatID == kAudioFormatMPEG4AAC || audioFormatID == kAudioFormatFLAC) && audioSettings.quality != defaultSettings.quality), // default settings is used for quality (aac and flac only)
                    audioSettings.sampleRate == defaultSettings.sampleRate // default settings is used for sample rate
                 {
-                    // Info: Bitrate is not calculated internally, so providing any value to audio bitrate using `.value(Int)` will require compression, even if .value(135_000) equals to source audio bitrate
                     variables.hasChanges = false
                 }
             } else {
@@ -1071,6 +1078,9 @@ public struct VideoTool {
                 // Lossless Compression (no re-encoding required)
                 audioReaderSettings = nil
                 audioParameters = nil
+
+                // Pass source format description when no changes applied
+                sourceFormatHint = audioDescription
             }
 
             variables.audioOutput = AVAssetReaderTrackOutput(track: audioTrack!, outputSettings: audioReaderSettings)
