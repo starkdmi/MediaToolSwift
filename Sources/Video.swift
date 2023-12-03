@@ -467,6 +467,7 @@ public struct VideoTool {
         if preserveAlphaChannel, isHDR {
             preserveAlphaChannel = false
         }
+        variables.isHDR = isHDR
 
         // Fix the codec based on alpha support option
         // h264 do not support alpha channel, while all prores profiles do
@@ -482,6 +483,7 @@ public struct VideoTool {
                 default:
                     break
                 }
+                variables.hasAlpha = true
             } else {
                 // Video has no alpha data
                 preserveAlphaChannel = false
@@ -492,6 +494,7 @@ public struct VideoTool {
                 videoCodec = .hevc
             }
         }
+        variables.codec = videoCodec!
         let videoCodecChanged = videoCodec != sourceVideoCodec
 
         var videoReaderSettings: [String: Any] = [
@@ -515,13 +518,14 @@ public struct VideoTool {
         // Adjust Bitrate
         var bitrateChanged = false
         variables.frameRate = videoSettings.frameRate
+        var targetBitrate: Int?
         if videoCodec == .h264 || videoCodec == .hevc || videoCodec == .hevcWithAlpha {
             /// Set bitrate value and update `targetBitrate` variable
             func setBitrate(_ value: Int) {
                 // For the same codec use source bitrate as maximum value
                 if !videoCodecChanged {
-                    let sourceBitrate = Int(videoTrack.estimatedDataRate.rounded())
-                    if value >= sourceBitrate {
+                    let sourceBitrate = videoTrack.estimatedDataRate.rounded()
+                    if value >= Int(sourceBitrate) {
                         // Use source bitrate when higher value targeted
                         videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
                         return
@@ -533,6 +537,7 @@ public struct VideoTool {
 
                 // Use specified bitrate value
                 videoCompressionSettings[AVVideoAverageBitRateKey] = value
+                targetBitrate = value
             }
 
             // Setting bitrate for jpeg and prores codecs is not allowed
@@ -554,11 +559,14 @@ public struct VideoTool {
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
                 setBitrate(Int(rate.rounded()))
             case .source:
-                videoCompressionSettings[AVVideoAverageBitRateKey] = videoTrack.estimatedDataRate.rounded()
+                let sourceBitrate = videoTrack.estimatedDataRate.rounded()
+                videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
+                targetBitrate = Int(sourceBitrate)
             case .encoder:
                 break
             }
         }
+        variables.bitrate = targetBitrate
 
         // Quality, ignored while bitrate is set
         if let quality = videoSettings.quality {
@@ -891,6 +899,8 @@ public struct VideoTool {
 
         variables.sampleHandler = makeVideoSampleHandler()
         variables.nominalFrameRate = nominalFrameRate
+        variables.totalFrames = totalFrames
+        variables.size = videoSize
 
         return variables
     }
@@ -993,6 +1003,7 @@ public struct VideoTool {
                     // Use source audio format
                     codec = sourceCodec
                 }
+                variables.codec = codec
                 let audioCodecChanged = audioFormatID != codec.formatId
 
                 var targetBitrate: Int?
@@ -1023,6 +1034,7 @@ public struct VideoTool {
                             targetBitrate = bitrate
                         }
                         audioParameters![AVEncoderBitRateKey] = targetBitrate!
+                        variables.bitrate = targetBitrate!
                     }
                     if let quality = audioSettings.quality {
                         audioParameters![AVEncoderAudioQualityKey] = quality.rawValue
@@ -1048,6 +1060,7 @@ public struct VideoTool {
                             targetBitrate = bitrate
                         }
                         audioParameters![AVEncoderBitRateKey] = targetBitrate!
+                        variables.bitrate = targetBitrate!
                     }
                 case .flac:
                     // Flac

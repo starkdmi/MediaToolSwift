@@ -8,6 +8,9 @@ internal struct VideoVariables {
     /// Source fps
     var nominalFrameRate: Float!
 
+    // Frames amount
+    var totalFrames: Int64!
+
     /// Cut range
     var range: CMTimeRange?
 
@@ -22,4 +25,21 @@ internal struct VideoVariables {
 
     /// Video writer
     var videoInput: AVAssetWriterInput!
+
+    // MARK: Video info variables
+
+    /// Video resolution
+    var size: CGSize!
+
+    /// Video codec
+    var codec: AVVideoCodecType!
+
+    /// Video bitrate
+    var bitrate: Int?
+
+    /// Alpha channel presence
+    var hasAlpha: Bool = false
+
+    /// HDR data presence
+    var isHDR: Bool = false
 }

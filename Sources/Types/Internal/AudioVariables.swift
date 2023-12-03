@@ -8,12 +8,20 @@ internal struct AudioVariables {
     /// Audio track
     var audioTrack: AVAssetTrack?
 
-    // Require to encode
+    /// Require to encode
     var hasChanges = true
 
-    // Audio reader
+    /// Audio reader
     var audioOutput: AVAssetReaderOutput?
 
-    // Audio writer
+    /// Audio writer
     var audioInput: AVAssetWriterInput?
+
+    // MARK: Audio info variables
+
+    /// Audio codec
+    var codec: CompressionAudioCodec!
+
+    /// Audio bitrate
+    var bitrate: Int?
 }
