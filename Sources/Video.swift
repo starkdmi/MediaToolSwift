@@ -255,9 +255,17 @@ public struct VideoTool {
         callback(.started)
 
         // Progress related variables
-        let totalFrames = videoVariables.totalFrames!
-        let progress = Progress(totalUnitCount: totalFrames)
-        var frames = 0 // amound of proceed frames
+        let timeRange = videoVariables.range ?? CMTimeRange(start: .zero, duration: asset.duration)
+        let startTime = timeRange.start.value
+        let duration = timeRange.duration
+        let frameDuration: Int64 // duration of each frame
+        if let sourceFrameRate = videoVariables.nominalFrameRate {
+            frameDuration = Int64(duration.timescale / Int32(sourceFrameRate.rounded()))
+        } else {
+            frameDuration = .zero
+        }
+        let totalUnitCount = duration.value
+        let progress = Progress(totalUnitCount: totalUnitCount)
 
         let group = DispatchGroup()
         var success = 0 // amount of completed operations
@@ -302,11 +310,19 @@ public struct VideoTool {
 
                     // Progress
                     if input.mediaType == .video {
-                        frames += 1
-                        // Can be called more often than actual video frames amount
-                        let count = Int64(frames)
-                        if count <= totalFrames {
-                            progress.completedUnitCount = count
+                        // Get current time stamp (proceed asynchronously)
+                        let timeStamp = sample.presentationTimeStamp.value
+                        // Add frame duration to the starting time stamp
+                        let currentTime = timeStamp + frameDuration
+                        // Distract cutted out media part at the beginning
+                        var completedUnitCount = currentTime - startTime
+
+                        // Progress can overflow a bit (less than `frameDuration` value)
+                        completedUnitCount = min(completedUnitCount, totalUnitCount)
+
+                        // Check the current state is maximum, due to async processing
+                        if completedUnitCount > progress.completedUnitCount {
+                            progress.completedUnitCount = completedUnitCount
                             callback(.progress(progress))
                         }
                     }
@@ -345,8 +361,8 @@ public struct VideoTool {
                 callback(.failed(error))
             } else if !task.isCancelled || success == processes {
                 // Confirm the progress is 1.0
-                if progress.completedUnitCount != progress.totalUnitCount {
-                    progress.completedUnitCount = Int64(progress.totalUnitCount)
+                if progress.completedUnitCount != totalUnitCount {
+                    progress.completedUnitCount = totalUnitCount
                     callback(.progress(progress))
                 }
 
@@ -873,7 +889,6 @@ public struct VideoTool {
 
         variables.sampleHandler = makeVideoSampleHandler()
         variables.nominalFrameRate = nominalFrameRate
-        variables.totalFrames = totalFrames
 
         return variables
     }
