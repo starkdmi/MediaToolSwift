@@ -243,8 +243,12 @@ public struct AudioTool {
 
                     // Progress
                     if input.mediaType == .audio {
-                        progress.completedUnitCount = Int64(sample.presentationTimeStamp.value)
-                        callback(.progress(progress))
+                        let completedUnitCount = Int64(sample.presentationTimeStamp.value)
+                        // Check the current state is maximum, due to async processing
+                        if completedUnitCount > progress.completedUnitCount {
+                            progress.completedUnitCount = completedUnitCount
+                            callback(.progress(progress))
+                        }
                     }
                 }
 
