@@ -258,12 +258,14 @@ public struct VideoTool {
         let timeRange = videoVariables.range ?? CMTimeRange(start: .zero, duration: asset.duration)
         let startTime = timeRange.start.value
         let duration = timeRange.duration
-        let frameDuration: Int64 // duration of each frame
-        if let sourceFrameRate = videoVariables.nominalFrameRate {
-            frameDuration = Int64(duration.timescale / Int32(sourceFrameRate.rounded()))
+        // Calculate frame duration based on source frame rate
+        let frameDuration: Int64
+        if let nominalFrameRate = videoVariables.nominalFrameRate {
+            frameDuration = Int64(duration.timescale / Int32(nominalFrameRate.rounded()))
         } else {
             frameDuration = .zero
         }
+        // The progress keeper
         let totalUnitCount = duration.value
         let progress = Progress(totalUnitCount: totalUnitCount)
 
