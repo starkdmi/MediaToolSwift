@@ -2,58 +2,102 @@ import AVFoundation
 import CoreLocation
 
 /// Video information
-struct VideoInfo {
+public struct VideoInfo {
+    /// Public initializer
+    public init(
+        resolution: CGSize,
+        frameRate: Int,
+        totalFrames: Int,
+        duration: Double,
+        videoCodec: AVVideoCodecType,
+        videoBitrate: Int?,
+        hasAlpha: Bool,
+        isHDR: Bool,
+        hasAudio: Bool,
+        audioCodec: CompressionAudioCodec,
+        audioBitrate: Int?,
+        extendedInfo: ExtendedVideoInfo?
+    ) {
+        self.resolution = resolution
+        self.frameRate = frameRate
+        self.totalFrames = totalFrames
+        self.duration = duration
+        self.videoCodec = videoCodec
+        self.videoBitrate = videoBitrate
+        self.hasAlpha = hasAlpha
+        self.isHDR = isHDR
+        self.hasAudio = hasAudio
+        self.audioCodec = audioCodec
+        self.audioBitrate = audioBitrate
+        self.extendedInfo = extendedInfo
+    }
+
     /// Video resolution
-    let resolution: CGSize
+    public let resolution: CGSize
 
     /// Frame rate
-    let frameRate: Int
+    public let frameRate: Int
 
     /// Frames amount
-    let totalFrames: Int
+    public let totalFrames: Int
 
     /// Video duration, in seconds
-    let duration: Double
+    public let duration: Double
 
     /// Video codec
-    let videoCodec: AVVideoCodecType
+    public let videoCodec: AVVideoCodecType
 
     /// Video bitrate
-    let videoBitrate: Int?
+    public let videoBitrate: Int?
 
     /// Alpha channel presence
-    let hasAlpha: Bool
+    public let hasAlpha: Bool
 
     /// HDR data presence
-    let isHDR: Bool
+    public let isHDR: Bool
 
     /// Audio track presence
-    let hasAudio: Bool
+    public let hasAudio: Bool
 
     /// Audio codec
-    let audioCodec: CompressionAudioCodec
+    public let audioCodec: CompressionAudioCodec
 
     /// Audio bitrate
-    let audioBitrate: Int?
+    public let audioBitrate: Int?
 
     /// Extended video information
-    let extendedInfo: ExtendedVideoInfo?
+    public let extendedInfo: ExtendedVideoInfo?
 }
 
 /// Additional video information
-struct ExtendedVideoInfo {
+public struct ExtendedVideoInfo {
+    /// Public initializer
+    public init(
+        date: Date,
+        location: CLLocation?,
+        whereFrom: [String],
+        originalFilename: String,
+        filesize: Int64?
+    ) {
+        self.date = date
+        self.location = location
+        self.whereFrom = whereFrom
+        self.originalFilename = originalFilename
+        self.filesize = filesize
+    }
+
     /// Original date
-    let date: Date
+    public let date: Date
 
     /// Location
-    let location: CLLocation?
+    public let location: CLLocation?
 
     /// Where from
-    let whereFrom: [String]
+    public let whereFrom: [String]
 
     /// Original file name
-    let originalFilename: String
+    public let originalFilename: String
 
     /// File size
-    let filesize: Int64?
+    public let filesize: Int64?
 }
