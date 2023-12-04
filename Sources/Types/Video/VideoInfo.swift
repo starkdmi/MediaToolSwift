@@ -51,7 +51,7 @@ public struct VideoInfo: MediaInfo {
     /// Video codec
     public let videoCodec: AVVideoCodecType
 
-    /// Video bitrate
+    /// Video bitrate, in bits
     public let videoBitrate: Int?
 
     /// Alpha channel presence
@@ -66,7 +66,7 @@ public struct VideoInfo: MediaInfo {
     /// Audio codec
     public let audioCodec: CompressionAudioCodec?
 
-    /// Audio bitrate
+    /// Audio bitrate, in bits
     public let audioBitrate: Int?
 
     /// Extended media information
