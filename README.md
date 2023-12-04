@@ -237,4 +237,4 @@ task.cancel()
 ## Documentation
 Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
 
-More info on video and image features and operations can be found [here](Files/VIDEO.md) and [here](Files/IMAGE.md) respectively.
+Use those links for more info on [video](Files/VIDEO.md), [image](Files/IMAGE.md) and [audio](Files/AUDIO.md) features and operations.
