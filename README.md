@@ -102,8 +102,8 @@ let task = await VideoTool.convert(
             print("Started")
         case .progress(let progress):
             print("Progress: \(progress.fractionCompleted)")
-        case .completed(let url):
-            print("Done: \(url.path)")
+        case .completed(let info):
+            print("Done: \(info.url.path)")
         case .failed(let error):
             print("Error: \(error.localizedDescription)")
         case .cancelled:
@@ -221,8 +221,8 @@ let task = await AudioTool.convert(
             print("Started")
         case .progress(let progress):
             print("Progress: \(progress.fractionCompleted)")
-        case .completed(let url):
-            print("Done: \(url.path)")
+        case .completed(let info):
+            print("Done: \(info.url.path)")
         case .failed(let error):
             print("Error: \(error.localizedDescription)")
         case .cancelled:
