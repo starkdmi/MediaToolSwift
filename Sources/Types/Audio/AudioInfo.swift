@@ -26,7 +26,7 @@ public struct AudioInfo: MediaInfo {
     /// Audio codec
     public let codec: CompressionAudioCodec?
 
-    /// Audio bitrate
+    /// Audio bitrate, in bits
     public let bitrate: Int?
 
     /// Extended media information
