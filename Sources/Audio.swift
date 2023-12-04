@@ -282,13 +282,24 @@ public struct AudioTool {
                 reader.cancelReading()
                 writer.finishWriting(completionHandler: {
                     // Extended file metadata
+                    var extendedInfo: ExtendedFileInfo?
                     if copyExtendedFileMetadata {
-                        FileExtendedAttributes.copyExtendedMetadata(
+                        let data = FileExtendedAttributes.copyExtendedMetadata(
                             from: source.path,
                             to: destination.path,
                             customAttributes: [:]
                         )
+                        extendedInfo = FileExtendedAttributes.extractExtendedFileInfo(from: data)
                     }
+
+                    // Audio info
+                    let audioInfo = AudioInfo(
+                        url: writer.outputURL,
+                        duration: duration.seconds,
+                        codec: audioVariables.codec,
+                        bitrate: audioVariables.bitrate,
+                        extendedInfo: extendedInfo
+                    )
 
                     if deleteSourceFile, source.path != destination.path {
                         // Delete input audio file
@@ -296,7 +307,7 @@ public struct AudioTool {
                     }
 
                     // Finish
-                    callback(.completed(writer.outputURL))
+                    callback(.completed(audioInfo))
                 })
             } else { // Cancelled
                 // Wait for sample in progress to complete, 0.5 sec is more than enough

@@ -372,11 +372,29 @@ public struct VideoTool {
                 reader.cancelReading()
                 writer.finishWriting(completionHandler: {
                     // Extended file metadata
-                    FileExtendedAttributes.setExtendedMetadata(
+                    let data = FileExtendedAttributes.setExtendedMetadata(
                         source: source,
                         destination: destination,
                         copy: copyExtendedFileMetadata,
                         fileType: fileType
+                    )
+
+                    // Video info
+                    let extendedInfo = FileExtendedAttributes.extractExtendedFileInfo(from: data)
+                    let videoInfo = VideoInfo(
+                        url: writer.outputURL,
+                        resolution: videoVariables.size,
+                        frameRate: videoVariables.frameRate ?? Int(videoVariables.nominalFrameRate.rounded()),
+                        totalFrames: Int(videoVariables.totalFrames),
+                        duration: duration.seconds,
+                        videoCodec: videoVariables.codec,
+                        videoBitrate: videoVariables.bitrate,
+                        hasAlpha: videoVariables.hasAlpha,
+                        isHDR: videoVariables.isHDR,
+                        hasAudio: !audioVariables.skipAudio,
+                        audioCodec: audioVariables.codec,
+                        audioBitrate: audioVariables.bitrate,
+                        extendedInfo: extendedInfo
                     )
 
                     if deleteSourceFile, source.path != destination.path {
@@ -385,7 +403,7 @@ public struct VideoTool {
                     }
 
                     // Finish
-                    callback(.completed(writer.outputURL))
+                    callback(.completed(videoInfo))
                 })
             } else { // Cancelled            
                 // Wait for sample in progress to complete, 0.5 sec is more than enough
@@ -1115,6 +1133,7 @@ public struct VideoTool {
                 }
             } else {
                 sourceFormatHint = audioDescription
+                variables.codec = CompressionAudioCodec(formatId: audioFormatID)
             }
 
             if !variables.hasChanges {

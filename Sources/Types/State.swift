@@ -9,7 +9,7 @@ public enum CompressionState: Equatable {
     case progress(Progress)
 
     /// Compression finished with success, contains the destination file url
-    case completed(URL)
+    case completed(MediaInfo)
 
     /// Compression failed with error
     case failed(Error)
@@ -25,7 +25,7 @@ public enum CompressionState: Equatable {
         case (.progress(let lhsValue), .progress(let rhsValue)):
             return lhsValue == rhsValue
         case (.completed(let lhsValue), .completed(let rhsValue)):
-            return lhsValue == rhsValue
+            return lhsValue.url == rhsValue.url
         case (.failed(let lhsValue), .failed(let rhsValue)):
             return lhsValue.localizedDescription == rhsValue.localizedDescription
         case (.cancelled, .cancelled):

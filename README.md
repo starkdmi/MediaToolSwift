@@ -35,7 +35,7 @@ __Video compressor focused on:__
 __[Features](Files/VIDEO.md)__
 | Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Image Processing[\*](Tests/VideoTests.swift#:~:text=testImageProcessing) | FPS | Thumbnail | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| ✔️ | ✔️ | ✔️ | ⭐️ | ⭐️ | ✔️ | ✔️ | ✔️ | 🚧 |
+| ✔️ | ✔️ | ✔️ | ⭐️ | ⭐️ | ✔️ | ✔️ | ✔️ | ✔️ |
 
 ⭐️ - _do not require re-encoding (lossless)_
 
@@ -178,7 +178,7 @@ __Audio converter focused on:__
 __[Features](Files/AUDIO.md)__
 | Convert | Cut | Info |
 | :---: | :---: | :---: |
-| ✔️ | ⭐️ | 🚧 |
+| ✔️ | ⭐️ | ✔️ |
 
 ⭐️ - _do not require re-encoding (lossless)_
 

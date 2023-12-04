@@ -18,14 +18,6 @@ __Base__
 - __Video thumbnails overwrite option__
 - __Audio only__ - remove video and metadata tracks
 
-__Info__ - function to extract info from a video file:
-```
-resolution, rotation, filesize, duration, frame rate,
-video - codec, bitrate, hasAlpha, isHDR, color primaries, pixel format,
-audio - codec, bitrate, sample rate, waveform,
-metadata - date, location, where from, original filename with raw extended attributes dictionary + asset.getMetadata() list + track.metadata
-```
-
 __Codecs__
 ```
 VP9, AV1
@@ -55,13 +47,13 @@ __Base__
 - __AudioToolbox__ - Instead of using `VideoToolBox` (AVAssetReader/AVAssetWriter) try `AudioToolBox` framework
 - __MP3 support__ - Add `MP3` support to the `plus` branch via [libmp3lame.a](https://github.com/maysamsh/Swift-MP3Converter) (slow, 2MB of size)
 
-| Speed adjustment | [Reverse](https://www.limit-point.com/blog/2022/reverse-audio/) | Waveform | Custom Chunk Processor | Info |
-| :---: | :---: | :---: | :---: | :---: |
-| 🚧 | 🚧 |➖ | ➖ | 🚧 |
+| Speed adjustment | [Reverse](https://www.limit-point.com/blog/2022/reverse-audio/) | Waveform | Custom Chunk Processor |
+| :---: | :---: | :---: | :---: |
+| 🚧 | 🚧 |➖ | ➖ |
 
 __Info__
 ``` 
-format, filesize, bitrate, duration, sample rate, waveform
+filesize, sample rate, waveform
 ```
 
 ## Image

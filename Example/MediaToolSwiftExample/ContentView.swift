@@ -438,7 +438,8 @@ struct ContentView: View {
                     case .progress(let progress):
                         // print("Progress: \(progress.fractionCompleted)")
                         self.progress = progress.fractionCompleted
-                    case .completed(let url):
+                    case .completed(let info):
+                        let url = info.url
                         print("Done: \(url.absoluteString)")
                         self.progress = nil
                         self.outputURL = url
