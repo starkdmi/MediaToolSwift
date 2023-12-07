@@ -1238,8 +1238,7 @@ public struct VideoTool {
         // Frame rate
         let frameRate = videoTrack.nominalFrameRate
         // Total frames amount
-        let naturalTimeScale = await videoTrack.getVideoTimeScale()
-        var totalFrames = Int64(ceil(duration * Double(frameRate)))
+        let totalFrames = Int64(ceil(duration * Double(frameRate)))
         // Video bitrate
         let videoBitrate = videoTrack.estimatedDataRate.rounded()
 
