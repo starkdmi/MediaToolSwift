@@ -105,7 +105,7 @@ internal struct ImageFrame: Equatable, Hashable {
             // Animation info
             if let gifProperties = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
                 frame.delayTime = gifProperties[kCGImagePropertyGIFDelayTime] as? Double
-                frame.unclampedDelayTime = gifProperties[kCGImagePropertyGIFUnclampedDelayTime]  as? Double
+                frame.unclampedDelayTime = gifProperties[kCGImagePropertyGIFUnclampedDelayTime] as? Double
                 frame.loopCount = gifProperties[kCGImagePropertyGIFLoopCount] as? Int
                 frame.frameInfoArray = gifProperties[kCGImagePropertyGIFFrameInfoArray] as? [CFDictionary]
                 frame.canvasWidth = gifProperties[kCGImagePropertyGIFCanvasPixelWidth] as? Double
