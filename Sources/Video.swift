@@ -1208,6 +1208,87 @@ public struct VideoTool {
         return variables
     }
 
+    // MARK: Video Info
+
+    /// Retvieve video file information
+    /// - Parameters:
+    ///   - source: Input video URL
+    /// - Returns: `VideoInfo` object with collected video info
+    public static func getInfo(source: URL) async throws -> VideoInfo {
+        // Check source file existence
+        if !FileManager.default.fileExists(atPath: source.path) {
+            // Also caused by insufficient permissions
+            throw CompressionError.sourceFileNotFound
+        }
+
+        let asset = AVAsset(url: source)
+
+        // Get first video track
+        guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
+            throw CompressionError.videoTrackNotFound
+        }
+
+        // swiftlint:disable:next force_cast
+        let videoDesc = videoTrack.formatDescriptions.first as! CMFormatDescription
+
+        // Resolution
+        let size = videoTrack.naturalSize
+        // Duration
+        let duration = asset.duration.seconds
+        // Frame rate
+        let frameRate = videoTrack.nominalFrameRate
+        // Total frames amount
+        let naturalTimeScale = await videoTrack.getVideoTimeScale()
+        var totalFrames = Int64(ceil(duration * Double(frameRate)))
+        // Video bitrate
+        let videoBitrate = videoTrack.estimatedDataRate.rounded()
+
+        // Video Codec
+        let videoCodec = videoDesc.videoCodec
+        // Alpha channel presence
+        let hasAlpha = videoDesc.hasAlphaChannel
+        // HDR
+        let isHDR = videoDesc.isHDRVideo // videoTrack.hasMediaCharacteristic(.containsHDRVideo)
+
+        // Load first audio track
+        let audioTrack = await asset.getFirstTrack(withMediaType: .audio)
+
+        // Audio info
+        let hasAudio = audioTrack != nil
+        var audioCodec: CompressionAudioCodec?
+        var audioBitrate: Int?
+        if hasAudio {
+            // swiftlint:disable:next force_cast
+            let audioDesc = (audioTrack!.formatDescriptions.first as! CMFormatDescription)
+
+            // Codec
+            let audioFormatID = CMFormatDescriptionGetMediaSubType(audioDesc)
+            audioCodec = CompressionAudioCodec(formatId: audioFormatID)
+            // Bitrate
+            audioBitrate = Int(audioTrack!.estimatedDataRate.rounded())
+        }
+
+        // Extended info
+        let rawData = FileExtendedAttributes.getExtendedMetadata(from: source.path)
+        let extendedInfo = FileExtendedAttributes.extractExtendedFileInfo(from: rawData)
+
+        return VideoInfo(
+            url: source,
+            resolution: size,
+            frameRate: Int(frameRate),
+            totalFrames: Int(totalFrames),
+            duration: duration,
+            videoCodec: videoCodec,
+            videoBitrate: Int(videoBitrate),
+            hasAlpha: hasAlpha,
+            isHDR: isHDR,
+            hasAudio: hasAudio,
+            audioCodec: audioCodec,
+            audioBitrate: audioBitrate,
+            extendedInfo: extendedInfo
+        )
+    }
+
     // MARK: Video Thumbnail
 
     /// Generate multiple CGImage thumbnails

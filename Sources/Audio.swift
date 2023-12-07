@@ -95,6 +95,12 @@ public struct AudioTool {
             return task
         }
 
+        // Check for audio track presence
+        guard audioVariables.audioTrack != nil else {
+            callback(.failed(CompressionError.audioTrackNotFound))
+            return task
+        }
+
         // Append audio to reader
         guard reader.canAdd(audioVariables.audioOutput!) else {
             callback(.failed(CompressionError.failedToReadAudio))
@@ -324,5 +330,49 @@ public struct AudioTool {
         }
 
         return task
+    }
+
+    // MARK: Audio info
+
+    /// Retvieve audio file information
+    /// - Parameters:
+    ///   - source: Input audio file URL
+    /// - Returns: `AudioInfo` object with collected info
+    public static func getInfo(source: URL) async throws -> AudioInfo {
+        // Check source file existence
+        if !FileManager.default.fileExists(atPath: source.path) {
+            // Also caused by insufficient permissions
+            throw CompressionError.sourceFileNotFound
+        }
+
+        let asset = AVAsset(url: source)
+
+        // Get first audio track
+        guard let audioTrack = await asset.getFirstTrack(withMediaType: .audio) else {
+            throw CompressionError.audioTrackNotFound
+        }
+
+        // swiftlint:disable:next force_cast
+        let audioDesc = (audioTrack.formatDescriptions.first as! CMFormatDescription)
+
+        // Duration
+        let duration = asset.duration.seconds
+        // Codec
+        let audioFormatID = CMFormatDescriptionGetMediaSubType(audioDesc)
+        let codec = CompressionAudioCodec(formatId: audioFormatID)
+        // Bitrate
+        let bitrate = Int(audioTrack.estimatedDataRate.rounded())
+
+        // Extended info
+        let rawData = FileExtendedAttributes.getExtendedMetadata(from: source.path)
+        let extendedInfo = FileExtendedAttributes.extractExtendedFileInfo(from: rawData)
+
+        return AudioInfo(
+            url: source,
+            duration: duration,
+            codec: codec,
+            bitrate: bitrate,
+            extendedInfo: extendedInfo
+        )
     }
 }

@@ -99,5 +99,13 @@ __Usage__
 ImageSettings(frameRate: 24)
 ```
 
+## Info
+Extract info without loading an image from file.
+
+__Usage__
+```Swift
+let info = try ImageTool.getInfo(source: url)
+```
+
 ## Image Frameworks
 Three image frameworks are capable to execute the same image operations. The choice of framework is based on `preferredFramework` parameter and supported by framework image formats. For example `CIImage` cannot load animated image from file, so will fallback to `CGImage`.

@@ -27,6 +27,7 @@ public struct ImageTool {
     ) throws -> ImageInfo {
         // Check the source file exists
         guard FileManager.default.fileExists(atPath: source.path) else {
+            // Also caused by insufficient permissions
             throw CompressionError.sourceFileNotFound
         }
 
@@ -704,5 +705,102 @@ public struct ImageTool {
                 throw CompressionError.failedToSaveImage
             }
         }
+    }
+
+    /// Retvieve image information
+    /// - Parameters:
+    ///   - source: Input image URL
+    /// - Returns: `ImageInfo` object with collected info
+    public static func getInfo(source: URL) throws -> ImageInfo {
+        // Check source file existence
+        if !FileManager.default.fileExists(atPath: source.path) {
+            // Also caused by insufficient permissions
+            throw CompressionError.sourceFileNotFound
+        }
+
+        // Init image source
+        guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil) else {
+            throw CompressionError.failedToReadImage // unsupportedImageFormat
+        }
+
+        // Image format
+        var format: ImageFormat?
+        let sourceType = CGImageSourceGetType(imageSource) as? String
+        if #available(macOS 11, iOS 14, tvOS 14, *), let type = sourceType, let utType = UTType(type), let imageFormat = ImageFormat(utType) {
+            // Format by getting image source type
+            format = imageFormat
+        } else if let sourcePathFormat = ImageFormat(source.pathExtension) {
+            // Format using source path extension
+            format = sourcePathFormat
+        }
+        guard let format = format else {
+            throw CompressionError.unknownImageFormat
+        }
+
+        // Base properties
+        let framesCount = CGImageSourceGetCount(imageSource)
+        let primaryIndex = CGImageSourceGetPrimaryImageIndex(imageSource)
+
+        // Variables
+        var duration: Double = .zero
+        var width: CGFloat?
+        var height: CGFloat?
+        var hasAlpha: Bool = false
+        var isHDR: Bool = false
+        var orientation: CGImagePropertyOrientation?
+        // Loop over all the frames
+        for index in 0 ..< framesCount {
+            guard let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, index, nil) as? [CFString: Any] else { continue }
+
+            // Primary frame properties
+            if index == primaryIndex {
+                // Resolution
+                width = properties[kCGImagePropertyPixelWidth] as? CGFloat
+                height = properties[kCGImagePropertyPixelHeight] as? CGFloat
+
+                // Alpha channel
+                hasAlpha = properties[kCGImagePropertyHasAlpha] as? Bool ?? false
+
+                // HDR
+                let depth = properties[kCGImagePropertyDepth] as? Int ?? 8
+                isHDR = depth > 8
+
+                // Orientation
+                if let orientationProperty = properties[kCGImagePropertyOrientation] as? UInt32 {
+                    orientation = CGImagePropertyOrientation(rawValue: orientationProperty)
+                }
+            }
+
+            // Frame duration
+            var delay: Double?
+            if let gifProperties = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
+                delay = gifProperties[kCGImagePropertyGIFDelayTime] as? Double
+            } else if let heicsProperties = properties[kCGImagePropertyHEICSDictionary] as? [CFString: Any] {
+                delay = heicsProperties[kCGImagePropertyHEICSDelayTime] as? Double
+            } else if #available(macOS 11, iOS 14, tvOS 14, *), let webPProperties = properties[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
+                delay = webPProperties[kCGImagePropertyWebPDelayTime] as? Double
+            } else if let pngProperties = properties[kCGImagePropertyPNGDictionary] as? [CFString: Any] {
+                delay = pngProperties[kCGImagePropertyAPNGDelayTime] as? Double
+            }
+            duration += delay ?? .zero
+        }
+
+        // Frame rate
+        var frameRate: Int?
+        if duration != .zero {
+            let nominalFrameRate = Double(framesCount) / duration
+            frameRate = Int(nominalFrameRate.rounded())
+        }
+
+        return ImageInfo(
+            format: format,
+            size: CGSize(width: width ?? .zero, height: height ?? .zero),
+            hasAlpha: hasAlpha,
+            isHDR: isHDR,
+            orientation: orientation,
+            framesCount: framesCount,
+            frameRate: frameRate,
+            duration: duration != .zero ? duration : nil
+        )
     }
 }

@@ -54,43 +54,56 @@ internal class FileExtendedAttributes {
         to destination: String,
         customAttributes: [String: Data] = [:]
     ) -> [String: Data] {
+        // Get source metadata
+        var data = getExtendedMetadata(from: source)
+
+        // Insert custom values
+        if !customAttributes.isEmpty {
+            for (key, value) in customAttributes {
+                data[key] = value
+            }
+        }
+
+        if !data.isEmpty {
+            // Write selected attributes to destination file
+            setExtendedAttributes(data, ofItemAtPath: destination)
+        }
+
+        return data
+    }
+
+    /// Retvieve extended file metadata
+    /// - Parameters:
+    ///   - source: Original file path string
+    static func getExtendedMetadata(from source: String) -> [String: Data] {
+        var data: [String: Data] = [:]
+
         // Read source file metadata
         // Can also be read by `xattr -l file.mp4`
         guard let dictionary = try? FileManager.default.attributesOfItem(atPath: source) else {
-            // print("No extended attributes found")
-            return [:]
+            return data
         }
+
+        // Get the dictionary
         let attributes = NSDictionary(dictionary: dictionary)
+        guard let extendedAttributes = attributes[extendedAttributesKey] as? [String: Any] else {
+            return data
+        }
 
-        var data: [String: Data] = [:] // selected key-values
-        if let extendedAttributes = attributes[extendedAttributesKey] as? [String: Any] {
-            // Where from
-            if let whereFromData = extendedAttributes[whereFromsKey] as? Data {
-                data[whereFromsKey] = whereFromData
-            }
+        // Where from
+        if let whereFromData = extendedAttributes[whereFromsKey] as? Data {
+            data[whereFromsKey] = whereFromData
+        }
 
-            // Location
-            if let customLocationData = extendedAttributes[customLocationKey] as? Data {
-                data[customLocationKey] = customLocationData
-            }
+        // Location
+        if let customLocationData = extendedAttributes[customLocationKey] as? Data {
+            data[customLocationKey] = customLocationData
+        }
 
-            // Filename
-            if let originalFilenameData = extendedAttributes[originalFilenameKey] as? Data {
-                data[originalFilenameKey] = originalFilenameData
-            }
-
-            // Custom values
-            if !customAttributes.isEmpty {
-                for (key, value) in customAttributes {
-                    data[key] = value
-                }
-            }
-
-            if !data.isEmpty {
-                // Write selected attributes to destination file
-                setExtendedAttributes(data, ofItemAtPath: destination)
-            }
-        } // else { print("No extended attributes found") }
+        // Filename
+        if let originalFilenameData = extendedAttributes[originalFilenameKey] as? Data {
+            data[originalFilenameKey] = originalFilenameData
+        }
 
         return data
     }
@@ -154,7 +167,13 @@ internal class FileExtendedAttributes {
                 // let hexString = bytes.map { String(format: "%02x", $0) }.joined()
                 // print("HEX: \(hexString)")
 
-                location = CLLocation(coordinate: coordinate, altitude: .zero, horizontalAccuracy: horizontalAccuracy, verticalAccuracy: .zero, timestamp: date)
+                location = CLLocation(
+                    coordinate: coordinate,
+                    altitude: .zero,
+                    horizontalAccuracy: horizontalAccuracy,
+                    verticalAccuracy: .zero,
+                    timestamp: date
+                )
             case FileExtendedAttributes.whereFromsKey:
                 // Device/User/URL - com.apple.metadata:kMDItemWhereFroms: bplist00?^Dmitry SXiPhone 13
                 if let values = try? PropertyListSerialization.propertyList(from: value, options: [], format: nil) as? [String] {

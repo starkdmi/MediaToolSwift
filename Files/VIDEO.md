@@ -143,6 +143,14 @@ __Usage__
 CompressionVideoSettings(frameRate: 24)
 ```
 
+## Info
+Extract video info without compression.
+
+__Usage__
+```Swift
+let info = try await VideoTool.getInfo(source: url)
+```
+
 ## Metadata
 By default Xcode remove the metadata from output file, to prevent go to Build Settings tab, Under the __Other C Flags__ section, add the following flag: ```-fno-strip-metadata```.
 - __File metadata__ - Copy asset metadata

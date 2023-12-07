@@ -34,3 +34,11 @@ AudioTool.convert(
     ]
 )
 ```
+
+## Info
+Extract audio info without compression.
+
+__Usage__
+```Swift
+let info = try await AudioTool.getInfo(source: url)
+```
