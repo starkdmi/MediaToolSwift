@@ -1,4 +1,4 @@
-import AVFoundation
+import Foundation
 
 /// Audio information
 public struct AudioInfo: MediaInfo {
