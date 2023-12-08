@@ -1,4 +1,3 @@
-import AVFoundation
 import CoreLocation
 
 /// Additional media information
