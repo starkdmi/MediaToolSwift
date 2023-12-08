@@ -19,11 +19,13 @@ internal class FileExtendedAttributes {
     /// - Parameters:
     ///   - source: Original file path string
     ///   - destination: Destination file path string
+    ///   - copy: Flag to copy metadata from source to destination
     ///   - fileType: Video file container type
     static func setExtendedMetadata(
         source: URL,
         destination: URL,
-        copy: Bool, fileType: VideoFileType
+        copy: Bool,
+        fileType: VideoFileType
     ) -> [String: Data] {
         // Apple file system metadata
         let attributes: [String: Data] = [
