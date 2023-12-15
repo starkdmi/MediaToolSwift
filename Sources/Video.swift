@@ -1241,6 +1241,8 @@ public struct VideoTool {
         let totalFrames = Int64(ceil(duration * Double(frameRate)))
         // Video bitrate
         let videoBitrate = videoTrack.estimatedDataRate.rounded()
+        // File size
+        // let filesize = videoTrack.totalSampleDataLength
 
         // Video Codec
         let videoCodec = videoDesc.videoCodec
