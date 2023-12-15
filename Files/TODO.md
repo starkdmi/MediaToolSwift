@@ -43,7 +43,9 @@ __AI__ - face landmark, pose detections, atd. using Vision framework
 
 ## Audio
 __Base__
-- __AudioToolbox__ - Instead of using `VideoToolBox` (AVAssetReader/AVAssetWriter) try `AudioToolBox` framework
+- __AudioToolbox__ - Instead of using `AVAssetReader` and `AVAssetWriter` try `AVAudioUnit` and `AVAudioEngine` classes
+- __Dynamic Range Compressor__ - Controls a clip’s audio levels by enhancing the quieter parts and lowering the louder parts
+- __Peak Limiter__ - Sets the level of the loudest audio allowed in the clip
 - __MP3 support__ - Add `MP3` support to the `plus` branch via [libmp3lame.a](https://github.com/maysamsh/Swift-MP3Converter) (slow, 2MB of size)
 
 | Speed adjustment | [Reverse](https://www.limit-point.com/blog/2022/reverse-audio/) | Waveform | Custom Chunk Processor |
