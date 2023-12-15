@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import CoreMedia
 import CoreImage
-import VideoToolbox
+import AudioToolbox
 import Accelerate
 
 // To support both SwiftPM and CocoaPods
@@ -214,8 +214,7 @@ public struct AudioTool {
         func run(
             input: AVAssetWriterInput,
             output: AVAssetReaderOutput,
-            queue: DispatchQueue,
-            sampleHandler: ((CMSampleBuffer) -> Void)? = nil
+            queue: DispatchQueue
         ) {
             group.enter()
             processes += 1
@@ -237,9 +236,7 @@ public struct AudioTool {
                     }
 
                     // Write
-                    if let handler = sampleHandler {
-                        handler(sample)
-                    } else if !input.append(sample), writer.status == .failed {
+                    if !input.append(sample), writer.status == .failed {
                         // Writing fails
                         error = writer.error
                         input.markAsFinished()
