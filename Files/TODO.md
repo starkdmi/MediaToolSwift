@@ -15,6 +15,7 @@ __Base__
 - __Video thumbnails cancellation feature__ - generator.cancelAllCGImageGeneration()
 - __Video thumbnails progress feature__
 - __Video thumbnails overwrite option__
+- __Target file size__ - Specify desired file size and bitrate will be calculated based on it (bitrate = file size / duration))
 - __Audio only__ - remove video and metadata tracks
 
 __Codecs__
