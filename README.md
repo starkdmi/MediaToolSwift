@@ -18,7 +18,7 @@ dependencies: [
 ### CocoaPods
 To install library with CocoaPods, add the following line to your __Podfile__ file:
 ```
-pod 'MediaToolSwift', '~> 1.1.0'
+pod 'MediaToolSwift'
 ```
 
 ## VideoTool
