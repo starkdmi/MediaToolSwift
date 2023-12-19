@@ -1,5 +1,5 @@
 ## MediaToolSwift
-> Advanced media converter for iOS, macOS and tvOS
+> Advanced media converter for Apple devices
 
 ## Requirements
 * macOS 11.0+
