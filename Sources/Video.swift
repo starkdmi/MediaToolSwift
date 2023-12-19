@@ -533,59 +533,6 @@ public struct VideoTool {
         // Video settings
         var videoCompressionSettings: [String: Any] = [:]
 
-        // Adjust Bitrate
-        var bitrateChanged = false
-        variables.frameRate = videoSettings.frameRate
-        var targetBitrate: Int?
-        if videoCodec == .h264 || videoCodec == .hevc || videoCodec == .hevcWithAlpha {
-            /// Set bitrate value and update `targetBitrate` variable
-            func setBitrate(_ value: Int) {
-                // For the same codec use source bitrate as maximum value
-                if !videoCodecChanged {
-                    let sourceBitrate = videoTrack.estimatedDataRate.rounded()
-                    if value >= Int(sourceBitrate) {
-                        // Use source bitrate when higher value targeted
-                        videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
-                        return
-                    } else {
-                        // Require re-encoding to lower bitrate
-                        bitrateChanged = true
-                    }
-                }
-
-                // Use specified bitrate value
-                videoCompressionSettings[AVVideoAverageBitRateKey] = value
-                targetBitrate = value
-            }
-
-            // Setting bitrate for jpeg and prores codecs is not allowed
-            switch videoSettings.bitrate {
-            case .value(let value):
-                // videoCompressionSettings[AVVideoAverageBitRateKey] = value
-                setBitrate(value)
-            case .auto:
-                var codecMultiplier: Float = 1.0
-                if videoCodec == .hevc || videoCodec == .hevcWithAlpha {
-                    codecMultiplier = 0.5
-                } else if videoCodec == .h264 {
-                    codecMultiplier = 0.9
-                }
-                let totalPixels = Float(videoSize.width * videoSize.height)
-                let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
-                let rate = (totalPixels * codecMultiplier * fps) / 8
-
-                // videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
-                setBitrate(Int(rate.rounded()))
-            case .source:
-                let sourceBitrate = videoTrack.estimatedDataRate.rounded()
-                videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
-                targetBitrate = Int(sourceBitrate)
-            case .encoder:
-                break
-            }
-        }
-        variables.bitrate = targetBitrate
-
         // Quality, ignored while bitrate is set
         if let quality = videoSettings.quality {
             videoCompressionSettings[AVVideoQualityKey] = quality
@@ -597,6 +544,7 @@ public struct VideoTool {
         }
 
         // Frame Rate
+        variables.frameRate = videoSettings.frameRate
         if let frameRate = variables.frameRate, Float(frameRate) < nominalFrameRate {
             // Note: The `AVVideoExpectedSourceFrameRateKey` is just a hint to the encoder about the expected source frame rate, and the encoder is free to ignore it
             if videoCodec == .hevc || videoCodec == .hevcWithAlpha {
@@ -627,7 +575,7 @@ public struct VideoTool {
 
         var videoParameters: [String: Any] = [
             // https://developer.apple.com/documentation/avfoundation/video_settings
-            AVVideoCompressionPropertiesKey: videoCompressionSettings,
+            // AVVideoCompressionPropertiesKey: videoCompressionSettings,
             AVVideoCodecKey: videoCodec!,
             AVVideoWidthKey: videoSize.width,
             AVVideoHeightKey: videoSize.height
@@ -697,6 +645,7 @@ public struct VideoTool {
         var transform = CGAffineTransform.identity
         var transformed = false // require additional transformation (rotate, flip, mirror, atd.)
         var cropRect: CGRect?
+        var cutDurationInSeconds: Double?
         var imageProcessor: ImageProcessor?
         for operation in videoSettings.edit {
             switch operation {
@@ -707,8 +656,8 @@ public struct VideoTool {
                     variables.range = range
 
                     // Update frames amount
-                    let durationInSeconds = range.duration.seconds
-                    totalFrames = Int64(ceil(durationInSeconds * Double(nominalFrameRate)))
+                    cutDurationInSeconds = range.duration.seconds
+                    totalFrames = Int64(ceil(cutDurationInSeconds! * Double(nominalFrameRate)))
                 }
             case .crop(let options):
                 guard videoSettings.size == nil else {
@@ -743,6 +692,77 @@ public struct VideoTool {
         }
         let useVideoComposition: Bool = cropRect != nil || imageProcessor != nil
         let videoRect = cropRect ?? CGRect(origin: .zero, size: videoSize)
+
+        // Adjust Bitrate
+        var bitrateChanged = false
+        var targetBitrate: Int?
+        if videoCodec == .h264 || videoCodec == .hevc || videoCodec == .hevcWithAlpha {
+            /// Set bitrate value and update `targetBitrate` variable
+            func setBitrate(_ value: Int) {
+                // For the same codec use source bitrate as maximum value
+                if !videoCodecChanged {
+                    let sourceBitrate = videoTrack.estimatedDataRate.rounded()
+                    if value >= Int(sourceBitrate) {
+                        // Use source bitrate when higher value targeted
+                        videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
+                        return
+                    } else {
+                        // Require re-encoding to lower bitrate (required by the same codec only)
+                        bitrateChanged = true
+                    }
+                }
+
+                // Use specified bitrate value
+                videoCompressionSettings[AVVideoAverageBitRateKey] = value
+                targetBitrate = value
+            }
+
+            // Setting bitrate for jpeg and prores codecs is not allowed
+            switch videoSettings.bitrate {
+            case .value(let value):
+                // videoCompressionSettings[AVVideoAverageBitRateKey] = value
+                setBitrate(value)
+            case .filesize(let filesize):
+                // Convert MB to bits (roughly) and divide by duration
+                var rate = filesize * Double(8_000_000) / (cutDurationInSeconds ?? durationInSeconds)
+
+                // Limit based on source bit rate (H.264/AVC only)
+                if videoCodecChanged && videoCodec == .h264 {
+                    // When duration changed increase the limited bitrate amount by time factor
+                    /*var durationFactor: Double = 1.0
+                    if let cutDurationInSeconds = cutDurationInSeconds, cutDurationInSeconds != durationInSeconds {
+                        durationFactor = durationInSeconds / cutDurationInSeconds
+                    }*/
+                    let sourceBitrate = Double(videoTrack.estimatedDataRate.rounded()) // * durationFactor
+                    if rate >= sourceBitrate {
+                        rate = sourceBitrate
+                    }
+                }
+
+                setBitrate(Int(rate.rounded()))
+            case .auto:
+                var codecMultiplier: Float = 1.0
+                if videoCodec == .hevc || videoCodec == .hevcWithAlpha {
+                    codecMultiplier = 0.5
+                } else if videoCodec == .h264 {
+                    codecMultiplier = 0.9
+                }
+                let totalPixels = Float(videoSize.width * videoSize.height)
+                let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
+                let rate = (totalPixels * codecMultiplier * fps) / 8
+
+                // videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
+                setBitrate(Int(rate.rounded()))
+            case .source:
+                let sourceBitrate = videoTrack.estimatedDataRate.rounded()
+                videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
+                targetBitrate = Int(sourceBitrate)
+            case .encoder:
+                break
+            }
+        }
+        variables.bitrate = targetBitrate
+        videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
 
         // Compare source video settings with output to possibly skip video compression
         let defaultSettings = CompressionVideoSettings()

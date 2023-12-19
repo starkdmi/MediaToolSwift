@@ -25,7 +25,7 @@ In addition to the video and audio codecs conversion provided with the following
 | Parameter | Description | Values | Default |
 | :---: | :---: | :---: | :---: |
 | Video codec | Video codec used by encoder | `H.264`, `H.265/HEVC`, `ProRes`, `JPEG` | Source video codec |
-| Video bitrate | Output video bitrate, used __only__ by `H.264` and `H.265/HEVC` codecs | `Auto` - Calculated based on resolution, frame rate and codec</br> `Encoder` - set by __AVAssetWriter__ internally</br>`Source` - Source video bitrate</br>`Custom` - custom bitrate value in __bps__ | `Auto` |
+| Video bitrate | Output video bitrate, used __only__ by `H.264` and `H.265/HEVC` codecs | `Auto` - Calculated based on resolution, frame rate and codec</br> `Encoder` - set by __AVAssetWriter__ internally</br>`Source` - Source video bitrate</br>`Custom` - custom bitrate value in __bps__</br>`Filesize` - Calculated based on target filesize in __MB__ | `Auto` |
 | Video quality | Video quality in range from 0.0 to 1.0, __ignored__ when bitrate is set | `[0.0, 1.0]` | `1.0` |
 | Preserve Alpha channel | Preserve or drop alpha channel from video file with transparency | `Boolean` | `true` |
 | Profile | Video profile used by video encoder, `H.264` and `H.265/HEVC` codecs only | `Baseline`, `Main`, `High`, `Custom(String)` | Selected automatically |

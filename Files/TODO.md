@@ -15,7 +15,6 @@ __Base__
 - __Video thumbnails cancellation feature__ - generator.cancelAllCGImageGeneration()
 - __Video thumbnails progress feature__
 - __Video thumbnails overwrite option__
-- __Target file size__ - Specify desired file size and bitrate will be calculated based on it (bitrate = file size / duration))
 - __Audio only__ - remove video and metadata tracks
 
 __Codecs__
@@ -73,7 +72,7 @@ __Base__
 - Instead of custom `imageProcessing()` for images use the `CGAffineTransform`? Supported by all three image frameworks.
 - New image/video operation - blur region of interest - `vImage_Buffer.blurred_ARGB8888(regionOfInterest:blurRadius:)`
 - Strip GPS metadata using `kCGImageMetadataShouldExcludeGPS`?
-- Resolve invalid frame rate (rounding))
+- Resolve invalid frame rate (rounding)
 - Background remover (lift an object via [VNGenerateForegroundInstanceMaskRequest](https://developer.apple.com/videos/play/wwdc2023/10176/)) iOS 17+ or `VNGeneratePersonSegmentationRequest` iOS 15+)
 - BlurHash
 
