@@ -20,10 +20,18 @@ extension CGSize: Hashable {
 extension CompressionVideoBitrate: Hashable {
     public func hash(into hasher: inout Hasher) {
         switch self {
-        case .auto: hasher.combine(-1)
-        case .encoder: hasher.combine(-2)
-        case .value(let value): hasher.combine(value)
-        case .source: hasher.combine(-3)
+        case .auto:
+            hasher.combine(-1)
+        case .encoder:
+            hasher.combine(-2)
+        case .source:
+            hasher.combine(-3)
+        case .value(let value):
+            hasher.combine(-4)
+            hasher.combine(value)
+        case .filesize(let value):
+            hasher.combine(-5)
+            hasher.combine(value)
         }
     }
 }

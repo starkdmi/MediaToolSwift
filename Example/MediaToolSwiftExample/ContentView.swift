@@ -34,7 +34,8 @@ struct ContentView: View {
     @State private var preserveAlphaChannel = true
     @State private var useHardwareAcceleration = true
     @State private var bitrate: CompressionVideoBitrate = .auto
-    @State private var customBitrate = 0.0 // kbit/s
+    @State private var customBitrate = 0.0 // Kbps
+    @State private var filesize = 0.0 // MBs
     // Audio
     @State private var skipAudio = false
     @State private var audioCodec: CompressionAudioCodec = .default
@@ -136,23 +137,31 @@ struct ContentView: View {
                                 Picker("Bitrate", selection: $bitrate) {
                                     Text("Auto").tag(CompressionVideoBitrate.auto)
                                     Text("Encoder").tag(CompressionVideoBitrate.encoder)
-                                    Text("Custom").tag(CompressionVideoBitrate.value(0))
+                                    Text("Source").tag(CompressionVideoBitrate.source)
+                                    Text("Custom (Kbps)").tag(CompressionVideoBitrate.value(0))
+                                    Text("Filesize (MB)").tag(CompressionVideoBitrate.filesize(0))
                                 }
                                 #if os(OSX)
                                 .pickerStyle(.inline)
                                 #endif
                             }
-
-                            if case .value = bitrate {
-                                CustomSlider(value: $customBitrate, range: 100...10000,
-                                             title: "Bitrate",
-                                             leading: "100",
-                                             trailing: "10000",
-                                             text: "\(Int(customBitrate.rounded())) kbit/s"
-                                )
-                                .frame(maxWidth: width - 32)
-                                .padding(.bottom)
+                            Group {
+                                if case .value = bitrate {
+                                    /*CustomSlider(value: $customBitrate, range: 100...10000,
+                                                 title: "Bitrate",
+                                                 leading: "100",
+                                                 trailing: "10000",
+                                                 text: "\(Int(customBitrate.rounded())) Kbps"
+                                    )
+                                    .frame(maxWidth: width - 32)*/
+                                    TextField("Bitrate (Kbps)", value: $customBitrate, format: .number)
+                                } else if case .filesize = bitrate {
+                                    TextField("Target File Size (MB)", value: $filesize, format: .number)
+                                }
                             }
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 152)
+                            .padding(.bottom)
 
                             // Frame rate
                             let frameRateText = frameRate < frameRateRange.lowerBound + 1 ? "Auto" : "\(Int(frameRate))"
@@ -398,8 +407,10 @@ struct ContentView: View {
         print("Destination: \(destination.path)")
 
         var videoBitrate = bitrate
-        if case .value = bitrate {
+        if case .value = bitrate, customBitrate > 0.0 {
             videoBitrate = .value(Int(customBitrate) * 1000)
+        } else if case .filesize = bitrate, filesize > 0.0 {
+            videoBitrate = .filesize(filesize)
         }
 
         let videoSettings = CompressionVideoSettings(
