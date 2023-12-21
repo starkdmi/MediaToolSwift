@@ -22,17 +22,19 @@ __Codecs__
 VP9, AV1
 ```
 
-__Video to GIF__
+__Video to GIF__ - convert video to animated image
 
-__Video to Images__ - With specified frame rate and directory - 001.png, 002.png
+__GIF to Video__ - convert an animated image to video
 
-__Video Preview__ - animated image/video file with a little of best video frames stitched together at a small frame rate, GIF can be used instead of WebP
+__Video to Images__ - with specified frame rate and directory - 001.png, 002.png
+
+__Video Preview__ - animated image/video file with a little of best (representative, meaningful) video frames stitched together at a small frame rate, GIF/APNG/HEICS/WebP, [ffmpeg thumbnail filter](https://ffmpeg.org/ffmpeg-filters.html#thumbnail)
 
 __Insert video__ - insert/add video track before/after the source video
 
 __Advanced Cutting__ - select multiple ranges of audio/video track and stitch them together while removing unselected parts. this feature can be done without re-encoding video frames (losslessly)
 
-__Editor (Example)__ - Draw on video in real time playback [HandDrawn](https://github.com/starkdmi/HandDrawn) or something like [this](https://github.com/ltebean/LTVideoRecorder). Each Curve, shape added to current video frame, pause/continue feature.
+__Editor (Example)__ - draw on video in real time playback [HandDrawn](https://github.com/starkdmi/HandDrawn) or something like [this](https://github.com/ltebean/LTVideoRecorder). Each Curve, shape added to current video frame, pause/continue feature.
 
 __Frame rate and resolution upscaling__ - combine nearest frames to produce middle one, upscale/enlarge/unblur pixels
 
@@ -95,3 +97,5 @@ __BlurHash__
 Can be implemented using [BlurHashKit](https://github.com/woltapp/blurhash/blob/master/Swift/BlurHashEncode.swift) Swift implementation - one standalone files - rewrite to use `CGImage` instead of `UIImage`.
 
 __AI__ - [FILM: Frame Interpolation](https://film-net.github.io/)
+
+__File Media Type__ - A forth media type with features like file compression, line/chunk processor, info & metadata, encryption
