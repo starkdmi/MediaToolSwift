@@ -9,6 +9,12 @@ import UIKit
 /// Image processing function type
 public typealias ImageProcessor = (_ image: CIImage, _ size: CGSize, _ atTime: Double) -> CIImage
 
+/// Pixel buffer processing function type
+public typealias PixelBufferProcessor = (_ buffer: CVPixelBuffer) -> CVPixelBuffer
+
+/// Sample processing function type
+public typealias SampleBufferProcessor = (_ buffer: CMSampleBuffer) -> CMSampleBuffer
+
 /// Video operations
 public enum VideoOperation: Equatable, Hashable {
     /// Cutting
@@ -32,6 +38,12 @@ public enum VideoOperation: Equatable, Hashable {
     /// Image processing
     /// Warning: `CIImage` size should not be modified
     case imageProcessing(ImageProcessor)
+
+    /// Pixel buffer processing, executed after `sampleBufferProcessing`
+    case pixelBufferProcessing(PixelBufferProcessor)
+
+    /// Sample processing, called before `pixelBufferProcessing`
+    case sampleBufferProcessing(SampleBufferProcessor)
 
     /// Transform value
     var transform: CGAffineTransform? {
@@ -63,7 +75,11 @@ public enum VideoOperation: Equatable, Hashable {
         case .mirror:
             hasher.combine("mirror")
         case .imageProcessing:
-            hasher.combine("processor")
+            hasher.combine("imageProcessor")
+        case .pixelBufferProcessing:
+            hasher.combine("pixelBufferProcessor")
+        case .sampleBufferProcessing:
+            hasher.combine("sampleBufferProcessing")
         }
     }
 
@@ -79,6 +95,12 @@ public enum VideoOperation: Equatable, Hashable {
         case (.flip, .flip):
             return true
         case (.mirror, .mirror):
+            return true
+        case (.imageProcessing, .imageProcessing):
+            return true
+        case (.pixelBufferProcessing, .pixelBufferProcessing):
+            return true
+        case (.sampleBufferProcessing, .sampleBufferProcessing):
             return true
         default:
             return false

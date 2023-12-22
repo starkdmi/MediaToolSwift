@@ -14,6 +14,12 @@ public extension CGSize {
     /// Aspect fit resolution for SD - 640x480
     static let sd = CGSize(width: 640, height: 640)
 
+    /// Use this method to skip any video size calculations and force exact video resolution
+    /// Returns `CGSize` with negative width and height
+    static func explicit(width: CGFloat, height: CGFloat) -> CGSize {
+        return CGSize(width: -abs(width), height: -abs(height))
+    }
+
     /// Aspect fit in new size
     func fit(in size: CGSize) -> CGSize {
         let rect = AVMakeRect(aspectRatio: self, insideRect: CGRect(origin: CGPoint.zero, size: size))

@@ -340,7 +340,12 @@ public struct VideoTool {
 
         // Video
         let videoQueue = DispatchQueue(label: "MediaToolSwift.video.queue")
-        run(input: videoVariables.videoInput, output: videoVariables.videoOutput, queue: videoQueue, sampleHandler: videoVariables.sampleHandler)
+        run(
+            input: videoVariables.videoInput,
+            output: videoVariables.videoOutput,
+            queue: videoQueue,
+            sampleHandler: videoVariables.sampleHandler
+        )
 
         // Audio 
         if !audioVariables.skipAudio {
@@ -523,11 +528,17 @@ public struct VideoTool {
 
         // MARK: Writer
         // Resize (no upscaling applied)
+
         var videoSize = videoTrack.naturalSize
         let sourceVideoSize = videoSize
-        if let size = videoSettings.size, videoSize.width > size.width || videoSize.height > size.height {
-            let rect = AVMakeRect(aspectRatio: videoSize, insideRect: CGRect(origin: CGPoint.zero, size: size))
-            videoSize = rect.size
+        if let size = videoSettings.size {
+            if size.width < 0.0, size.height < 0.0 {
+               // Force specified size without safety methods
+                videoSize = CGSize(width: -size.width, height: -size.height)
+            } else if videoSize.width > size.width || videoSize.height > size.height {
+                let rect = AVMakeRect(aspectRatio: videoSize, insideRect: CGRect(origin: CGPoint.zero, size: size))
+                videoSize = rect.size
+            }
         }
 
         // Video settings
@@ -647,6 +658,8 @@ public struct VideoTool {
         var cropRect: CGRect?
         var cutDurationInSeconds: Double?
         var imageProcessor: ImageProcessor?
+        var pixelBufferProcessor: PixelBufferProcessor?
+        var sampleBufferModifier: SampleBufferProcessor?
         for operation in videoSettings.edit {
             switch operation {
             case let .cut(from: start, to: end):
@@ -682,12 +695,32 @@ public struct VideoTool {
             case .rotate, .flip, .mirror:
                 transform = transform.concatenating(operation.transform!)
                 transformed = true
-            case .imageProcessing(let function):
+            case .imageProcessing(let call):
                 // Video Composition require tranformed video size
                 videoSize = videoTrack.naturalSizeWithOrientation
 
                 // Enable video composition
-                imageProcessor = function
+                imageProcessor = call
+            case .pixelBufferProcessing(let call):
+                // Save pixel buffer processor for future use
+                pixelBufferProcessor = call
+            case .sampleBufferProcessing(let call):
+                // Save sample processor
+                sampleBufferModifier = call
+            }
+        }
+        if let pixelBufferProcessor = pixelBufferProcessor {
+            if let modifier = sampleBufferModifier {
+                // Append pixel buffer processing to the end
+                sampleBufferModifier = {
+                    sample in
+                    modifier(sample).editingPixelBuffer(pixelBufferProcessor)
+                }
+            } else {
+                // Set pixel buffer processor to sample processor
+                sampleBufferModifier = { sample in
+                    return sample.editingPixelBuffer(pixelBufferProcessor)
+                }
             }
         }
         let useVideoComposition: Bool = cropRect != nil || imageProcessor != nil
@@ -775,6 +808,7 @@ public struct VideoTool {
            videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue, // profile set to default value
            videoSettings.color == defaultSettings.color, // color set to default value
            videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval, // max ket frame set to default value
+           sampleBufferModifier == nil, // no custom sample/pixel buffer handler added
            useVideoComposition == false {  // no video composition added
 
             if variables.range == nil && !transformed { // no video operations applied
@@ -854,9 +888,22 @@ public struct VideoTool {
             variables.videoInput.transform = videoTrack.fixedPreferredTransform.concatenating(transform) // videoTrack.preferredTransform
         }
 
-        /// Custom sample buffer handler for video to adjust frame rate
+        /// Custom sample buffer handler (frame rate adjustment or sample processing)
         func makeVideoSampleHandler() -> ((CMSampleBuffer) -> Void)? {
-            guard let frameRate = variables.frameRate else { return nil }
+            guard let frameRate = variables.frameRate else {
+                // Set custom processor if no frame rate adjustment required
+                if let sampleBufferModifier = sampleBufferModifier {
+                    return { sample in
+                        // Apply custom sample processor
+                        let buffer = sampleBufferModifier(sample)
+
+                        // Append the new sample buffer to the input
+                        variables.videoInput.append(buffer)
+                    }
+                }
+                return nil
+            }
+
             // Frame rate - skip frames and update time stamp & duration of each saved frame
             // Info: Another approach to adjust video frame rate is using AVAssetReaderVideoCompositionOutput
             // Info: It also possible using CMSampleBufferSetOutputPresentationTimeStamp() +- .convertScale(timeScale, method: .quickTime)
@@ -928,8 +975,11 @@ public struct VideoTool {
                     )
 
                     if copySampleBufferStatus == noErr {
+                        // Apply custom sample processor if any
+                        let sampleBuffer = sampleBufferModifier?(buffer) ?? buffer!
+
                         // Append the new sample buffer to the input
-                        variables.videoInput.append(buffer)
+                        variables.videoInput.append(sampleBuffer)
                     }
                 }
             }
