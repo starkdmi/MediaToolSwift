@@ -15,7 +15,9 @@ __Base__
 - __Video thumbnails cancellation feature__ - generator.cancelAllCGImageGeneration()
 - __Video thumbnails progress feature__
 - __Video thumbnails overwrite option__
+- __VideoEncoder protocol__ - expose encoder protocol to easily add support for AV1, VP9, atd. using 3rd party implementations
 - __Audio only__ - remove video and metadata tracks
+- __Metadata compiler flag__ - pass `-fno-strip-metadata` compiler flag in Package.swift and MediaToolSwift.podspec
 
 __Codecs__
 ```
@@ -62,6 +64,7 @@ filesize, sample rate, waveform
 ## Image
 
 __Base__
+- ImageEncoder protocol - Expose encoder to easily add support for WebP and others
 - Quality options should also apply to lossless formats to decrease file size when converting PNG to PNG
 - Prefer `CIImage` load/edit when output format is HEIF/HEIF10
 - `CGColorSpace` and `CIFormat` optional parameters
