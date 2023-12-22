@@ -27,6 +27,7 @@ In addition to the video and audio codecs conversion provided with the following
 | Video codec | Video codec used by encoder | `H.264`, `H.265/HEVC`, `ProRes`, `JPEG` | Source video codec |
 | Video bitrate | Output video bitrate, used __only__ by `H.264` and `H.265/HEVC` codecs | `Auto` - Calculated based on resolution, frame rate and codec</br> `Encoder` - set by __AVAssetWriter__ internally</br>`Source` - Source video bitrate</br>`Custom` - custom bitrate value in __bps__</br>`Filesize` - Calculated based on target filesize in __MB__ | `Auto` |
 | Video quality | Video quality in range from 0.0 to 1.0, __ignored__ when bitrate is set | `[0.0, 1.0]` | `1.0` |
+| Size | Video resolution | `CGSize` | Source video resolution |
 | Preserve Alpha channel | Preserve or drop alpha channel from video file with transparency | `Boolean` | `true` |
 | Profile | Video profile used by video encoder, `H.264` and `H.265/HEVC` codecs only | `Baseline`, `Main`, `High`, `Custom(String)` | Selected automatically |
 | Color | Color primary, Transfer function, YCbCr Matrix combination | `SD`, `SD (PAL)`, `P3`, `HDTV`, `UHDTV SDR`, `UHDTV HDR HLG`, `UHDTV HDR PQ` | Selected automatically |
@@ -66,10 +67,13 @@ Resize video while preserving aspect ratio. Provide `CGSize` resolution for vide
 
 Predefined resolutions are `SD`, `HD`, `Full HD`, `Ultra HD` which are accessible via `CGSize` extension.
 
+Use `CGSize.explicit(width:height:)` or pass both __negative__ width and height to `CGSize` to force resolution without safety checks.
+
 __Usage__
 ```Swift
-CompressionVideoSettings(size: CGSize.uhd)
-CompressionVideoSettings(size: CGSize(width: 720, height: 720))
+CompressionVideoSettings(size: CGSize.uhd) // predefined values, size to fit
+CompressionVideoSettings(size: CGSize(width: 720, height: 720)) // custom values, size to fit
+CompressionVideoSettings(size: CGSize.explicit(width: 1280, height: 720)) // force exact resolution
 ```
 
 ## Crop
@@ -121,6 +125,38 @@ CompressionVideoSettings(edit: [
 ])
 ```
 Complex example is stored in [Video Tests](../Tests/VideoTests.swift#:~:text=testImageProcessing) under `testImageProcessing()`.
+
+## CVPixelBuffer Processing
+Frame-by-frame callback handler which provides access to `CVPixelBuffer`. Usefull to analyze/process video frames using `CoreML`. 
+
+In case of resolution modification take attention to specify exact values using `CGSize.explicit(width:height:)` in `VideoSettings` to disable internal size-to-fit calculations and disable upscaling restriction.
+
+While lowering frame rate the `.pixelBufferProcessing` will be called only on preserving frames. Call `.pixelBufferProcessing(:)` executed after `.sampleBufferProcessing`.
+
+__Usage__
+```Swift
+// Upscale video 1280x720 by 4X
+// Import `Vision`, load `VNCoreMLModel` upscaling model and initialize `VNCoreMLRequest`
+CompressionVideoSettings(
+    // Calculate desired resolution based on source and enforce it
+    size: .explicit(width: 2560, height: 1440),
+    edit: [
+        .pixelBufferProcessing { pixelBuffer in
+            // Run ML intereference
+            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            try? handler.perform([request])
+
+            guard let result = request.results?.first as? VNPixelBufferObservation else {  
+                // Return original buffer on failure
+                return pixelBuffer
+            }
+
+            // Return modified pixel buffer for writing
+            return result.pixelBuffer
+        }
+    ]
+)
+```
 
 ## Thumbnails
 Generate video thumbnails at specified times. Time specified in seconds. Available image formats are: `HEIF`, `PNG`, `JPEG`, `GIF`, `TIFF`, `BMP`, `ICO`. Use `ImageSettings` to adjust the image options and to post process the video thumbnails.
