@@ -1,7 +1,4 @@
 import AVFoundation
-import Foundation
-import CoreMedia
-import CoreImage
 import AudioToolbox
 import Accelerate
 

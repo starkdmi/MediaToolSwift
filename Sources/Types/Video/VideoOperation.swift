@@ -1,10 +1,5 @@
-import Foundation
 import CoreMedia
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
+import CoreImage
 
 /// Image processing function type
 public typealias ImageProcessor = (_ image: CIImage, _ size: CGSize, _ atTime: Double) -> CIImage

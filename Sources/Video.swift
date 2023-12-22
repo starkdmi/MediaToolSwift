@@ -1,6 +1,4 @@
 import AVFoundation
-import Foundation
-import CoreMedia
 import CoreImage
 import VideoToolbox
 import Accelerate

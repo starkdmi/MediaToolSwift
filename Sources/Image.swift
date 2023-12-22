@@ -1,5 +1,4 @@
 import AVFoundation
-import Foundation
 import CoreImage
 import ImageIO
 import Accelerate.vImage
