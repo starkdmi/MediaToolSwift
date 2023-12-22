@@ -26,6 +26,9 @@ let package = Package(
             exclude: [
                 "Classes/ObjCExceptionCatcher"
             ]
+            // swiftSettings: [
+            //     .unsafeFlags(["-DADVANCED", "-DIMAGEPLUS"])
+            // ]
         ),
         .target(
             name: "ObjCExceptionCatcher",
