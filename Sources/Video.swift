@@ -892,11 +892,13 @@ public struct VideoTool {
                 // Set custom processor if no frame rate adjustment required
                 if let sampleBufferModifier = sampleBufferModifier {
                     return { sample in
-                        // Apply custom sample processor
-                        let buffer = sampleBufferModifier(sample)
+                        autoreleasepool {
+                            // Apply custom sample processor
+                            let buffer = sampleBufferModifier(sample)
 
-                        // Append the new sample buffer to the input
-                        variables.videoInput.append(buffer)
+                            // Append the new sample buffer to the input
+                            variables.videoInput.append(buffer)
+                        }
                     }
                 }
                 return nil
