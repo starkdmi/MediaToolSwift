@@ -304,7 +304,7 @@ internal extension CGImage {
             return false
         }
 
-        #if os(iOS) || os(watchOS) || os(tvOS)
+        #if os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
         let iOS = true
         #else
         let iOS = false

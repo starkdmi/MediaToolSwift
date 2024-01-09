@@ -1,6 +1,6 @@
 import Foundation
 import AVFoundation
-#if os(iOS) || os(tvOS)
+#if os(iOS) || os(tvOS) || os(visionOS)
 import MobileCoreServices
 #endif
 
@@ -54,13 +54,13 @@ public enum ImageFormat: String, CaseIterable {
         case .heics:
             return "public.heics" as CFString
         case .png:
-            if #available(macOS 11, iOS 14, tvOS 14, *) {
+            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.png.identifier as CFString
             } else {
                 return kUTTypePNG
             }
         case .jpeg:
-            if #available(macOS 11, iOS 14, tvOS 14, *) {
+            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.jpeg.identifier as CFString
             } else {
                 return kUTTypeJPEG
@@ -70,25 +70,25 @@ public enum ImageFormat: String, CaseIterable {
             return kUTTypeJPEG2000 // public.jpeg-2000
         #endif
         case .gif:
-            if #available(macOS 11, iOS 14, tvOS 14, *) {
+            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.gif.identifier as CFString
             } else {
                 return kUTTypeGIF
             }
         case .tiff:
-            if #available(macOS 11, iOS 14, tvOS 14, *) {
+            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.tiff.identifier as CFString
             } else {
                 return kUTTypeTIFF
             }
         case .bmp:
-            if #available(macOS 11, iOS 14, tvOS 14, *) {
+            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.bmp.identifier as CFString
             } else {
                 return kUTTypeBMP
             }
         case .ico:
-            if #available(macOS 11, iOS 14, tvOS 14, *) {
+            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.ico.identifier as CFString
             } else {
                 return kUTTypeICO
@@ -129,7 +129,7 @@ public enum ImageFormat: String, CaseIterable {
             filenameExtension = "heic"
         }
 
-        if #available(macOS 11, iOS 14, tvOS 14, *) {
+        if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
             if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
                 self = format
             } else {
@@ -137,12 +137,20 @@ public enum ImageFormat: String, CaseIterable {
             }
         } else {
             // Fallback on earlier versions
-            let utType = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, filenameExtension as CFString, nil)?.takeRetainedValue()
+            #if os(visionOS)
+            if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
+                self = format
+            } else {
+                return nil
+            }
+            #else
+            let utType = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, filenameExtension as CFString, nil)?.takeRetainedValue() // UTTagClass.filenameExtension
             if let utType = utType, let format = ImageFormat(utType) {
                 self = format
             } else {
                 return nil
             }
+            #endif
         }
     }
 

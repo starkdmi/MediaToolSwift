@@ -454,12 +454,17 @@ public struct VideoTool {
         var videoCodec = videoSettings.codec
         if videoCodec == nil {
             // Verify source video codec is valid for output
-            let supportedVideoCodecs: [AVVideoCodecType] = [
-                .hevc, .hevcWithAlpha,
+            var supportedVideoCodecs: [AVVideoCodecType] = [
+                .hevc,
+                .hevcWithAlpha,
                 .h264,
-                .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy, .proRes4444,
                 .jpeg
             ]
+            #if !os(visionOS)
+            supportedVideoCodecs.append(contentsOf: [
+                .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy, .proRes4444
+            ])
+            #endif
             guard supportedVideoCodecs.contains(sourceVideoCodec) else {
                 throw CompressionError.invalidVideoCodec
             }
@@ -499,8 +504,10 @@ public struct VideoTool {
                 switch videoCodec! {
                 case .hevc:
                     videoCodec = .hevcWithAlpha
+                #if !os(visionOS)
                 case .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy:
                     videoCodec = .proRes4444
+                #endif
                 default:
                     break
                 }
@@ -693,12 +700,14 @@ public struct VideoTool {
             case .rotate, .flip, .mirror:
                 transform = transform.concatenating(operation.transform!)
                 transformed = true
+            #if !os(visionOS) // Warning: fully disabled on visionOS
             case .imageProcessing(let call):
                 // Video Composition require tranformed video size
                 videoSize = videoTrack.naturalSizeWithOrientation
 
                 // Enable video composition
                 imageProcessor = call
+            #endif
             case .pixelBufferProcessing(let call):
                 // Save pixel buffer processor for future use
                 pixelBufferProcessor = call
@@ -824,6 +833,7 @@ public struct VideoTool {
         // Setup video reader, apply crop and overlay if required
         let readerSettings = videoReaderSettings.isEmpty ? nil : videoReaderSettings
         if useVideoComposition {
+            #if !os(visionOS) // Warning: fully disabled on visionOS
             let videoComposition = AVMutableVideoComposition(asset: asset) { request in
                 //https://developer.apple.com/documentation/coreimage/processing_an_image_using_built-in_filters
                 //https://developer.apple.com/library/archive/documentation/GraphicsImaging/Reference/CoreImageFilterReference/index.html#//apple_ref/doc/filter/ci
@@ -849,9 +859,10 @@ public struct VideoTool {
 
                 request.finish(with: image, context: nil)
             }
-
             // Video size (width and height may be swapped - update)
             videoComposition.renderSize = videoRect.size
+            #endif
+
             videoParameters[AVVideoCodecKey] = videoCodec!
             videoParameters[AVVideoWidthKey] = videoRect.width
             videoParameters[AVVideoHeightKey] = videoRect.height
@@ -868,7 +879,9 @@ public struct VideoTool {
 
             // Video reader
             let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [videoTrack], videoSettings: readerSettings)
+            #if !os(visionOS) // Warning: fully disabled on visionOS
             videoOutput.videoComposition = videoComposition
+            #endif
             variables.videoOutput = videoOutput
         } else {
             variables.videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: readerSettings)
@@ -1380,7 +1393,16 @@ public struct VideoTool {
         timeToleranceAfter: Double = .infinity,
         completion: @escaping ([VideoThumbnail]) -> Void
     ) throws {
-        guard let videoTrack = asset.tracks(withMediaType: .video).first else {
+        // Get video track
+        #if os(visionOS)
+        let videoTrack = try? Sync.wait {
+            let tracks = await asset.getTracks(withMediaType: .video)
+            return tracks?.first
+        }
+        #else
+        let videoTrack = asset.tracks(withMediaType: .video).first
+        #endif
+        guard let videoTrack = videoTrack else {
             throw CompressionError.videoTrackNotFound
         }
 

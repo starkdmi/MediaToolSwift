@@ -32,7 +32,9 @@ public enum VideoOperation: Equatable, Hashable {
 
     /// Image processing
     /// Warning: `CIImage` size should not be modified
+    #if !os(visionOS) // Warning: fully disabled on visionOS
     case imageProcessing(ImageProcessor)
+    #endif
 
     /// Pixel buffer processing, executed after `sampleBufferProcessing`
     case pixelBufferProcessing(PixelBufferProcessor)
@@ -69,8 +71,10 @@ public enum VideoOperation: Equatable, Hashable {
             hasher.combine("flip")
         case .mirror:
             hasher.combine("mirror")
+        #if !os(visionOS) // Warning: fully disabled on visionOS
         case .imageProcessing:
             hasher.combine("imageProcessor")
+        #endif
         case .pixelBufferProcessing:
             hasher.combine("pixelBufferProcessor")
         case .sampleBufferProcessing:
@@ -91,8 +95,10 @@ public enum VideoOperation: Equatable, Hashable {
             return true
         case (.mirror, .mirror):
             return true
+        #if !os(visionOS) // Warning: fully disabled on visionOS
         case (.imageProcessing, .imageProcessing):
             return true
+        #endif
         case (.pixelBufferProcessing, .pixelBufferProcessing):
             return true
         case (.sampleBufferProcessing, .sampleBufferProcessing):
