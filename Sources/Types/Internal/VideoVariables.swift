@@ -26,6 +26,9 @@ internal struct VideoVariables {
     /// Video writer
     var videoInput: AVAssetWriterInput!
 
+    /// Video writer adaptor
+    var videoInputAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+
     // MARK: Video info variables
 
     /// Video resolution

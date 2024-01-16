@@ -37,6 +37,7 @@ public struct CompressionError: LocalizedError, Equatable {
     public static let invalidVideoCodec = CompressionError(description: "Specified video codec is not supported")
     public static let croppingNotAllowed = CompressionError(description: "Cropping is not allowed while the video size is set")
     public static let croppingOutOfBounds = CompressionError(description: "Cropping area is larger than source video bounds")
+    public static let notSupportedOnVisionOS = CompressionError(description: "Operation is not supported on Vision Pro")
 
     // MARK: Image related errors
 

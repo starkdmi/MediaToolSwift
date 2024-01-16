@@ -525,24 +525,30 @@ public struct VideoTool {
         variables.codec = videoCodec!
         let videoCodecChanged = videoCodec != sourceVideoCodec
 
+        // Pixel format
+        let pixelFormat = kCVPixelFormatType_32BGRA
+        // let pixelFormat = preserveAlphaChannel ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_422YpCbCr8
         var videoReaderSettings: [String: Any] = [
-            // Pixel format
-            kCVPixelBufferPixelFormatTypeKey as String:
-                preserveAlphaChannel ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_422YpCbCr8
+            kCVPixelBufferPixelFormatTypeKey as String: pixelFormat
         ]
 
         // MARK: Writer
         // Resize (no upscaling applied)
-
-        var videoSize = videoTrack.naturalSize
-        let sourceVideoSize = videoSize
+        let sourceVideoSize = videoTrack.naturalSize
+        let oriented = videoTrack.naturalSizeWithOrientation != sourceVideoSize
+        var outputVideoSize = sourceVideoSize
         if let size = videoSettings.size {
             if size.width < 0.0, size.height < 0.0 {
-               // Force specified size without safety methods
-                videoSize = CGSize(width: -size.width, height: -size.height)
-            } else if videoSize.width > size.width || videoSize.height > size.height {
-                let rect = AVMakeRect(aspectRatio: videoSize, insideRect: CGRect(origin: CGPoint.zero, size: size))
-                videoSize = rect.size
+                // Force specified size without safety methods
+                if oriented {
+                    // Fix orientation
+                    outputVideoSize = CGSize(width: -size.height, height: -size.width)
+                } else {
+                    outputVideoSize = CGSize(width: -size.width, height: -size.height)
+                }
+            } else if outputVideoSize.width > size.width || outputVideoSize.height > size.height {
+                let rect = AVMakeRect(aspectRatio: outputVideoSize, insideRect: CGRect(origin: CGPoint.zero, size: size))
+                outputVideoSize = rect.size
             }
         }
 
@@ -557,7 +563,12 @@ public struct VideoTool {
         // Profile Level
         if let profile = videoSettings.profile {
             videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
-        }
+        } /*else if isHDR {
+            // Default profile should be adjusted for HDR content support
+            if let profile = CompressionVideoProfile.profile(for: videoCodec!, bitsPerComponent: videoDesc.bitsPerComponent ?? 10) {
+                videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
+            }
+        }*/
 
         // Frame Rate
         variables.frameRate = videoSettings.frameRate
@@ -593,67 +604,25 @@ public struct VideoTool {
             // https://developer.apple.com/documentation/avfoundation/video_settings
             // AVVideoCompressionPropertiesKey: videoCompressionSettings,
             AVVideoCodecKey: videoCodec!,
-            AVVideoWidthKey: videoSize.width,
-            AVVideoHeightKey: videoSize.height
+            AVVideoWidthKey: outputVideoSize.width,
+            AVVideoHeightKey: outputVideoSize.height
         ]
 
-        // Color Properties 
+        // Color Information
+        // https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/tagging_media_with_video_color_information
+        // https://developer.apple.com/library/archive/technotes/tn2227/_index.html
+        // https://developer.apple.com/documentation/avfoundation/video_settings/setting_color_properties_for_a_specific_resolution
+        var colorInfo: VideoColorInformation?
         if let colorProperties = videoSettings.color {
-            // https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/tagging_media_with_video_color_information
-            // https://developer.apple.com/library/archive/technotes/tn2227/_index.html
-            // https://developer.apple.com/documentation/avfoundation/video_settings/setting_color_properties_for_a_specific_resolution
-            /*let colorPrimaries = CMFormatDescriptionGetExtension(videoDesc, extensionKey: kCMFormatDescriptionExtension_ColorPrimaries) as? String
-            print("Color Primaries: \(String(describing: colorPrimaries))")*/
-
-            var colorPrimary: String
-            var matrix: String
-            var transferFunction: String
-
-            switch colorProperties {
-            // SD (SMPTE-C)
-            case .smpteC:
-                colorPrimary = AVVideoColorPrimaries_SMPTE_C
-                matrix = AVVideoYCbCrMatrix_ITU_R_601_4
-                transferFunction = AVVideoTransferFunction_ITU_R_709_2
-            // SD (PAL)
-            case .ebu3213:
-                #if os(OSX)
-                colorPrimary = AVVideoColorPrimaries_EBU_3213
-                #else
-                // Fallback to iOS and tvOS supported SD color primary
-                colorPrimary = AVVideoColorPrimaries_SMPTE_C
-                #endif
-                matrix = AVVideoYCbCrMatrix_ITU_R_601_4
-                transferFunction = AVVideoTransferFunction_ITU_R_709_2
-            // HD | P3
-            case .p3D65:
-                colorPrimary = AVVideoColorPrimaries_P3_D65
-                matrix = AVVideoYCbCrMatrix_ITU_R_709_2
-                transferFunction = AVVideoTransferFunction_ITU_R_709_2
-            // HDTV - ITU-R BT.709
-            case .itu709_2:
-                colorPrimary = AVVideoColorPrimaries_ITU_R_709_2
-                matrix = AVVideoYCbCrMatrix_ITU_R_709_2
-                transferFunction = AVVideoTransferFunction_ITU_R_709_2
-            // UHDTV - BT.2020
-            case .itu2020:
-                colorPrimary = AVVideoColorPrimaries_ITU_R_2020
-                matrix = AVVideoYCbCrMatrix_ITU_R_2020
-                transferFunction = AVVideoTransferFunction_ITU_R_709_2
-            case .itu2020_hlg:
-                colorPrimary = AVVideoColorPrimaries_ITU_R_2020
-                matrix = AVVideoYCbCrMatrix_ITU_R_2020
-                transferFunction = AVVideoTransferFunction_ITU_R_2100_HLG
-            case .itu2020_pq:
-                colorPrimary = AVVideoColorPrimaries_ITU_R_2020
-                matrix = AVVideoYCbCrMatrix_ITU_R_2020
-                transferFunction = AVVideoTransferFunction_SMPTE_ST_2084_PQ
-            }
-
+            colorInfo = VideoColorInformation(for: colorProperties)
+        } else if let colorPrimaries = videoDesc.colorPrimaries, let matrix = videoDesc.matrix, let transferFunction = videoDesc.transferFunction {
+            colorInfo = VideoColorInformation(colorPrimaries: colorPrimaries, matrix: matrix, transferFunction: transferFunction)
+        }
+        if let colorInfo = colorInfo {
             videoParameters[AVVideoColorPropertiesKey] = [
-                AVVideoColorPrimariesKey: colorPrimary,
-                AVVideoYCbCrMatrixKey: matrix,
-                AVVideoTransferFunctionKey: transferFunction
+                AVVideoColorPrimariesKey: colorInfo.colorPrimaries,
+                AVVideoYCbCrMatrixKey: colorInfo.matrix,
+                AVVideoTransferFunctionKey: colorInfo.transferFunction
             ]
         }
 
@@ -662,9 +631,7 @@ public struct VideoTool {
         var transformed = false // require additional transformation (rotate, flip, mirror, atd.)
         var cropRect: CGRect?
         var cutDurationInSeconds: Double?
-        var imageProcessor: ImageProcessor?
-        var pixelBufferProcessor: PixelBufferProcessor?
-        var sampleBufferModifier: SampleBufferProcessor?
+        var frameProcessor: VideoFrameProcessor?
         for operation in videoSettings.edit {
             switch operation {
             case let .cut(from: start, to: end):
@@ -700,38 +667,49 @@ public struct VideoTool {
             case .rotate, .flip, .mirror:
                 transform = transform.concatenating(operation.transform!)
                 transformed = true
-            #if !os(visionOS) // Warning: fully disabled on visionOS
-            case .imageProcessing(let call):
-                // Video Composition require tranformed video size
-                videoSize = videoTrack.naturalSizeWithOrientation
-
+            case .process(let processor):
                 // Enable video composition
-                imageProcessor = call
-            #endif
-            case .pixelBufferProcessing(let call):
-                // Save pixel buffer processor for future use
-                pixelBufferProcessor = call
-            case .sampleBufferProcessing(let call):
-                // Save sample processor
-                sampleBufferModifier = call
+                frameProcessor = processor
             }
         }
-        if let pixelBufferProcessor = pixelBufferProcessor {
-            if let modifier = sampleBufferModifier {
-                // Append pixel buffer processing to the end
-                sampleBufferModifier = {
-                    sample in
-                    modifier(sample).editingPixelBuffer(pixelBufferProcessor)
-                }
+        let useVideoAdaptor = frameProcessor?.requirePixelAdaptor == true
+        var useVideoComposition = frameProcessor?.canCrop != true && cropRect != nil
+        #if os(visionOS)
+        if useVideoComposition {
+            // visionOS doesn't support video composition
+            throw CompressionError.notSupportedOnVisionOS
+        }
+        #else
+        if case .imageComposition = frameProcessor {
+            useVideoComposition = true
+
+            // Video Composition require tranformed video size
+            if oriented {
+                outputVideoSize = CGSize(width: outputVideoSize.height, height: outputVideoSize.width)
             } else {
-                // Set pixel buffer processor to sample processor
-                sampleBufferModifier = { sample in
-                    return sample.editingPixelBuffer(pixelBufferProcessor)
-                }
+                outputVideoSize = CGSize(width: outputVideoSize.width, height: outputVideoSize.height)
             }
+            // outputVideoSize = videoTrack.naturalSizeWithOrientation
         }
-        let useVideoComposition: Bool = cropRect != nil || imageProcessor != nil
-        let videoRect = cropRect ?? CGRect(origin: .zero, size: videoSize)
+        #endif
+
+        // Update resolution
+        let videoRect = cropRect ?? CGRect(origin: .zero, size: outputVideoSize)
+        if cropRect != nil || useVideoComposition {
+            videoParameters[AVVideoWidthKey] = videoRect.width
+            videoParameters[AVVideoHeightKey] = videoRect.height
+        }
+
+        // Context for reuse
+        var context: CIContext?
+        if frameProcessor?.requireCIContext == true || useVideoComposition {
+            /*let options: [CIContextOption: Any] = [
+                .highQualityDownsample: true,
+                .workingFormat: CIFormat.RGBAf, // kCIFormatBGRA8, kCIFormatRGBA8, kCIFormatRGBAh, kCIFormatRGBAf or nil
+                // .workingColorSpace: CGColorSpace(name: CGColorSpace.itur_2100_HLG)
+            ]*/
+            context = CIContext()
+        }
 
         // Adjust Bitrate
         var bitrateChanged = false
@@ -787,7 +765,7 @@ public struct VideoTool {
                 } else if videoCodec == .h264 {
                     codecMultiplier = 0.9
                 }
-                let totalPixels = Float(videoSize.width * videoSize.height)
+                let totalPixels = Float(outputVideoSize.width * outputVideoSize.height)
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
                 let rate = (totalPixels * codecMultiplier * fps) / 8
 
@@ -809,15 +787,14 @@ public struct VideoTool {
         if videoCodecChanged == false, // output codec equals source video codec
            bitrateChanged == false, // bitrate not changed
            videoSettings.quality == defaultSettings.quality, // quality set to default value
-           videoSize == sourceVideoSize, // output size equals source resolution
+           outputVideoSize == sourceVideoSize, // output size equals source resolution
            variables.frameRate == defaultSettings.frameRate, // output frame rate greater or equals source frame rate
            !(videoSettings.preserveAlphaChannel == false && hasAlphaChannel == true), // false if alpha is removed
            videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue, // profile set to default value
            videoSettings.color == defaultSettings.color, // color set to default value
            videoSettings.maxKeyFrameInterval == defaultSettings.maxKeyFrameInterval, // max ket frame set to default value
-           sampleBufferModifier == nil, // no custom sample/pixel buffer handler added
-           useVideoComposition == false {  // no video composition added
-
+           frameProcessor == nil, // no custom sample/pixel buffer handler added
+           useVideoComposition == false { // no video composition added
             if variables.range == nil && !transformed { // no video operations applied
                 variables.hasChanges = false
             }
@@ -832,40 +809,43 @@ public struct VideoTool {
 
         // Setup video reader, apply crop and overlay if required
         let readerSettings = videoReaderSettings.isEmpty ? nil : videoReaderSettings
+        #if os(visionOS)
+        variables.videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: readerSettings)
+        #else
         if useVideoComposition {
-            #if !os(visionOS) // Warning: fully disabled on visionOS
+            // Make constants for concurrently-executing code
+            let cropRect = cropRect
+            let context = context
+            let processor = frameProcessor
+
             let videoComposition = AVMutableVideoComposition(asset: asset) { request in
                 //https://developer.apple.com/documentation/coreimage/processing_an_image_using_built-in_filters
                 //https://developer.apple.com/library/archive/documentation/GraphicsImaging/Reference/CoreImageFilterReference/index.html#//apple_ref/doc/filter/ci
                 var image = request.sourceImage
-                var size = request.renderSize
 
                 // Crop
-                if cropRect != nil {
-                    image = image.cropped(to: videoRect).transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))
-                    /*let filter = CIFilter(name: "CICrop", parameters: [
-                        "inputImage": image,
-                        "inputRectangle": CIVector(cgRect: videoRect)
-                    ])!
-                    image = filter.outputImage!
-                    image = image.transformed(by: CGAffineTransform(translationX: -videoRect.origin.x, y: -videoRect.origin.y))*/
-                    size = videoRect.size
+                if let cropRect = cropRect {
+                    image = image
+                        .cropped(to: cropRect)
+                        .transformed(by: CGAffineTransform(translationX: -cropRect.origin.x, y: -cropRect.origin.y))
                 }
 
                 // Custom image processor
-                if let imageProcessor = imageProcessor {
-                    image = imageProcessor(image, size, request.compositionTime.seconds)
+                if case .imageComposition(let imageProcessor) = processor {
+                    image = imageProcessor(image, context!, request.compositionTime.seconds)
                 }
 
-                request.finish(with: image, context: nil)
+                request.finish(with: image, context: context)
             }
             // Video size (width and height may be swapped - update)
             videoComposition.renderSize = videoRect.size
-            #endif
 
-            videoParameters[AVVideoCodecKey] = videoCodec!
-            videoParameters[AVVideoWidthKey] = videoRect.width
-            videoParameters[AVVideoHeightKey] = videoRect.height
+            // Set video color information https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/tagging_media_with_video_color_information#3667277
+            if let colorInfo = colorInfo {
+                videoComposition.colorPrimaries = colorInfo.colorPrimaries
+                videoComposition.colorYCbCrMatrix = colorInfo.matrix
+                videoComposition.colorTransferFunction = colorInfo.transferFunction
+            }
 
             // Fix profile (required for HDR content in Video Composition)
             if videoSettings.profile == nil {
@@ -879,42 +859,83 @@ public struct VideoTool {
 
             // Video reader
             let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [videoTrack], videoSettings: readerSettings)
-            #if !os(visionOS) // Warning: fully disabled on visionOS
             videoOutput.videoComposition = videoComposition
-            #endif
             variables.videoOutput = videoOutput
         } else {
             variables.videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: readerSettings)
         }
+        #endif
 
         // Video writer
         try ObjCExceptionCatcher.catchException {
             variables.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoParameters.isEmpty ? nil : videoParameters, sourceFormatHint: videoDesc)
+
+            // Init pixel buffer adaptor
+            if useVideoAdaptor {
+                let sourcePixelBufferAttributes: [String: Any] = [
+                    kCVPixelBufferPixelFormatTypeKey as String: pixelFormat,
+                    kCVPixelBufferWidthKey as String: videoRect.width,
+                    kCVPixelBufferHeightKey as String: videoRect.height,
+                    AVVideoWidthKey: videoRect.width,
+                    AVVideoHeightKey: videoRect.height
+                ]
+                variables.videoInputAdaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: variables.videoInput, sourcePixelBufferAttributes: sourcePixelBufferAttributes)
+            }
+            return
         }
 
         // Transform
         if useVideoComposition {
             variables.videoInput.transform = transform
         } else {
-            variables.videoInput.transform = videoTrack.fixedPreferredTransform.concatenating(transform) // videoTrack.preferredTransform
+            variables.videoInput.transform = videoTrack.fixedPreferredTransform.concatenating(transform)
         }
 
         /// Custom sample buffer handler (frame rate adjustment or sample processing)
         func makeVideoSampleHandler() -> ((CMSampleBuffer) -> Void)? {
-            guard let frameRate = variables.frameRate else {
-                // Set custom processor if no frame rate adjustment required
-                if let sampleBufferModifier = sampleBufferModifier {
-                    return { sample in
-                        autoreleasepool {
-                            // Apply custom sample processor
-                            let buffer = sampleBufferModifier(sample)
+            // Sample writer
+            let append: (CMSampleBuffer) -> Void = { sample in
+                autoreleasepool {
+                    let timeStamp = CMSampleBufferGetPresentationTimeStamp(sample)
 
-                            // Append the new sample buffer to the input
-                            variables.videoInput.append(buffer)
-                        }
+                    var sampleBuffer: CMSampleBuffer?
+                    var pixelBuffer: CVPixelBuffer?
+
+                    switch frameProcessor {
+                    case .image, .cgImage, .vImage, .pixelBuffer:
+                        // Use unified processor handler
+                        pixelBuffer = CVPixelBuffer.processSampleBuffer(
+                            sample,
+                            presentationTimeStamp: timeStamp,
+                            processor: frameProcessor!,
+                            cropRect: cropRect,
+                            transform: videoTrack.fixedPreferredTransform,
+                            pixelBufferAdaptor: variables.videoInputAdaptor!,
+                            colorInfo: colorInfo,
+                            context: context
+                        )
+                    case .sampleBuffer(let processor):
+                        // Use updated sample buffer
+                        sampleBuffer = processor(sample)
+                    default:
+                        // Use source sample buffer
+                        sampleBuffer = sample
+                    }
+
+                    // Append to write queue or drop
+                    if let pixelBuffer = pixelBuffer {
+                        variables.videoInputAdaptor!.append(pixelBuffer, withPresentationTime: timeStamp)
+                    } else if let sampleBuffer = sampleBuffer {
+                        variables.videoInput.append(sampleBuffer)
+                    } else {
+                        // Drop the frame
                     }
                 }
-                return nil
+            }
+
+            guard let frameRate = variables.frameRate else {
+                // Set custom processor if no frame rate adjustment required
+                return frameProcessor != nil ? append : nil
             }
 
             // Frame rate - skip frames and update time stamp & duration of each saved frame
@@ -988,11 +1009,7 @@ public struct VideoTool {
                     )
 
                     if copySampleBufferStatus == noErr {
-                        // Apply custom sample processor if any
-                        let sampleBuffer = sampleBufferModifier?(buffer) ?? buffer!
-
-                        // Append the new sample buffer to the input
-                        variables.videoInput.append(sampleBuffer)
+                        append(buffer)
                     }
                 }
             }
@@ -1001,7 +1018,7 @@ public struct VideoTool {
         variables.sampleHandler = makeVideoSampleHandler()
         variables.nominalFrameRate = nominalFrameRate
         variables.totalFrames = totalFrames
-        variables.size = videoSize
+        variables.size = outputVideoSize
 
         return variables
     }

@@ -79,4 +79,37 @@ internal extension CMFormatDescription {
         let mediaSubType = CMFormatDescriptionGetMediaSubType(self)
         return AudioFormatID(mediaSubType)
     }
+
+    /// Video Color Primaries
+    var colorPrimaries: String? {
+        guard self.mediaType == .video else { return nil }
+        if let colorPrimaries = CMFormatDescriptionGetExtension(self, extensionKey: kCMFormatDescriptionExtension_ColorPrimaries) as? String {
+            return colorPrimaries
+        } else if let colorPrimaries = CMFormatDescriptionGetExtension(self, extensionKey: kCVImageBufferColorPrimariesKey) as? String {
+            return colorPrimaries
+        }
+        return nil
+    }
+
+    /// Video Color YCbCr Matrix
+    var matrix: String? {
+        guard self.mediaType == .video else { return nil }
+        if let matrix = CMFormatDescriptionGetExtension(self, extensionKey: kCMFormatDescriptionExtension_YCbCrMatrix) as? String {
+            return matrix
+        } else if let matrix = CMFormatDescriptionGetExtension(self, extensionKey: kCVImageBufferYCbCrMatrixKey) as? String {
+            return matrix
+        }
+        return nil
+    }
+
+    /// Video Color Transfer Function
+    var transferFunction: String? {
+        guard self.mediaType == .video else { return nil }
+        if let transferFunction = CMFormatDescriptionGetExtension(self, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String {
+            return transferFunction
+        } else if let transferFunction = CMFormatDescriptionGetExtension(self, extensionKey: kCVImageBufferTransferFunctionKey) as? String {
+            return transferFunction
+        }
+        return nil
+    }
 }
