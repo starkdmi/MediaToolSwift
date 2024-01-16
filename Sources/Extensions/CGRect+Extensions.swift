@@ -114,6 +114,11 @@ internal extension CGRect {
         )
     }
 
+    /// Make `CGRect` of specified size with `.zero` origin
+    func size(_ size: CGSize) -> CGRect {
+        return CGRect(origin: .zero, size: size)
+    }
+
     /// Calculate filled image size after rotation
     func rotateExtended(angle: CGFloat) -> CGRect {
         // Image frame points
