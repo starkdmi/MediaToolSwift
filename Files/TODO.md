@@ -18,6 +18,8 @@ __Base__
 - __VideoEncoder protocol__ - expose encoder protocol to easily add support for AV1, VP9, atd. using 3rd party implementations
 - __Audio only__ - remove video and metadata tracks
 - __Metadata compiler flag__ - pass `-fno-strip-metadata` compiler flag in Package.swift and MediaToolSwift.podspec
+- __Evaluate video color quality__ -
+        [docs](https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/evaluating_an_app_s_video_color), [docs](https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/evaluating_an_app_s_video_color/evaluating_video_using_quicktime_test_pattern_files)
 
 __Codecs__
 ```
