@@ -103,8 +103,12 @@ CompressionVideoSettings(edit: [.rotate(.angle(.pi/2))])
 CompressionVideoSettings(edit: [.mirror, .flip])
 ```
 
-## Image Processing
-Frame-by-frame callback handler which provides `CIImage`, frame `time` in seconds and frame `resolution`. Can be used to apply `CIFilter`, composite any images over source and many more operations supported by `CIImage`. `CIImage` size should not be modified.
+## Frame Processing
+
+### CIImage Processor
+Frame-by-frame callback handler which provides `CIImage`, frame `time` in seconds and `CIContext`. Can be used to apply `CIFilter`, composite any images over source and many more operations supported by `CIImage`. 
+
+Both `VideoFrameProcessor.image()` and `VideoFrameProcessor.imageComposition()` provide similar API, while `.imageComposition()` based on `AVMutableVideoComposition` instead of pure `CVPixelBuffer` implementation.
 
 Before | After
 :-: | :-:
@@ -113,25 +117,28 @@ Before | After
 __Usage__
 ```Swift
 CompressionVideoSettings(edit: [
-    .imageProcessing { (image: CIImage, size: CGSize, atTime: Double) -> CIImage in
-        var blurred = image.applyingFilter("CIGaussianBlur", parameters: [
-            "inputRadius": 7.5
-        ])
+    .process(.image { image, context, time in
+        var blurred = image
+            .clampedToExtent()
+            .applyingFilter("CIGaussianBlur", parameters: [
+                "inputRadius": 7.5
+            ])
+            .cropped(to: image.extent)
 
         // Do anything else
-        
+
         return blurred
-    }
+    })
 ])
 ```
 Complex example is stored in [Video Tests](../Tests/VideoTests.swift#:~:text=testImageProcessing) under `testImageProcessing()`.
 
-## CVPixelBuffer Processing
+### CVPixelBuffer Processor
 Frame-by-frame callback handler which provides access to [CVPixelBuffer](https://developer.apple.com/documentation/corevideo/cvpixelbuffer-q2e). Usefull to analyze/process video frames using `CoreML`. 
 
-In case of resolution modification take attention to specify exact values using `CGSize.explicit(width:height:)` in `VideoSettings` to disable internal size-to-fit calculations and disable upscaling restriction.
+In case of resolution modification take attention to specify exact values using `CGSize.explicit(width:height:)` in `VideoSettings` to disable internal size-to-fit calculations and disable upscaling restriction. When creating a new `CVPixelBuffer` use provided `CVPixelBufferPool` for higher performance.
 
-While lowering frame rate the `.pixelBufferProcessing` will be called only on preserving frames. Call `.pixelBufferProcessing(:)` executed after `.sampleBufferProcessing`.
+While lowering frame rate the `.pixelBuffer()` handler will be called only on preserving frames.
 
 __Usage__
 ```Swift
@@ -141,40 +148,38 @@ CompressionVideoSettings(
     // Calculate desired resolution based on source and enforce it
     size: .explicit(width: 2560, height: 1440),
     edit: [
-        .pixelBufferProcessing { pixelBuffer in
+        .process(.pixelBuffer { buffer, pool, context, time in
             // Run ML intereference
-            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            let handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
             try? handler.perform([request])
 
             guard let result = request.results?.first as? VNPixelBufferObservation else {  
-                // Return original buffer on failure
-                return pixelBuffer
+                // Return original buffer on failure, or return `nil` to drop the frame
+                return buffer
             }
 
             // Return modified pixel buffer for writing
             return result.pixelBuffer
-        }
+        })
     ]
 )
 ```
 
-## CMSampleBuffer Processing
+### CMSampleBuffer Processor
 Frame-by-frame callback handler which provides access to [CMSampleBuffer](https://developer.apple.com/documentation/coremedia/cmsamplebuffer-u71). Allows more flexible control on sample processing.
 
 While lowering frame rate using `frameRate` parameter the callback is applied only to the preserving frames.
-
-Executed before `.pixelBufferProcessing(:)`.
 
 __Usage__
 ```Swift
 CompressionVideoSettings(
     edit: [
-        .sampleBufferProcessing { sample in
+        .process(.sampleBuffer { sample in
 
             // ... Code here ... 
 
             return someNewBuffer
-        }
+        })
     ]
 )
 ```

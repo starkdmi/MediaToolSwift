@@ -33,7 +33,7 @@ __Video compressor focused on:__
 - Progress and cancellation
 
 __[Features](Files/VIDEO.md)__
-| Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Image Processing[\*](Tests/VideoTests.swift#:~:text=testImageProcessing) | FPS | Thumbnail | Info |
+| Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Frame Processing[\*](Files/VIDEO.md#frame-processing) | FPS | Thumbnail | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | ✔️ | ✔️ | ✔️ | ⭐️ | ⭐️ | ✔️ | ✔️ | ✔️ | ✔️ |
 
@@ -72,12 +72,12 @@ let task = await VideoTool.convert(
             .rotate(.clockwise), // rotate
             // crop, flip, mirror, atd.
 
-            // modify video frames as images
-            .imageProcessing { image, size, _ in
+            // modify video frames as images or access pixel buffers
+            .process(.image { image, _, _ in
                 image.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [
                     "inputRadius": 7.5
-                ]).cropped(to: CGRect(origin: .zero, size: size))
-            }
+                ]).cropped(to: image.extent)
+            })
         ]
     ),
     optimizeForNetworkUse: true,
