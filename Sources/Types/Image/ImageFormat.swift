@@ -138,6 +138,7 @@ public enum ImageFormat: String, CaseIterable {
         } else {
             // Fallback on earlier versions
             #if os(visionOS)
+            // Warning: dublicate code for visionOS
             if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
                 self = format
             } else {
