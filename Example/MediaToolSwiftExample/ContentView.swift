@@ -416,7 +416,7 @@ struct ContentView: View {
         let videoSettings = CompressionVideoSettings(
             codec: videoCodec,
             bitrate: videoBitrate,
-            size: resolution == .zero ? nil : resolution,
+            size: resolution == .zero ? .original : .fit(resolution),
             frameRate: frameRate < frameRateRange.lowerBound + 1 ? nil : Int(frameRate),
             preserveAlphaChannel: preserveAlphaChannel,
             hardwareAcceleration: useHardwareAcceleration ? .auto : .disabled

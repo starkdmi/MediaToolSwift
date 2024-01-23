@@ -186,6 +186,37 @@ internal extension CIImage {
         return ciImage
     }
 
+    /// Crop `CIImage` with translation applying
+    func cropping(to rect: CGRect) -> CIImage {
+        // Origin translation
+        let translation = CGAffineTransform(
+            translationX: -rect.origin.x,
+            y: -rect.origin.y
+        )
+        // Crop
+        return self
+            .cropped(to: rect)
+            .transformed(by: translation, highQualityDownsample: true)
+    }
+
+    /// Scale `CIImage`
+    func resizing(to size: CGSize) -> CIImage {
+        let (scale, aspectRatio) = self.extent.size / size
+        return self.applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: scale,
+            kCIInputAspectRatioKey: aspectRatio
+        ])
+    }
+
+    /// Scale `CIImage` with `CIFilter` provided
+    func resizing(to size: CGSize, using filter: CIFilter) -> CIImage? {
+        let (scale, aspectRatio) = self.extent.size / size
+        filter.setValue(self, forKey: kCIInputImageKey)
+        filter.setValue(scale, forKey: kCIInputScaleKey)
+        filter.setValue(aspectRatio, forKey: kCIInputAspectRatioKey)
+        return filter.outputImage
+    }
+
     /// Bit depth
     var depth: Int {
         return self.properties[kCGImagePropertyDepth as String] as? Int ?? 8

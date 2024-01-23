@@ -14,12 +14,6 @@ public extension CGSize {
     /// Aspect fit resolution for SD - 640x480
     static let sd = CGSize(width: 640, height: 640)
 
-    /// Use this method to skip any video size calculations and force exact video resolution
-    /// Returns `CGSize` with negative width and height
-    static func explicit(width: CGFloat, height: CGFloat) -> CGSize {
-        return CGSize(width: -abs(width), height: -abs(height))
-    }
-
     /// Aspect fit in new size
     func fit(in size: CGSize) -> CGSize {
         let rect = AVMakeRect(aspectRatio: self, insideRect: CGRect(origin: CGPoint.zero, size: size))
@@ -41,13 +35,14 @@ public extension CGSize {
         }
     }
 
-    /// Round decimal point
-    /*internal var rounded: CGSize {
-        return CGSize(
-            width: self.width.rounded(),
-            height: self.height.rounded()
-        )
-    }*/
+    /// Oriented size
+    internal func oriented(_ isPortrait: Bool) -> CGSize {
+        if isPortrait {
+            return CGSize(width: height, height: width)
+        } else {
+            return self
+        }
+    }
 
     /// Calculate filled image size after rotation
     internal func rotateFilling(angle: Double) -> CGSize {
@@ -102,5 +97,40 @@ public extension CGSize {
 
         // Provide rounded cropping dimensions
         return CGSize(width: round(cropWidth), height: round(cropHeight))
+    }
+
+    /// Scale and aspect ratio calculations based on two input sizes
+    internal static func / (lhs: CGSize, rhs: CGSize) -> (scale: CGFloat, aspectRatio: CGFloat) {
+        let scale: CGFloat
+        let aspectRatio: CGFloat
+
+        if lhs.width >= lhs.height {
+            scale = rhs.width / lhs.width
+            aspectRatio = rhs.height / (lhs.height * scale)
+        } else {
+            scale = rhs.height / lhs.height
+            aspectRatio = rhs.width / (lhs.width * scale)
+        }
+
+        return (scale, aspectRatio)
+    }
+
+    /// Round decimal point
+    /*internal var rounded: CGSize {
+        return CGSize(
+            width: self.width.rounded(),
+            height: self.height.rounded()
+        )
+    }*/
+
+    /// Round to nearest dividable by 2
+    internal func roundEven() -> CGSize {
+        let width = self.width.rounded()
+        let height = self.height.rounded()
+
+        return CGSize(
+            width: width - width.truncatingRemainder(dividingBy: 2),
+            height: height - height.truncatingRemainder(dividingBy: 2)
+        )
     }
 }

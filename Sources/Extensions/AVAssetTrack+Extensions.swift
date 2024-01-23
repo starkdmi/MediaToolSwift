@@ -37,18 +37,19 @@ internal extension AVAssetTrack {
         return transform
     }
 
+    /// Transform orientation
+    var isPortrait: Bool {
+        let transform = preferredTransform
+        return (transform.a == 0 && transform.b == 1.0 && transform.c == -1.0 && transform.d == 0) ||
+                (transform.a == 0 && transform.b == -1.0 && transform.c == 1.0 && transform.d == 0)
+    }
+
+    /// Transform orientation
+    var isLandscape: Bool { !isPortrait }
+
     /// Video size applying transform
     var naturalSizeWithOrientation: CGSize {
-       let transform = preferredTransform
-
-       if (transform.a == 0 && transform.b == 1.0 && transform.c == -1.0 && transform.d == 0) ||
-          (transform.a == 0 && transform.b == -1.0 && transform.c == 1.0 && transform.d == 0) {
-           // Portrait
-           return CGSize(width: naturalSize.height, height: naturalSize.width)
-       } else {
-           // Landscape
-           return naturalSize
-       }
+        return naturalSize.oriented(isPortrait)
     }
 
     /// Video time scale

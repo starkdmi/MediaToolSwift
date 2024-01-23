@@ -533,24 +533,10 @@ public struct VideoTool {
         ]
 
         // MARK: Writer
-        // Resize (no upscaling applied)
-        let sourceVideoSize = videoTrack.naturalSize
-        let oriented = videoTrack.naturalSizeWithOrientation != sourceVideoSize
-        var outputVideoSize = sourceVideoSize
-        if let size = videoSettings.size {
-            if size.width < 0.0, size.height < 0.0 {
-                // Force specified size without safety methods
-                if oriented {
-                    // Fix orientation
-                    outputVideoSize = CGSize(width: -size.height, height: -size.width)
-                } else {
-                    outputVideoSize = CGSize(width: -size.width, height: -size.height)
-                }
-            } else if outputVideoSize.width > size.width || outputVideoSize.height > size.height {
-                let rect = AVMakeRect(aspectRatio: outputVideoSize, insideRect: CGRect(origin: CGPoint.zero, size: size))
-                outputVideoSize = rect.size
-            }
-        }
+
+        // Source video resolution
+        let isPortrait = videoTrack.isPortrait
+        let sourceVideoSize = videoTrack.naturalSize.oriented(isPortrait)
 
         // Video settings
         var videoCompressionSettings: [String: Any] = [:]
@@ -602,10 +588,7 @@ public struct VideoTool {
 
         var videoParameters: [String: Any] = [
             // https://developer.apple.com/documentation/avfoundation/video_settings
-            // AVVideoCompressionPropertiesKey: videoCompressionSettings,
-            AVVideoCodecKey: videoCodec!,
-            AVVideoWidthKey: outputVideoSize.width,
-            AVVideoHeightKey: outputVideoSize.height
+            AVVideoCodecKey: videoCodec!
         ]
 
         // Color Information
@@ -645,19 +628,14 @@ public struct VideoTool {
                     totalFrames = Int64(ceil(cutDurationInSeconds! * Double(nominalFrameRate)))
                 }
             case .crop(let options):
-                guard videoSettings.size == nil else {
-                    throw CompressionError.croppingNotAllowed
-                }
-
                 // Get the cropping area
-                let naturalSize = videoTrack.naturalSizeWithOrientation
-                let rect = options.makeCroppingRectangle(in: naturalSize)
-                if rect.origin == .zero && rect.size == naturalSize {
+                let rect = options.makeCroppingRectangle(in: sourceVideoSize)
+                if rect.origin == .zero && rect.size == sourceVideoSize {
                     // The cropping bounds equal to source video bounds
                     continue
                 }
                 guard rect.size.width >= 0, rect.size.height >= 0, rect.minX >= 0, rect.minY >= 0,
-                       rect.width <= naturalSize.width, rect.height <= naturalSize.height else {
+                       rect.width <= sourceVideoSize.width, rect.height <= sourceVideoSize.height else {
                     // Bounds are out of source video bounds
                     throw CompressionError.croppingOutOfBounds
                 }
@@ -672,8 +650,34 @@ public struct VideoTool {
                 frameProcessor = processor
             }
         }
+
+        // Video Resolution
+        var videoSize = videoSettings.size.value(for: sourceVideoSize)
+        var targetVideoSize = cropRect?.size ?? sourceVideoSize
+        switch videoSize {
+        case .fit(let size):
+            // Size to fit in
+            if targetVideoSize.width > size.width || targetVideoSize.height > size.height {
+                // Calculate box
+                let size = targetVideoSize.fit(in: size)
+                // Round to nearest dividable by 2
+                targetVideoSize = size.roundEven()
+            } else {
+                videoSize = .original
+            }
+        case .scale(let size):
+            // Size to fill
+            if targetVideoSize != size {
+                targetVideoSize = size
+            } else {
+                videoSize = .original
+            }
+        default:
+            break
+        }
         let useVideoAdaptor = frameProcessor?.requirePixelAdaptor == true
         var useVideoComposition = frameProcessor?.canCrop != true && cropRect != nil
+
         #if os(visionOS)
         if useVideoComposition {
             // visionOS doesn't support video composition
@@ -682,33 +686,28 @@ public struct VideoTool {
         #else
         if case .imageComposition = frameProcessor {
             useVideoComposition = true
-
-            // Video Composition require tranformed video size
-            if oriented {
-                outputVideoSize = CGSize(width: outputVideoSize.height, height: outputVideoSize.width)
-            } else {
-                outputVideoSize = CGSize(width: outputVideoSize.width, height: outputVideoSize.height)
-            }
-            // outputVideoSize = videoTrack.naturalSizeWithOrientation
         }
         #endif
 
-        // Update resolution
-        let videoRect = cropRect ?? CGRect(origin: .zero, size: outputVideoSize)
-        if cropRect != nil || useVideoComposition {
-            videoParameters[AVVideoWidthKey] = videoRect.width
-            videoParameters[AVVideoHeightKey] = videoRect.height
+        // Video Composition require tranformed video size, while other processors don't
+        if !useVideoComposition {
+            // Transform size back
+            targetVideoSize = targetVideoSize.oriented(isPortrait)
         }
+
+        // Set final video resolution
+        videoParameters[AVVideoWidthKey] = targetVideoSize.width
+        videoParameters[AVVideoHeightKey] = targetVideoSize.height
 
         // Context for reuse
         var context: CIContext?
         if frameProcessor?.requireCIContext == true || useVideoComposition {
-            /*let options: [CIContextOption: Any] = [
-                .highQualityDownsample: true,
-                .workingFormat: CIFormat.RGBAf, // kCIFormatBGRA8, kCIFormatRGBA8, kCIFormatRGBAh, kCIFormatRGBAf or nil
+            let options: [CIContextOption: Any] = [
+                .highQualityDownsample: true
+                // .workingFormat: CIFormat.RGBAf // kCIFormatBGRA8, kCIFormatRGBA8, kCIFormatRGBAh, kCIFormatRGBAf or nil
                 // .workingColorSpace: CGColorSpace(name: CGColorSpace.itur_2100_HLG)
-            ]*/
-            context = CIContext()
+            ]
+            context = CIContext(options: options)
         }
 
         // Adjust Bitrate
@@ -765,7 +764,7 @@ public struct VideoTool {
                 } else if videoCodec == .h264 {
                     codecMultiplier = 0.9
                 }
-                let totalPixels = Float(outputVideoSize.width * outputVideoSize.height)
+                let totalPixels = Float(targetVideoSize.width * targetVideoSize.height)
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
                 let rate = (totalPixels * codecMultiplier * fps) / 8
 
@@ -787,7 +786,7 @@ public struct VideoTool {
         if videoCodecChanged == false, // output codec equals source video codec
            bitrateChanged == false, // bitrate not changed
            videoSettings.quality == defaultSettings.quality, // quality set to default value
-           outputVideoSize == sourceVideoSize, // output size equals source resolution
+           targetVideoSize == sourceVideoSize, // output size equals source resolution
            variables.frameRate == defaultSettings.frameRate, // output frame rate greater or equals source frame rate
            !(videoSettings.preserveAlphaChannel == false && hasAlphaChannel == true), // false if alpha is removed
            videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue, // profile set to default value
@@ -813,11 +812,23 @@ public struct VideoTool {
         variables.videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: readerSettings)
         #else
         if useVideoComposition {
-            // Make constants for concurrently-executing code
+            // Make constants for concurrently-executed code
             let cropRect = cropRect
             let context = context
             let processor = frameProcessor
+            let videoSize = videoSize
+            let targetVideoSize = targetVideoSize
 
+            // Scale filter for reuse
+            let scaleFilter: CIFilter?
+            switch videoSize {
+            case .fit, .scale:
+                scaleFilter = CIFilter(name: "CILanczosScaleTransform")
+            default:
+                scaleFilter = nil
+            }
+
+            // Composition handler
             let videoComposition = AVMutableVideoComposition(asset: asset) { request in
                 //https://developer.apple.com/documentation/coreimage/processing_an_image_using_built-in_filters
                 //https://developer.apple.com/library/archive/documentation/GraphicsImaging/Reference/CoreImageFilterReference/index.html#//apple_ref/doc/filter/ci
@@ -825,20 +836,60 @@ public struct VideoTool {
 
                 // Crop
                 if let cropRect = cropRect {
-                    image = image
-                        .cropped(to: cropRect)
-                        .transformed(by: CGAffineTransform(translationX: -cropRect.origin.x, y: -cropRect.origin.y))
+                    image = image.cropping(to: cropRect)
+                }
+                // Without processor only crop applied in composition
+                if processor == nil {
+                    request.finish(with: image, context: context)
+                    return
                 }
 
-                // Custom image processor
+                // Fit
+                if case .fit = videoSize, let filter = scaleFilter {
+                    if let scaled = image.resizing(to: targetVideoSize, using: filter) {
+                        image = scaled
+                    }
+                }
+
+                // Process frame & scale
                 if case .imageComposition(let imageProcessor) = processor {
+                    // Custom image processor
                     image = imageProcessor(image, context!, request.compositionTime.seconds)
+
+                    // Scale (also used to fix size after processing for original/fit modes)
+                    let size = image.extent.size
+                    if size != targetVideoSize, let filter = scaleFilter {
+                        if let scaled = image.resizing(to: targetVideoSize, using: filter) {
+                            image = scaled
+                        }
+                    }
                 }
 
                 request.finish(with: image, context: context)
             }
-            // Video size (width and height may be swapped - update)
-            videoComposition.renderSize = videoRect.size
+
+            // Calculate render size
+            var renderSize: CGSize?
+            if processor == nil {
+                // no processor (crop only)
+                renderSize = cropRect?.size
+            } else if case .imageComposition = processor {
+                // composition processor (all - crop, fit, process and scale)
+                renderSize = targetVideoSize
+            } else {
+                // pixel/buffer processor (crop & fit only)
+                if case .fit = videoSize {
+                    renderSize = targetVideoSize
+                } else {
+                    renderSize = cropRect?.size
+                }
+            }
+            // Set render size
+            if let renderSize = renderSize {
+                videoComposition.renderSize = renderSize
+            }
+            // videoComposition.renderScale
+            // videoComposition.frameDuration
 
             // Set video color information https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/tagging_media_with_video_color_information#3667277
             if let colorInfo = colorInfo {
@@ -874,10 +925,10 @@ public struct VideoTool {
             if useVideoAdaptor {
                 let sourcePixelBufferAttributes: [String: Any] = [
                     kCVPixelBufferPixelFormatTypeKey as String: pixelFormat,
-                    kCVPixelBufferWidthKey as String: videoRect.width,
-                    kCVPixelBufferHeightKey as String: videoRect.height,
-                    AVVideoWidthKey: videoRect.width,
-                    AVVideoHeightKey: videoRect.height
+                    kCVPixelBufferWidthKey as String: targetVideoSize.width,
+                    kCVPixelBufferHeightKey as String: targetVideoSize.height,
+                    AVVideoWidthKey: targetVideoSize.width,
+                    AVVideoHeightKey: targetVideoSize.height
                 ]
                 variables.videoInputAdaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: variables.videoInput, sourcePixelBufferAttributes: sourcePixelBufferAttributes)
             }
@@ -908,6 +959,8 @@ public struct VideoTool {
                             sample,
                             presentationTimeStamp: timeStamp,
                             processor: frameProcessor!,
+                            videoSize: videoSize,
+                            targetSize: targetVideoSize.oriented(isPortrait),
                             cropRect: cropRect,
                             transform: videoTrack.fixedPreferredTransform,
                             pixelBufferAdaptor: variables.videoInputAdaptor!,
@@ -1018,7 +1071,7 @@ public struct VideoTool {
         variables.sampleHandler = makeVideoSampleHandler()
         variables.nominalFrameRate = nominalFrameRate
         variables.totalFrames = totalFrames
-        variables.size = outputVideoSize
+        variables.size = targetVideoSize
 
         return variables
     }

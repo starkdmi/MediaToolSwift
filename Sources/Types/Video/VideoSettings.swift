@@ -7,7 +7,7 @@ public struct CompressionVideoSettings {
         codec: AVVideoCodecType? = nil,
         bitrate: CompressionVideoBitrate = .auto,
         quality: Double? = nil,
-        size: CGSize? = nil,
+        size: CompressionVideoSize = .original,
         frameRate: Int? = nil,
         preserveAlphaChannel: Bool = true,
         profile: CompressionVideoProfile? = nil,
@@ -39,10 +39,8 @@ public struct CompressionVideoSettings {
     /// Not all the codecs support `quality` to be set
     public let quality: Double?
 
-    /// Size to fit video in while preserving aspect ratio, width and height may be rounded to be divisible by 2
-    /// On macOS value of 405 may be scalled down to 404, while on iOS stay 405
-    /// For best results, always use even number values for width and height when encoding to H.264 or any other format that uses 4:2:0 downsampling
-    public let size: CGSize? // CGSize(width: 1280.0, height: 1280.0)
+    /// Size, source video resolution is used by default
+    public let size: CompressionVideoSize // .fit(.uhd)
 
     /// Frame rate, will not increase source video frame rate
     public let frameRate: Int?

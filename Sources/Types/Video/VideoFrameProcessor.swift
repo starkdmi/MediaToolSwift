@@ -11,6 +11,7 @@ public enum VideoFrameProcessor: Equatable, Hashable {
     #if !os(visionOS)
     /// CIImage processing function using  `AVVideoComposition`
     case imageComposition((_ image: CIImage, _ context: CIContext, _ time: Double) -> CIImage)
+    // case imageComposition(renderSize: CGSize? = nil, _ handler: (_ image: CIImage, _ context: CIContext, _ time: Double) -> CIImage)
     #endif
 
     /// CGImage processing function using  `CVPixelBuffer` and  `AVAssetWriterInputPixelBufferAdaptor`

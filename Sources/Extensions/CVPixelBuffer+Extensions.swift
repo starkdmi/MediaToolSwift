@@ -41,6 +41,8 @@ internal extension CVPixelBuffer {
         _ sampleBuffer: CMSampleBuffer,
         presentationTimeStamp: CMTime,
         processor: VideoFrameProcessor,
+        videoSize: CompressionVideoSize,
+        targetSize: CGSize,
         cropRect: CGRect?,
         transform: CGAffineTransform?,
         pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor,
@@ -79,6 +81,7 @@ internal extension CVPixelBuffer {
                 case .image(let imageProcessor):
                     // Init `CIImage`
                     var image = CIImage(cvPixelBuffer: pixelBuffer)
+                    let colorSpace = image.colorSpace
 
                     // Invert video transformation
                     if let transform = transform {
@@ -86,16 +89,25 @@ internal extension CVPixelBuffer {
                         image = image.transformed(by: .init(translationX: -image.extent.origin.x, y: -image.extent.origin.y))
                     }
 
-                    // Apply cropping
+                    // Crop
                     if let cropRect = cropRect {
-                        image = image
-                            .cropped(to: cropRect)
-                            .transformed(by: .init(translationX: -cropRect.origin.x, y: -cropRect.origin.y))
+                        image = image.cropping(to: cropRect)
+                    }
+
+                    // Fit (preserve aspect ratio)
+                    if case .fit = videoSize {
+                        image = image.resizing(to: targetSize)
                     }
 
                     // Execute image processor
                     let outputImage = imageProcessor(image, context!, timeInSeconds)
                     guard var outputImage = outputImage else { return nil }
+
+                    // Scale (also used to fix size after processing for original/fit modes)
+                    let size = outputImage.extent.size
+                    if size != targetSize { // case .scale = videoSize
+                        outputImage = outputImage.resizing(to: targetSize)
+                    }
 
                     // Transform back
                     if let transform = transform {
@@ -104,16 +116,16 @@ internal extension CVPixelBuffer {
                             .transformed(by: .init(translationX: -outputImage.extent.origin.x, y: -outputImage.extent.origin.y))
                     }
 
-                    // Rendrer image to the new pixel buffer
-                    context!.render(outputImage, to: outputPixelBuffer!, bounds: outputImage.extent, colorSpace: image.colorSpace)
+                    // Render image to the new pixel buffer
+                    context!.render(outputImage, to: outputPixelBuffer!, bounds: outputImage.extent, colorSpace: colorSpace)
                 case .cgImage(let cgImageProcessor):
                     // TODO: CGImage processor
                     // Create CGImage using VTCreateCGImageFromCVPixelBuffer(pixelBuffer, NULL, &cgImage)
-                    // Transform (if required) CGImage
-                    if let cropRect = cropRect {
-                        // Crop CGImage
-                    }
+                    // Transform/Rotate (if required) CGImage
+                    // Crop CGImage
+                    // Fit (when videoSize == .fit)
                     // Run custom cgImageProcessor
+                    // Scale CGImage
                     // Write CGImage to outputPixelBuffer
                     fatalError("CGImage processor is not implemented yet")
                 case .vImage(let vImageProcessor):
@@ -125,10 +137,10 @@ internal extension CVPixelBuffer {
                     // https://developer.apple.com/documentation/accelerate/integrating_vimage_pixel_buffers_into_a_core_image_workflow
                     // Init vImage_Buffer from pixelBuffer (vImageBuffer_InitWithCVPixelBuffer)
                     // Transform (if required) using transform(CGAffineTransform, backgroundColor: Pixel_8?, destination: vImage.PixelBuffer<Format>)
-                    if let cropRect = cropRect {
-                        // Crop vImage_Buffer using ImageTool helpers
-                    }
+                    // Crop vImage_Buffer using ImageTool helpers
+                    // Fit (when videoSize == .fit) - vImage+Extensions & https://nshipster.com/image-resizing/#technique-5-image-scaling-with-vimage
                     // Run custom vImageProcessor
+                    // Scale
                     // Copy buffer to outputPixelBuffer (vImageBuffer_CopyToCVPixelBuffer)
                     fatalError("vImage processor is not implemented yet")
                 default:
