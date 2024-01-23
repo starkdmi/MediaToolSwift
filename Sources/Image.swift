@@ -599,7 +599,7 @@ public struct ImageTool {
             CGImageDestinationSetProperties(destination, imageOptions as CFDictionary)
 
             // Insert all the frames
-            lazy var context = CIContext() // options: [.highQualityDownsample: true]
+            lazy var context = CIContext(options: [.highQualityDownsample: true])
             for index in 0 ..< frames.count {
                 var properties: [CFString: Any]?
                 let frame = frames[index]
