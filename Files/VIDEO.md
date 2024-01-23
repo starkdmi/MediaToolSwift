@@ -71,9 +71,9 @@ Use `CGSize.explicit(width:height:)` or pass both __negative__ width and height 
 
 __Usage__
 ```Swift
-CompressionVideoSettings(size: CGSize.uhd) // predefined values, size to fit
-CompressionVideoSettings(size: CGSize(width: 720, height: 720)) // custom values, size to fit
-CompressionVideoSettings(size: CGSize.explicit(width: 1280, height: 720)) // force exact resolution
+CompressionVideoSettings(size: .fit(CGSize.uhd)) // predefined values, size to fit
+CompressionVideoSettings(size: .fit(CGSize(width: 720, height: 720))) // custom values, size to fit
+CompressionVideoSettings(size: .scale(CGSize(width: 1280, height: 720))) // force exact resolution
 ```
 
 ## Crop
@@ -81,7 +81,7 @@ Crop the video. There are three initializers which at the end produce `CGRect` f
 
 __Usage__
 ```Swift
-CompressionVideoSettings(edit: [.crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center))])
+CompressionVideoSettings(edit: [.crop(.init(size: .fit(CGSize(width: 1080, height: 1080)), aligment: .center))])
 CompressionVideoSettings(edit: [.crop(.init(origin: CGPoint(x: 256, y: 256), size: CGSize(width: 1080, height: 1080)))])
 ```
 
@@ -146,7 +146,7 @@ __Usage__
 // Import `Vision`, load `VNCoreMLModel` upscaling model and initialize `VNCoreMLRequest`
 CompressionVideoSettings(
     // Calculate desired resolution based on source and enforce it
-    size: .explicit(width: 2560, height: 1440),
+    size: .scale(width: 2560, height: 1440),
     edit: [
         .process(.pixelBuffer { buffer, pool, context, time in
             // Run ML intereference
