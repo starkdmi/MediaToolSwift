@@ -20,6 +20,7 @@ __Base__
 - __Metadata compiler flag__ - pass `-fno-strip-metadata` compiler flag in Package.swift and MediaToolSwift.podspec
 - __Evaluate video color quality__ -
         [docs](https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/evaluating_an_app_s_video_color), [docs](https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/evaluating_an_app_s_video_color/evaluating_video_using_quicktime_test_pattern_files)
+- __Log__ - test `Log` video format
 
 __Codecs__
 ```
