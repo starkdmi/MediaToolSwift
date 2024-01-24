@@ -739,6 +739,10 @@ public struct VideoTool {
             case .value(let value):
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = value
                 setBitrate(value)
+            case .dynamic(let handler):
+                let sourceBitrate = Int(videoTrack.estimatedDataRate.rounded())
+                let value = handler(sourceBitrate)
+                setBitrate(value)
             case .filesize(let filesize):
                 // Convert MB to bits (roughly) and divide by duration
                 var rate = filesize * Double(8_000_000) / (cutDurationInSeconds ?? durationInSeconds)

@@ -13,8 +13,11 @@ public enum CompressionVideoBitrate: Equatable {
     /// Accurate for target size higher than `0.5` MB
     case filesize(_ MBs: Double)
 
-    /// User specified bitrate in bits
+    /// User specified bitrate in bits per second
     case value(_ bits: Int)
+
+    /// Calculate bitrate based on source bitrate value, both input and output is in bits per second
+    case dynamic((_ sourceBitrateInBits: Int) -> Int)
 
     /// Equatable conformation
     public static func == (lhs: CompressionVideoBitrate, rhs: CompressionVideoBitrate) -> Bool {
@@ -29,6 +32,8 @@ public enum CompressionVideoBitrate: Equatable {
             return lhsValue == rhsValue
         case (.value(let lhsValue), .value(let rhsValue)):
             return lhsValue == rhsValue
+        case (.dynamic, .dynamic):
+            return true
         default:
             return false
         }
