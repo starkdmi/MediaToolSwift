@@ -109,7 +109,9 @@ struct ContentView: View {
                                 Picker("Video Codec", selection: $videoCodec) {
                                     Text("HEVC").tag(AVVideoCodecType.hevc)
                                     Text("H.264").tag(AVVideoCodecType.h264)
+                                    #if !os(visionOS)
                                     Text("Prores").tag(AVVideoCodecType.proRes4444)
+                                    #endif
                                     Text("JPEG").tag(AVVideoCodecType.jpeg)
                                 }.pickerStyle(.menu).frame(maxWidth: 160)
                             }
@@ -370,6 +372,8 @@ struct ContentView: View {
     private var width: CGFloat {
         #if os(OSX)
         NSScreen.main!.frame.size.width
+        #elseif os(visionOS)
+        .infinity
         #else
         UIScreen.main.bounds.width
         #endif
