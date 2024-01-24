@@ -27,7 +27,6 @@ In addition to the video and audio codecs conversion provided with the following
 | Video codec | Video codec used by encoder | `H.264`, `H.265/HEVC`, `ProRes`, `JPEG` | Source video codec |
 | Video bitrate | Output video bitrate, used __only__ by `H.264` and `H.265/HEVC` codecs | `Auto` - Calculated based on resolution, frame rate and codec</br> `Encoder` - set by __AVAssetWriter__ internally</br>`Source` - Source video bitrate</br>`Custom` - custom bitrate value in __bps__</br>`Filesize` - Calculated based on target filesize in __MB__ | `Auto` |
 | Video quality | Video quality in range from 0.0 to 1.0, __ignored__ when bitrate is set | `[0.0, 1.0]` | `1.0` |
-<!--| Size | Video resolution | `CGSize` | Source video resolution |-->
 | Preserve Alpha channel | Preserve or drop alpha channel from video file with transparency | `Boolean` | `true` |
 | Profile | Video profile used by video encoder, `H.264` and `H.265/HEVC` codecs only | `Baseline`, `Main`, `High`, `Custom(String)` | Selected automatically |
 | Color | Color primary, Transfer function, YCbCr Matrix combination | `SD`, `SD (PAL)`, `P3`, `HDTV`, `UHDTV SDR`, `UHDTV HDR HLG`, `UHDTV HDR PQ` | Selected automatically |
@@ -38,6 +37,7 @@ In addition to the video and audio codecs conversion provided with the following
 | Audio bitrate | Audio bitrate, used by `AAC` and `Opus` codecs only | `Auto` - set internally by __AVAssetWriter__</br>`Custom(Int)` - custom bitrate value in __bps__ | `Auto` |
 | Audio quality | Audio quality, `AAC` and `FLAC` only | `Low`, `Medium`, `High` | Unset |
 | Sample Rate | Sample rate in Hz | `Int` | Source sample rate |
+<!--| Size | Video resolution | `CGSize` | Source video resolution |-->
 
 __Usage__
 ```Swift
@@ -63,26 +63,51 @@ CompressionAudioSettings(
 ```
 
 ## Resize
-Resize video while preserving aspect ratio. Provide `CGSize` resolution for video to fit it. Width and height may be rounded to nearest even number.
+Resizing can be done using fit or fill method. The `.dynamic` option allows to choose or calculate scale method based on source video resolution.
+
+Width and height may be rounded to nearest even number.
+
+### Fit
+Resize video while preserving aspect ratio. Provide `CGSize` resolution for video to fit in.
 
 Predefined resolutions are `SD`, `HD`, `Full HD`, `Ultra HD` which are accessible via `CGSize` extension.
 
-Use `CGSize.explicit(width:height:)` or pass both __negative__ width and height to `CGSize` to force resolution without safety checks.
+Fit resizing is done before any Frame Processors.
 
 __Usage__
 ```Swift
-CompressionVideoSettings(size: .fit(CGSize.uhd)) // predefined values, size to fit
-CompressionVideoSettings(size: .fit(CGSize(width: 720, height: 720))) // custom values, size to fit
-CompressionVideoSettings(size: .scale(CGSize(width: 1280, height: 720))) // force exact resolution
+CompressionVideoSettings(size: .fit(CGSize.uhd)) // predefined value
+CompressionVideoSettings(size: .fit(CGSize(width: 720, height: 720))) // custom value
+```
+
+### Fill
+Scale video to exact video resolution. Pass `CGSize` resolution for video to fill.
+
+Scale applied after Frame Processors, right before writing to file.
+
+__Usage__
+```Swift
+ // force exact resolution
+CompressionVideoSettings(size: .scale(CGSize(width: 1280, height: 720)))
+// dynamically calculate size
+CompressionVideoSettings(size: .dynamic { size in
+    return .scale(CGSize(width: size.width / 2, height: size.height / 2)) 
+})
 ```
 
 ## Crop
 Crop the video. There are three initializers which at the end produce `CGRect` for cropping.
 
+Crop applied before resizing and Frame Processors.
+
 __Usage__
 ```Swift
-CompressionVideoSettings(edit: [.crop(.init(size: .fit(CGSize(width: 1080, height: 1080)), aligment: .center))])
-CompressionVideoSettings(edit: [.crop(.init(origin: CGPoint(x: 256, y: 256), size: CGSize(width: 1080, height: 1080)))])
+CompressionVideoSettings(edit: [
+    // using an aligment
+    .crop(.init(size: .fit(CGSize(width: 1080, height: 1080)), aligment: .center))
+    // or exact point
+    .crop(.init(origin: CGPoint(x: 256, y: 256), size: CGSize(width: 1080, height: 1080)))
+])
 ```
 
 ## Cut
@@ -136,7 +161,7 @@ Complex example is stored in [Video Tests](../Tests/VideoTests.swift#:~:text=tes
 ### CVPixelBuffer Processor
 Frame-by-frame callback handler which provides access to [CVPixelBuffer](https://developer.apple.com/documentation/corevideo/cvpixelbuffer-q2e). Usefull to analyze/process video frames using `CoreML`. 
 
-In case of resolution modification take attention to specify exact values using `CGSize.explicit(width:height:)` in `VideoSettings` to disable internal size-to-fit calculations and disable upscaling restriction. When creating a new `CVPixelBuffer` use provided `CVPixelBufferPool` for higher performance.
+In case of a frame resolution modification take attention to specify the exact values using `.scale(width:height:)` in `VideoSettings`. When creating a new `CVPixelBuffer` use provided `CVPixelBufferPool` for higher performance.
 
 While lowering frame rate the `.pixelBuffer()` handler will be called only on preserving frames.
 
@@ -147,6 +172,7 @@ __Usage__
 CompressionVideoSettings(
     // Calculate desired resolution based on source and enforce it
     size: .scale(width: 2560, height: 1440),
+    // or .dynamic { .scale(CGSize(width: $0.width * 2, height: $0.height * 2)) }
     edit: [
         .process(.pixelBuffer { buffer, pool, context, time in
             // Run ML intereference

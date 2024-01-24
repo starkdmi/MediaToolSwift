@@ -65,7 +65,7 @@ let task = await VideoTool.convert(
     videoSettings: .init(
         codec: .hevc,
         bitrate: .value(2_000_000), // optional
-        size: .fit(.hd), // CGSize to aspect fit in
+        size: .fit(.hd), // size to fit or fill
         // quality, fps, alpha channel, profile, color primary, atd.
         edit: [
             .cut(from: 2.5, to: 15.0), // cut, in seconds
