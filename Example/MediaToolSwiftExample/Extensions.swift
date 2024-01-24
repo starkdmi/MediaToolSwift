@@ -32,6 +32,8 @@ extension CompressionVideoBitrate: Hashable {
         case .filesize(let value):
             hasher.combine(-5)
             hasher.combine(value)
+        case .dynamic(let value):
+            hasher.combine(-6)
         }
     }
 }

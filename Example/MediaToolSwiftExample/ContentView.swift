@@ -409,6 +409,9 @@ struct ContentView: View {
 
         let destination = URL(fileURLWithPath: "\(directory.path)/\(url.lastPathComponent).\(fileType.rawValue)")
         print("Destination: \(destination.path)")
+        if overwrite {
+            try? FileManager.default.removeItem(at: destination)
+        }
 
         var videoBitrate = bitrate
         if case .value = bitrate, customBitrate > 0.0 {
@@ -464,6 +467,20 @@ struct ContentView: View {
                         self.isPaused = false
                         sourcePlayer.play()
                         outputPlayer.play()
+                        #if os(iOS)
+                        // Save to gallery
+                        PHPhotoLibrary.shared().performChanges({
+                            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+                        }) { saved, error in
+                            // DispatchQueue.main.async {
+                            if saved {
+                                print("Saved to Gallery")
+                            } else {
+                                print("Failed to save to Gallery: \(String(describing: error))")
+                            }
+                            // }
+                        }
+                        #endif
                     case .failed(let error):
                         self.progress = nil
                         if let error = error as? CompressionError {
