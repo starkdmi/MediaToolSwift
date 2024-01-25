@@ -137,8 +137,8 @@ internal extension CVPixelBuffer {
                     // Init image context
                     /*guard let context = CGContext(
                         data: CVPixelBufferGetBaseAddress(outputPixelBuffer!),
-                        width: cgImage.width,
-                        height: cgImage.height,
+                        width: targetSize.width,
+                        height: targetSize.height,
                         bitsPerComponent: cgImage.bitsPerComponent,
                         bytesPerRow: CVPixelBufferGetBytesPerRow(outputPixelBuffer!),
                         space: cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
