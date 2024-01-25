@@ -130,6 +130,7 @@ internal extension CVPixelBuffer {
                     // Warning: No HDR and partial Alpha Channel support
 
                     // Load CGImage from CVPixelBuffer
+                    // Consider setting kCVPixelBufferCGImageCompatibilityKey and kCVPixelBufferCGBitmapContextCompatibilityKey in sourcePixelBufferAttributes
                     /*var cgImage: CGImage?
                     let status = VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage)
                     guard status == noErr, var cgImage = cgImage else { return nil }*/
