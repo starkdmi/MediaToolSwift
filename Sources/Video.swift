@@ -957,7 +957,7 @@ public struct VideoTool {
                     var pixelBuffer: CVPixelBuffer?
 
                     switch frameProcessor {
-                    case .image, .cgImage, .vImage, .pixelBuffer:
+                    case .image, .pixelBuffer: // .cgImage, .vImage
                         // Use unified processor handler
                         pixelBuffer = CVPixelBuffer.processSampleBuffer(
                             sample,
