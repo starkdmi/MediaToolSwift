@@ -11,7 +11,7 @@
 To install library with Swift Package Manager, add the following code to your __Package.swift__ file:
 ```
 dependencies: [
-    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.1.0"))
+    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.1.1"))
 ]
 ```
 
