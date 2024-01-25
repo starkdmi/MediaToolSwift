@@ -3,9 +3,15 @@ import CoreGraphics
 /// Extensions on `CGContext`
 internal extension CGContext {
     /// Create `CGContext` from `CGImage`
-    static func make(_ image: CGImage, width: Int? = nil, height: Int? = nil) -> CGContext? {
-        let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = image.bitmapInfo // CGBitmapInfo(rawValue: self.bitmapInfo.rawValue | self.alphaInfo.rawValue)
+    static func make(
+        _ image: CGImage,
+        width: Int? = nil,
+        height: Int? = nil,
+        colorSpace: CGColorSpace? = nil,
+        bitmapInfo: CGBitmapInfo? = nil
+    ) -> CGContext? {
+        let colorSpace = colorSpace ?? image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = bitmapInfo ?? image.bitmapInfo // CGBitmapInfo(rawValue: self.bitmapInfo.rawValue | self.alphaInfo.rawValue)
         /*var alphaInfo: CGImageAlphaInfo?
 
         // Fix 10 bit HDR image

@@ -7,7 +7,7 @@ public enum RotationFill {
     case crop
 
     /// Blur extended area, only odd numbers allowed for `kernel`
-    /// Warning: not allowed for images with alpha channel
+    /// Warning: not allowed for images with alpha channel and `CGImage`
     case blur(kernel: UInt32)
 
     /// Fill extended area with color, use transparent (0, 0, 0, 0) for clear background

@@ -2,7 +2,99 @@ import Foundation
 import AVFoundation
 import CoreImage
 
-/// Extensions on `CIImage`
+/// Public extensions on `CIImage`
+public extension CIImage {
+    /// Rotate `CIImage` with crop or fill options
+    func rotating(by value: Rotate, using fill: RotationFill = .crop, orientation: CGImagePropertyOrientation? = nil) -> CIImage {
+        let ciImage = self
+        // Warning: -angle is used for correct rotation
+        let invertAngle = orientation?.mirrored != true // not mirrored
+        let angle = invertAngle ? -value.radians : value.radians
+        let size = ciImage.extent.size
+
+        switch fill {
+        case .crop: // crop to fill
+            let cropSize = size.rotateFilling(angle: Double(angle))
+            let cropOrigin = CGPoint(x: (size.width - cropSize.width) / 2, y: (size.height - cropSize.height) / 2)
+            let cropRect = CGRect(origin: cropOrigin, size: cropSize)
+
+            return ciImage
+                .transformed(by:
+                    .init(translationX: size.width / 2, y: size.height / 2)
+                    .rotated(by: CGFloat(angle))
+                    .translatedBy(x: -size.width / 2, y: -size.height / 2)
+                ).cropped(to: cropRect)
+        case let .color(alpha: alpha, red: red, green: green, blue: blue):// colored background
+            // Rotate
+            let rotated = (hasAlpha ? ciImage.premultiplyingAlpha() : ciImage)
+                .transformed(by: CGAffineTransform(rotationAngle: CGFloat(angle)))
+
+            // Background color
+            let color = CIColor(red: CGFloat(red)/255, green: CGFloat(green)/255, blue: CGFloat(blue)/255, alpha: CGFloat(alpha)/255)
+            let background = CIImage(color: color).cropped(to: rotated.extent)
+            return rotated.composited(over: background)
+        case .blur(kernel: let kernel): // blurred background
+            // Rotate original image
+            let rotated = ciImage
+                .transformed(by: CGAffineTransform(rotationAngle: CGFloat(angle)))
+
+            // Crop rotated to fill
+            let cropSize = size.rotateFilling(angle: Double(angle))
+            let cropOrigin = CGPoint(x: (size.width - cropSize.width) / 2, y: (size.height - cropSize.height) / 2)
+            let fitSize = size.fit(in: cropSize)
+            let cropRect = CGRect(origin: cropOrigin, size: fitSize)
+            let cropped = ciImage
+                .transformed(by:
+                    .init(translationX: size.width / 2, y: size.height / 2)
+                    .rotated(by: CGFloat(angle))
+                    .translatedBy(x: -size.width / 2, y: -size.height / 2)
+                ).cropped(to: cropRect)
+
+            // Blur cropped
+            let blurred = cropped
+                .clampedToExtent()
+                .applyingGaussianBlur(sigma: Double(kernel))
+                .cropped(to: cropped.extent)
+
+            // Scale and translate blurred into rotated extent
+            let scaleX = rotated.extent.size.width / blurred.extent.size.width
+            let scaleY = rotated.extent.size.height / blurred.extent.size.height
+            let scaleTransform = CGAffineTransform(scaleX: scaleX, y: scaleY)
+            let translationTransform = CGAffineTransform(
+                translationX: rotated.extent.origin.x - blurred.extent.origin.x * scaleX,
+                y: rotated.extent.origin.y - blurred.extent.origin.y * scaleY
+            )
+            let transformedImage = blurred.transformed(by: scaleTransform.concatenating(translationTransform))
+
+            // Composite rotated image over transformed blurred background
+            return rotated.composited(over: transformedImage)
+        }
+    }
+
+    /// Crop `CIImage` with translation applying
+    func cropping(to rect: CGRect) -> CIImage {
+        // Origin translation
+        let translation = CGAffineTransform(
+            translationX: -rect.origin.x,
+            y: -rect.origin.y
+        )
+        // Crop
+        return self
+            .cropped(to: rect)
+            .transformed(by: translation, highQualityDownsample: true)
+    }
+
+    /// Scale `CIImage`
+    func resizing(to size: CGSize) -> CIImage {
+        let (scale, aspectRatio) = self.extent.size / size
+        return self.applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: scale,
+            kCIInputAspectRatioKey: aspectRatio
+        ])
+    }
+}
+
+/// Internal extensions on `CIImage`
 internal extension CIImage {
     /// Crop `CIImage`
     func crop(using options: Crop, orientation: CGImagePropertyOrientation? = nil) -> CIImage? {
@@ -82,68 +174,7 @@ internal extension CIImage {
         for operation in operations.sorted() {
             switch operation {
             case let .rotate(value, fill):
-                // Warning: -angle is used for correct rotation
-                let invertAngle = orientation == nil || orientation == .up || orientation == .down || orientation == .left || orientation == .right // not mirrored
-                let angle = invertAngle ? -value.radians : value.radians
-                let size = ciImage.extent.size
-
-                switch fill {
-                case .crop: // crop to fill
-                    let cropSize = size.rotateFilling(angle: Double(angle))
-                    let cropOrigin = CGPoint(x: (size.width - cropSize.width) / 2, y: (size.height - cropSize.height) / 2)
-                    let cropRect = CGRect(origin: cropOrigin, size: cropSize)
-
-                    ciImage = ciImage
-                        .transformed(by:
-                            .init(translationX: size.width / 2, y: size.height / 2)
-                            .rotated(by: CGFloat(angle))
-                            .translatedBy(x: -size.width / 2, y: -size.height / 2)
-                        ).cropped(to: cropRect)
-                case let .color(alpha: alpha, red: red, green: green, blue: blue):// colored background
-                    // Rotate
-                    ciImage = (hasAlpha ? ciImage.premultiplyingAlpha() : ciImage)
-                        .transformed(by: CGAffineTransform(rotationAngle: CGFloat(angle)))
-
-                    // Background color
-                    let color = CIColor(red: CGFloat(red)/255, green: CGFloat(green)/255, blue: CGFloat(blue)/255, alpha: CGFloat(alpha)/255)
-                    let background = CIImage(color: color).cropped(to: ciImage.extent)
-                    ciImage = ciImage.composited(over: background)
-                case .blur(kernel: let kernel): // blurred background
-                    // Rotate original image
-                    let rotated = ciImage
-                        .transformed(by: CGAffineTransform(rotationAngle: CGFloat(angle)))
-
-                    // Crop rotated to fill
-                    let cropSize = size.rotateFilling(angle: Double(angle))
-                    let cropOrigin = CGPoint(x: (size.width - cropSize.width) / 2, y: (size.height - cropSize.height) / 2)
-                    let fitSize = size.fit(in: cropSize)
-                    let cropRect = CGRect(origin: cropOrigin, size: fitSize)
-                    let cropped = ciImage
-                        .transformed(by:
-                            .init(translationX: size.width / 2, y: size.height / 2)
-                            .rotated(by: CGFloat(angle))
-                            .translatedBy(x: -size.width / 2, y: -size.height / 2)
-                        ).cropped(to: cropRect)
-
-                    // Blur cropped
-                    let blurred = cropped.applyingGaussianBlur(sigma: Double(kernel))
-                        .cropped(to: cropped.extent)
-
-                    // Scale and translate blurred into rotated extent
-                    let scaleX = rotated.extent.size.width / blurred.extent.size.width
-                    let scaleY = rotated.extent.size.height / blurred.extent.size.height
-                    let scaleTransform = CGAffineTransform(scaleX: scaleX, y: scaleY)
-                    let translationTransform = CGAffineTransform(
-                        translationX: rotated.extent.origin.x - blurred.extent.origin.x * scaleX,
-                        y: rotated.extent.origin.y - blurred.extent.origin.y * scaleY
-                    )
-                    let transformedImage = blurred.transformed(by: scaleTransform.concatenating(translationTransform))
-
-                    // Composite rotated image over transformed blurred background
-                    let composited = rotated.composited(over: transformedImage)
-
-                    ciImage = composited
-                }
+                ciImage = ciImage.rotating(by: value, using: fill, orientation: orientation)
             case .flip:
                 if let orientation = orientation, orientation.rawValue > UInt32(4) { // .leftMirrored, .right, rightMirrored, .left
                     // Reflect horizontally
@@ -184,28 +215,6 @@ internal extension CIImage {
 
         // Return modified image
         return ciImage
-    }
-
-    /// Crop `CIImage` with translation applying
-    func cropping(to rect: CGRect) -> CIImage {
-        // Origin translation
-        let translation = CGAffineTransform(
-            translationX: -rect.origin.x,
-            y: -rect.origin.y
-        )
-        // Crop
-        return self
-            .cropped(to: rect)
-            .transformed(by: translation, highQualityDownsample: true)
-    }
-
-    /// Scale `CIImage`
-    func resizing(to size: CGSize) -> CIImage {
-        let (scale, aspectRatio) = self.extent.size / size
-        return self.applyingFilter("CILanczosScaleTransform", parameters: [
-            kCIInputScaleKey: scale,
-            kCIInputAspectRatioKey: aspectRatio
-        ])
     }
 
     /// Scale `CIImage` with `CIFilter` provided
