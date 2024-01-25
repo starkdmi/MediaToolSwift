@@ -525,13 +525,6 @@ public struct VideoTool {
         variables.codec = videoCodec!
         let videoCodecChanged = videoCodec != sourceVideoCodec
 
-        // Pixel format
-        let pixelFormat = kCVPixelFormatType_32BGRA
-        // let pixelFormat = preserveAlphaChannel ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_422YpCbCr8
-        var videoReaderSettings: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: pixelFormat
-        ]
-
         // MARK: Writer
 
         // Source video resolution
@@ -784,6 +777,12 @@ public struct VideoTool {
         }
         variables.bitrate = targetBitrate
         videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
+
+        // Pixel format
+        let pixelFormat = !preserveAlphaChannel && frameProcessor == nil ? kCVPixelFormatType_422YpCbCr8 : kCVPixelFormatType_32BGRA
+        var videoReaderSettings: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: pixelFormat
+        ]
 
         // Compare source video settings with output to possibly skip video compression
         let defaultSettings = CompressionVideoSettings()
