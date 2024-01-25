@@ -211,8 +211,8 @@ internal extension CGImage {
 
             if shouldResize, imageSize.width > size.width || imageSize.height > size.height {
                 // Calculate size to fit in
-                let rect = AVMakeRect(aspectRatio: imageSize, insideRect: CGRect(origin: CGPoint.zero, size: size))
-                if let resized = cgImage.resize(to: rect.size) {
+                let fitSize = imageSize.fit(in: size)
+                if let resized = cgImage.resize(to: fitSize) {
                     cgImage = resized
                 }
             }

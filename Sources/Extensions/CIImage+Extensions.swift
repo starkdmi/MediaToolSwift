@@ -60,11 +60,11 @@ internal extension CIImage {
 
                 if imageSize.width > size.width || imageSize.height > size.height {
                     // Calculate size to fit in
-                    let rect = AVMakeRect(aspectRatio: imageSize, insideRect: CGRect(origin: CGPoint.zero, size: size))
+                    let fitSize = imageSize.fit(in: size)
 
                     // Scale down
-                    let scaleX = rect.size.width / imageSize.width
-                    let scaleY = rect.size.height / imageSize.height
+                    let scaleX = fitSize.width / imageSize.width
+                    let scaleY = fitSize.height / imageSize.height
                     ciImage = ciImage
                         .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
                 }
@@ -116,8 +116,8 @@ internal extension CIImage {
                     // Crop rotated to fill
                     let cropSize = size.rotateFilling(angle: Double(angle))
                     let cropOrigin = CGPoint(x: (size.width - cropSize.width) / 2, y: (size.height - cropSize.height) / 2)
-                    let fitRect = AVMakeRect(aspectRatio: size, insideRect: CGRect(origin: CGPoint.zero, size: cropSize))
-                    let cropRect = CGRect(origin: cropOrigin, size: fitRect.size)
+                    let fitSize = size.fit(in: cropSize)
+                    let cropRect = CGRect(origin: cropOrigin, size: fitSize)
                     let cropped = ciImage
                         .transformed(by:
                             .init(translationX: size.width / 2, y: size.height / 2)

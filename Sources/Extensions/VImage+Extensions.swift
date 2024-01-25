@@ -58,9 +58,9 @@ internal extension vImage {
             let imageSize = image.size
             if shouldResize, imageSize.width > size.width || imageSize.height > size.height {
                 // Calculate size to fit in
-                let rect = AVMakeRect(aspectRatio: imageSize, insideRect: CGRect(origin: CGPoint.zero, size: size))
+                let fitSize = imageSize.fit(in: size)
 
-                if let resized = image.resize(to: rect.size) {
+                if let resized = image.resize(to: fitSize) {
                     image = resized
                 }
             }
@@ -99,11 +99,11 @@ internal extension vImage {
 
                 if imageSize.width > size.width || imageSize.height > size.height {
                     // Calculate size to fit in
-                    let rect = AVMakeRect(aspectRatio: imageSize, insideRect: CGRect(origin: CGPoint.zero, size: size))
+                    let fitSize = imageSize.fit(in: size)
 
                     let scaledBuffer = try imageBuffer.scale(
-                        width: Int(rect.size.width),
-                        height: Int(rect.size.height),
+                        width: Int(fitSize.width),
+                        height: Int(fitSize.height),
                         bitsPerPixel: UInt32(image.bitsPerPixel)
                         // temporaryBuffer: &scaleTempBuffer
                     )
