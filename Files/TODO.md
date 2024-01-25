@@ -79,6 +79,7 @@ __Base__
 - Animated image concurency
 - Instead of custom `imageProcessing()` for images use the `CGAffineTransform`? Supported by all three image frameworks.
 - New image/video operation - blur region of interest - `vImage_Buffer.blurred_ARGB8888(regionOfInterest:blurRadius:)`
+- `RotationFill.blur` for `CIImage` and `vImage` may resize background to smaller resolution before applying the blur effect for better performance (will require lower kernel value)
 - Strip GPS metadata using `kCGImageMetadataShouldExcludeGPS`?
 - Resolve invalid frame rate (rounding)
 - Background remover (lift an object via [VNGenerateForegroundInstanceMaskRequest](https://developer.apple.com/videos/play/wwdc2023/10176/)) iOS 17+ or `VNGeneratePersonSegmentationRequest` iOS 15+)
