@@ -74,9 +74,7 @@ let task = await VideoTool.convert(
 
             // modify video frames as images or access pixel buffers
             .process(.image { image, _, _ in
-                image.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [
-                    "inputRadius": 7.5
-                ]).cropped(to: image.extent)
+                image.clampedToExtent().applyingGaussianBlur(sigma: 7.5).cropped(to: image.extent)
             })
         ]
     ),
