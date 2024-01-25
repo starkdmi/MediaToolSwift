@@ -1,6 +1,7 @@
 import CoreVideo
 import CoreImage
 import AVFoundation
+import VideoToolbox
 
 /// Public extensions on `CVPixelBuffer`
 /*public extension CVPixelBuffer {
@@ -49,7 +50,7 @@ internal extension CVPixelBuffer {
         colorInfo: VideoColorInformation?,
         context: CIContext?
     ) -> CVPixelBuffer? {
-        autoreleasepool {
+        autoreleasepool { // () throws -> Optional<CVBuffer> in
             let timeInSeconds = presentationTimeStamp.seconds
 
             // Confirm pixel buffer pool is ready
@@ -68,14 +69,20 @@ internal extension CVPixelBuffer {
 
             var outputPixelBuffer: CVPixelBuffer?
             switch processor {
-            case .image, .cgImage, .vImage:
+            case .image: // .cgImage, .vImage
                 // Initialize an empty pixel buffer using existing pixel buffer pool
                 let status = CVPixelBufferPoolCreatePixelBuffer(
                     kCFAllocatorDefault,
                     pixelBufferPool,
                     &outputPixelBuffer
                 )
-                guard status == noErr else { return nil }
+                guard status == noErr, outputPixelBuffer != nil else { return nil }
+
+                // Lock & unlock output buffer
+                CVPixelBufferLockBaseAddress(outputPixelBuffer!, CVPixelBufferLockFlags.readOnly)
+                defer {
+                    CVPixelBufferUnlockBaseAddress(outputPixelBuffer!, CVPixelBufferLockFlags.readOnly)
+                }
 
                 switch processor {
                 case .image(let imageProcessor):
@@ -105,7 +112,7 @@ internal extension CVPixelBuffer {
 
                     // Scale (also used to fix size after processing for original/fit modes)
                     let size = outputImage.extent.size
-                    if size != targetSize { // case .scale = videoSize
+                    if size != targetSize {
                         outputImage = outputImage.resizing(to: targetSize)
                     }
 
@@ -118,18 +125,40 @@ internal extension CVPixelBuffer {
 
                     // Render image to the new pixel buffer
                     context!.render(outputImage, to: outputPixelBuffer!, bounds: outputImage.extent, colorSpace: colorSpace)
-                case .cgImage(let cgImageProcessor):
-                    // TODO: CGImage processor
-                    // Create CGImage using VTCreateCGImageFromCVPixelBuffer(pixelBuffer, NULL, &cgImage)
-                    // Transform/Rotate (if required) CGImage
-                    // Crop CGImage
-                    // Fit (when videoSize == .fit)
-                    // Run custom cgImageProcessor
-                    // Scale CGImage
-                    // Write CGImage to outputPixelBuffer
-                    fatalError("CGImage processor is not implemented yet")
-                case .vImage(let vImageProcessor):
-                    // TODO: vImage processor
+                // MARK: CGImage Processor
+                // case .cgImage(let cgImageProcessor):
+                    // Warning: No HDR and partial Alpha Channel support
+
+                    // Load CGImage from CVPixelBuffer
+                    /*var cgImage: CGImage?
+                    let status = VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage)
+                    guard status == noErr, var cgImage = cgImage else { return nil }*/
+
+                    // Init image context
+                    /*guard let context = CGContext(
+                        data: CVPixelBufferGetBaseAddress(outputPixelBuffer!),
+                        width: cgImage.width,
+                        height: cgImage.height,
+                        bitsPerComponent: cgImage.bitsPerComponent,
+                        bytesPerRow: CVPixelBufferGetBytesPerRow(outputPixelBuffer!),
+                        space: cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: cgImage.bitmapInfo.rawValue
+                    ) else {
+                        return nil
+                    }
+                    context.interpolationQuality = .high*/
+
+                    // Transform (rotate, if needed)
+                    // Crop
+                    // Fit
+                    // Run custom CGImage processor
+                    // Scale
+                    // Transform back (if needed)
+
+                    // Write CGImage to outputPixelBuffer:
+                    // context.draw(cgImage, in: CGRect(origin: .zero, size: cgImage.size))
+                // MARK: vImage Processor
+                // case .vImage(let vImageProcessor):
                     // https://developer.apple.com/documentation/accelerate/applying_vimage_operations_to_video_sample_buffers
                     // https://developer.apple.com/documentation/accelerate/core_video_interoperability
                     // https://developer.apple.com/documentation/accelerate/core_video_interoperability
@@ -142,7 +171,6 @@ internal extension CVPixelBuffer {
                     // Run custom vImageProcessor
                     // Scale
                     // Copy buffer to outputPixelBuffer (vImageBuffer_CopyToCVPixelBuffer)
-                    fatalError("vImage processor is not implemented yet")
                 default:
                     return nil
                 }

@@ -16,11 +16,11 @@ public enum VideoFrameProcessor: Equatable, Hashable {
 
     /// CGImage processing function using  `CVPixelBuffer` and  `AVAssetWriterInputPixelBufferAdaptor`
     /// By returning `nil` the frame will be dropped
-    case cgImage((_ image: CGImage, _ time: Double) -> CGImage?)
+    // case cgImage((_ image: CGImage, _ time: Double) -> CGImage?)
 
     /// vImage processing function
     /// By returning `nil` the frame will be dropped
-    case vImage((_ image: vImage_Buffer, _ time: Double) -> vImage_Buffer?)
+    // case vImage((_ image: vImage_Buffer, _ time: Double) -> vImage_Buffer?)
 
     /// Pixel buffer processing function
     /// Use provided `pool` to create a new `CVPixelBuffer`
@@ -34,7 +34,7 @@ public enum VideoFrameProcessor: Equatable, Hashable {
     /// Indicator of cropping supported by processor
     internal var canCrop: Bool {
         switch self {
-        case .image, .cgImage, .vImage:
+        case .image: // .cgImage, .vImage
             return true
         #if !os(visionOS)
         case .imageComposition:
@@ -48,7 +48,7 @@ public enum VideoFrameProcessor: Equatable, Hashable {
     /// `AVAssetWriterInputPixelBufferAdaptor` requirement
     internal var requirePixelAdaptor: Bool {
         switch self {
-        case .image, .cgImage, .vImage, .pixelBuffer:
+        case .image, .pixelBuffer: // .cgImage, .vImage
             return true
         #if !os(visionOS)
         case .imageComposition:
@@ -68,7 +68,7 @@ public enum VideoFrameProcessor: Equatable, Hashable {
         case .imageComposition:
             return true
         #endif
-        case .cgImage, .vImage, .sampleBuffer:
+        case .sampleBuffer: // .cgImage, .vImage
             return false
         }
     }
@@ -82,10 +82,10 @@ public enum VideoFrameProcessor: Equatable, Hashable {
         case .imageComposition:
             hasher.combine("videoCompositionProcessor")
         #endif
-        case .cgImage:
-            hasher.combine("cgImageProcessor")
-        case .vImage:
-            hasher.combine("vImageProcessor")
+        /*case .cgImage:
+            hasher.combine("cgImageProcessor")*/
+        /*case .vImage:
+            hasher.combine("vImageProcessor")*/
         case .pixelBuffer:
             hasher.combine("pixelBufferProcessor")
         case .sampleBuffer:
@@ -102,10 +102,10 @@ public enum VideoFrameProcessor: Equatable, Hashable {
         case (.imageComposition, .imageComposition):
             return true
         #endif
-        case (.cgImage, .cgImage):
-            return true
-        case (.vImage, .vImage):
-            return true
+        /*case (.cgImage, .cgImage):
+            return true*/
+        /*case (.vImage, .vImage):
+            return true*/
         case (.pixelBuffer, .pixelBuffer):
             return true
         case (.sampleBuffer, .sampleBuffer):
