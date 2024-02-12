@@ -219,7 +219,7 @@ let configs: [ImageInput] = [
             ImageConfig(
                 filename: "converted_oludeniz.tiff",
                 settings: ImageSettings(format: .tiff, size: .fit(.hd)),
-                result: ImageInfo(format: .tiff, size: CGSize(width: 720, height: 1280), hasAlpha: true, isHDR: true, framesCount: 1, frameRate: nil, duration: nil)
+                result: ImageInfo(format: .tiff, size: CGSize(width: 720, height: 1280), hasAlpha: false, isHDR: true, framesCount: 1, frameRate: nil, duration: nil)
             ),
         ]
     ),
@@ -230,7 +230,7 @@ let configs: [ImageInput] = [
             ImageConfig(
                 filename: "converted_HDR.png",
                 settings: ImageSettings(format: .png),
-                result: ImageInfo(format: .png, size: CGSize(width: 4096, height: 3072), hasAlpha: true, isHDR: true, framesCount: 1, frameRate: nil, duration: nil)
+                result: ImageInfo(format: .png, size: CGSize(width: 4096, height: 3072), hasAlpha: false, isHDR: true, framesCount: 1, frameRate: nil, duration: nil)
             ),
         ]
     ),
@@ -424,7 +424,7 @@ class MediaToolImageTests: XCTestCase {
         await fulfillment(of: [expectation1, expectation2], timeout: 20)
     }
 
-    func testAllImagesX() async {
+    func testAllImages() async {
         var count = 0
         var expectations: [XCTestExpectation] = []
         let saveQueue = DispatchQueue(label: "MediaToolSwift.image.tests", qos: .userInitiated, attributes: .concurrent)
@@ -539,257 +539,4 @@ class MediaToolImageTests: XCTestCase {
         }
     }
 }
-
-public enum PixelFormat {
-    case abgr
-    case argb
-    case bgra
-    case rgba
-}
-
-public extension CGBitmapInfo {
-    static var byteOrder16Host: CGBitmapInfo {
-        return CFByteOrderGetCurrent() == Int(CFByteOrderLittleEndian.rawValue) ? .byteOrder16Little : .byteOrder16Big
-    }
-
-    static var byteOrder32Host: CGBitmapInfo {
-        return CFByteOrderGetCurrent() == Int(CFByteOrderLittleEndian.rawValue) ? .byteOrder32Little : .byteOrder32Big
-    }
-}
-
-public extension CGBitmapInfo {
-    var pixelFormat: PixelFormat? {
-
-        // AlphaFirst – the alpha channel is next to the red channel, argb and bgra are both alpha first formats.
-        // AlphaLast – the alpha channel is next to the blue channel, rgba and abgr are both alpha last formats.
-        // LittleEndian – blue comes before red, bgra and abgr are little endian formats.
-        // Little endian ordered pixels are BGR (BGRX, XBGR, BGRA, ABGR, BGR).
-        // BigEndian – red comes before blue, argb and rgba are big endian formats.
-        // Big endian ordered pixels are RGB (XRGB, RGBX, ARGB, RGBA, RGB).
-
-        let alphaInfo: CGImageAlphaInfo? = CGImageAlphaInfo(rawValue: self.rawValue & type(of: self).alphaInfoMask.rawValue)
-        let alphaFirst: Bool = alphaInfo == .premultipliedFirst || alphaInfo == .first || alphaInfo == .noneSkipFirst
-        let alphaLast: Bool = alphaInfo == .premultipliedLast || alphaInfo == .last || alphaInfo == .noneSkipLast
-        let endianLittle: Bool = self.contains(.byteOrder32Little) // || self.contains(.byteOrder16Little)
-
-        // This is slippery… while byte order host returns little endian, default bytes are stored in big endian
-        // format. Here we just assume if no byte order is given, then simple RGB is used, aka big endian, though…
-
-        if alphaFirst && endianLittle {
-            return .bgra
-        } else if alphaFirst {
-            return .argb
-        } else if alphaLast && endianLittle {
-            return .abgr
-        } else if alphaLast {
-            return .rgba
-        } else {
-            return nil
-        }
-    }
-}
-extension CGImage {
-    var hasCGContextSupportedPixelFormat: Bool {
-       guard let colorSpace = self.colorSpace else {
-            return false
-       }
-       #if os(iOS) || os(watchOS) || os(tvOS)
-       let iOS = true
-       #else
-       let iOS = false
-       #endif
-
-       #if os(OSX)
-       let macOS = true
-       #else
-       let macOS = false
-       #endif
-
-        // Table from https://developer.apple.com/library/archive/documentation/GraphicsImaging/Conceptual/drawingwithquartz2d/dq_context/dq_context.html#//apple_ref/doc/uid/TP30001066-CH203-BCIBHHBB
-       switch (colorSpace.model, bitsPerPixel, bitsPerComponent, alphaInfo, bitmapInfo.contains(.floatComponents)) {
-       case (.unknown, 8, 8, .alphaOnly, _):
-            return macOS || iOS
-       case (.monochrome, 8, 8, .none, _):
-            return macOS || iOS
-       case (.monochrome, 8, 8, .alphaOnly, _):
-            return macOS || iOS
-       case (.monochrome, 16, 16, .none, _):
-            return macOS
-       case (.monochrome, 32, 32, .none, true):
-            return macOS
-       case (.rgb, 16, 5, .noneSkipFirst, _):
-            return macOS || iOS
-       case (.rgb, 32, 8, .noneSkipFirst, _):
-            return macOS || iOS
-       case (.rgb, 32, 8, .noneSkipLast, _):
-            return macOS || iOS
-       case (.rgb, 32, 8, .premultipliedFirst, _):
-            return macOS || iOS
-       case (.rgb, 32, 8, .premultipliedLast, _):
-            return macOS || iOS
-       case (.rgb, 64, 16, .premultipliedLast, _):
-            return macOS
-       case (.rgb, 64, 16, .noneSkipLast, _):
-            return macOS
-       case (.rgb, 128, 32, .noneSkipLast, true):
-            return macOS
-       case (.rgb, 128, 32, .premultipliedLast, true):
-            return macOS
-       case (.cmyk, 32, 8, .none, _):
-            return macOS
-       case (.cmyk, 64, 16, .none, _):
-            return macOS
-       case (.cmyk, 128, 32, .none, true):
-            return macOS
-       default:
-            return false
-       }
-        
-        /* Table from console logs:
-        16  bits per pixel,        5  bits per component,         kCGImageAlphaNoneSkipFirst
-        32  bits per pixel,         8  bits per component,         kCGImageAlphaNoneSkipFirst
-        32  bits per pixel,         8  bits per component,         kCGImageAlphaNoneSkipLast
-        32  bits per pixel,         8  bits per component,         kCGImageAlphaPremultipliedFirst
-        32  bits per pixel,         8  bits per component,         kCGImageAlphaPremultipliedLast
-        32  bits per pixel,         10 bits per component,         kCGImageAlphaNone|kCGImagePixelFormatRGBCIF10|kCGImageByteOrder16Little
-        64  bits per pixel,         16 bits per component,         kCGImageAlphaPremultipliedLast
-        64  bits per pixel,         16 bits per component,         kCGImageAlphaNoneSkipLast
-        64  bits per pixel,         16 bits per component,         kCGImageAlphaPremultipliedLast|kCGBitmapFloatComponents|kCGImageByteOrder16Little
-        64  bits per pixel,         16 bits per component,         kCGImageAlphaNoneSkipLast|kCGBitmapFloatComponents|kCGImageByteOrder16Little
-        128 bits per pixel,         32 bits per component,         kCGImageAlphaPremultipliedLast|kCGBitmapFloatComponents
-        128 bits per pixel,         32 bits per component,         kCGImageAlphaNoneSkipLast|kCGBitmapFloatComponents
-        */
-     }
-}
-
-/*extension vImage_Buffer {
-    func getPixel(x: Int, y: Int, bitsPerPixel: Int = 32) -> [UInt8]? {
-        guard x >= 0 && x < self.width && y >= 0 && y < self.height else {
-            return nil // Invalid coordinates
-        }
-
-        let bytesPerPixel = bitsPerPixel / 8
-        let pixelIndex = y * self.rowBytes + x * bytesPerPixel
-
-        var pixelData = [UInt8](repeating: 0, count: bytesPerPixel)
-        memcpy(&pixelData, self.data + pixelIndex, bytesPerPixel)
-
-        return pixelData
-    }
-}*/
-
-/*extension CGImage {
-    func getPixelData() -> [[[UInt8]]]? {
-        guard let dataProvider = self.dataProvider,
-              let data = CFDataGetBytePtr(dataProvider.data) else {
-            return nil
-        }
-
-        let width = self.width
-        let height = self.height
-        let bytesPerPixel = self.hasAlpha ? 4 : 3
-
-        var pixelData: [[[UInt8]]] = []
-
-        for y in 0..<height {
-            var rowPixels: [[UInt8]] = []
-
-            for x in 0..<width {
-                let pixelIndex = (y * width + x) * bytesPerPixel
-
-                // Extract the 8-bit values for each component
-                let r = data[pixelIndex + 0]
-                let g = data[pixelIndex + 1]
-                let b = data[pixelIndex + 2]
-                if self.hasAlpha {
-                    let a = data[pixelIndex + 3]
-                    rowPixels.append([r, g, b, a])
-                } else {
-                    rowPixels.append([r, g, b])
-                }
-            }
-
-            pixelData.append(rowPixels)
-        }
-        
-        return pixelData
-    }
-}*/
-
-// https://gist.github.com/nicolas-miari/519cb8fd31c16e5daac263412996d08a
-/*enum ImageDiffError: LocalizedError {
-  case failedToCreateFilter
-  case failedToCreateContext
-}
-class ImageDiff {
-  func compare(leftImage: CGImage, rightImage: CGImage) throws -> Int {
-
-    let left = CIImage(cgImage: leftImage)
-    let right = CIImage(cgImage: rightImage)
-
-    guard let diffFilter = CIFilter(name: "CIDifferenceBlendMode") else {
-      throw ImageDiffError.failedToCreateFilter
-    }
-    diffFilter.setDefaults()
-    diffFilter.setValue(left, forKey: kCIInputImageKey)
-    diffFilter.setValue(right, forKey: kCIInputBackgroundImageKey)
-
-    // Create the area max filter and set its properties.
-    guard let areaMaxFilter = CIFilter(name: "CIAreaMaximum") else {
-      throw ImageDiffError.failedToCreateFilter
-    }
-    areaMaxFilter.setDefaults()
-    areaMaxFilter.setValue(diffFilter.value(forKey: kCIOutputImageKey),
-                           forKey: kCIInputImageKey)
-    let compareRect = CGRect(x: 0, y: 0, width: CGFloat(leftImage.width), height: CGFloat(leftImage.height))
-
-    let extents = CIVector(cgRect: compareRect)
-    areaMaxFilter.setValue(extents, forKey: kCIInputExtentKey)
-
-    // The filters have been setup, now set up the CGContext bitmap context the
-    // output is drawn to. Setup the context with our supplied buffer.
-    let alphaInfo = CGImageAlphaInfo.premultipliedLast
-    let bitmapInfo = CGBitmapInfo(rawValue: alphaInfo.rawValue)
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-
-    var buf: [CUnsignedChar] = Array<CUnsignedChar>(repeating: 255, count: 16)
-
-    guard let context = CGContext(
-      data: &buf,
-      width: 1,
-      height: 1,
-      bitsPerComponent: 8,
-      bytesPerRow: 16,
-      space: colorSpace,
-      bitmapInfo: bitmapInfo.rawValue
-    ) else {
-      throw ImageDiffError.failedToCreateContext
-    }
-
-    // Now create the core image context CIContext from the bitmap context.
-    let ciContextOpts = [
-      CIContextOption.workingColorSpace : colorSpace,
-      CIContextOption.useSoftwareRenderer : false
-    ] as [CIContextOption : Any]
-    let ciContext = CIContext(cgContext: context, options: ciContextOpts)
-
-    // Get the output CIImage and draw that to the Core Image context.
-    let valueImage = areaMaxFilter.value(forKey: kCIOutputImageKey)! as! CIImage
-    ciContext.draw(valueImage, in: CGRect(x: 0, y: 0, width: 1, height: 1),
-                   from: valueImage.extent)
-
-    // This will have modified the contents of the buffer used for the CGContext.
-    // Find the maximum value of the different color components. Remember that
-    // the CGContext was created with a Premultiplied last meaning that alpha
-    // is the fourth component with red, green and blue in the first three.
-    let maxVal = max(buf[0], max(buf[1], buf[2]))
-    let diff = Int(maxVal)
-
-    return diff
-  }
-}*/
-
-// Resizing techniques - https://nshipster.com/image-resizing/, https://medium.com/ymedialabs-innovation/resizing-techniques-and-image-quality-that-every-ios-developer-should-know-e061f33f7aba
-// vImage - https://stackoverflow.com/questions/45154391/converting-image-to-binary-in-swift
-// Use vImage on video samples - https://github.com/madhaviKumari/ApplyingVImageOperationsToVideoSampleBuffers
 #endif
