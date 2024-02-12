@@ -12,7 +12,7 @@ let package = Package(
     ],
     dependencies: [
         // To build documentation for Github Pages use:
-        // swift package --allow-writing-to-directory ./docs generate-documentation --exclude-extended-types --target MediaToolSwift --disable-indexing --transform-for-static-hosting --hosting-base-path MediaToolSwift --output-path ./docs
+        // swift package --allow-writing-to-directory ./Docs generate-documentation --exclude-extended-types --target MediaToolSwift --disable-indexing --transform-for-static-hosting --hosting-base-path MediaToolSwift --output-path ./Docs
         // To preview documentation: swift package --disable-sandbox preview-documentation
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.3.0")
     ],
