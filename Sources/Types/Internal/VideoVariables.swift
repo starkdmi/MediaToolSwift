@@ -21,7 +21,7 @@ internal struct VideoVariables {
     var hasChanges = true
 
     /// Video track
-    var videoTrack: AVAssetTrack?
+    // var videoTrack: AVAssetTrack?
 
     /// Video reader
     var videoOutput: AVAssetReaderOutput!
@@ -42,6 +42,9 @@ internal struct VideoVariables {
 
     /// Video bitrate
     var bitrate: Int?
+
+    /// Estimated output file size in MB
+    var estimatedFileLength: Double!
 
     /// Alpha channel presence
     var hasAlpha: Bool = false

@@ -269,19 +269,15 @@ public struct VideoTool {
         let timeStarted = Date() // elapsed and remaining time calculation
         // Percentage offset used before starting the remaining time calculations
         let timeProgressOffset: Double
-        if let bitrate = videoVariables.bitrate ?? videoVariables.videoTrack?.estimatedDataRateInt {
-            switch bitrate { // bits per second
-            case 0...10_000_000: // small file, 10% offset
-                timeProgressOffset = 0.1
-            case 10_000_000...25_000_000: // medium file, 5% offset
-                timeProgressOffset = 0.05
-            case 25_000_000...50_000_000: // large file, 3% offset
-                timeProgressOffset = 0.03
-            default: // very big file, 1% offset
-                timeProgressOffset = 0.01
-            }
-        } else {
-            timeProgressOffset = 0.5 // default, 5% offset
+        switch videoVariables.estimatedFileLength! { // file size in MB
+        case 0...10: // small file, 10% offset
+            timeProgressOffset = 0.1
+        case 10...25: // medium file, 5% offset
+            timeProgressOffset = 0.05
+        case 25...50: // large file, 3% offset
+            timeProgressOffset = 0.03
+        default: // very big file, 1% offset
+            timeProgressOffset = 0.01
         }
 
         let group = DispatchGroup()
@@ -460,7 +456,7 @@ public struct VideoTool {
         guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
             throw CompressionError.videoTrackNotFound
         }
-        variables.videoTrack = videoTrack
+        // variables.videoTrack = videoTrack
 
         // MARK: Reader
         let durationInSeconds = asset.duration.seconds
@@ -733,13 +729,13 @@ public struct VideoTool {
 
         // Adjust Bitrate
         var bitrateChanged = false
+        let sourceBitrate = videoTrack.estimatedDataRate.rounded()
         var targetBitrate: Int?
         if videoCodec == .h264 || videoCodec == .hevc || videoCodec == .hevcWithAlpha {
             /// Set bitrate value and update `targetBitrate` variable
             func setBitrate(_ value: Int) {
                 // For the same codec use source bitrate as maximum value
                 if !videoCodecChanged {
-                    let sourceBitrate = videoTrack.estimatedDataRate.rounded()
                     if value >= Int(sourceBitrate) {
                         // Use source bitrate when higher value targeted
                         videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
@@ -761,9 +757,7 @@ public struct VideoTool {
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = value
                 setBitrate(value)
             case .dynamic(let handler):
-                let sourceBitrate = videoTrack.estimatedDataRateInt
-                let value = handler(sourceBitrate)
-                setBitrate(value)
+                setBitrate(handler(Int(sourceBitrate)))
             case .filesize(let filesize):
                 // Convert MB to bits (roughly) and divide by duration
                 var rate = filesize * Double(8_000_000) / (cutDurationInSeconds ?? durationInSeconds)
@@ -775,7 +769,7 @@ public struct VideoTool {
                     if let cutDurationInSeconds = cutDurationInSeconds, cutDurationInSeconds != durationInSeconds {
                         durationFactor = durationInSeconds / cutDurationInSeconds
                     }*/
-                    let sourceBitrate = Double(videoTrack.estimatedDataRate.rounded()) // * durationFactor
+                    let sourceBitrate = Double(sourceBitrate) // * durationFactor
                     if rate >= sourceBitrate {
                         rate = sourceBitrate
                     }
@@ -796,7 +790,6 @@ public struct VideoTool {
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
                 setBitrate(Int(rate.rounded()))
             case .source:
-                let sourceBitrate = videoTrack.estimatedDataRate.rounded()
                 videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
                 targetBitrate = Int(sourceBitrate)
             case .encoder:
@@ -805,6 +798,11 @@ public struct VideoTool {
         }
         variables.bitrate = targetBitrate
         videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
+
+        // Estimate output file size in MB
+        let rate = targetBitrate == nil ? Double(sourceBitrate) : Double(targetBitrate!)
+        let seconds = cutDurationInSeconds ?? durationInSeconds
+        variables.estimatedFileLength = rate * seconds / 8 / 1024 / 1024
 
         // Pixel format
         let pixelFormat = !preserveAlphaChannel && frameProcessor == nil ? kCVPixelFormatType_422YpCbCr8 : kCVPixelFormatType_32BGRA
