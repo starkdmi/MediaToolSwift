@@ -61,6 +61,12 @@ internal extension CVPixelBuffer {
             // let width = CVPixelBufferGetWidth(pixelBuffer)
             // let height = CVPixelBufferGetHeight(pixelBuffer)
 
+            // Copy buffer attachments
+            // let attachments = CVBufferGetAttachments(pixelBuffer, .shouldPropagate)
+            /*if #available(macOS 12.0, *) {
+                attachments = CVBufferCopyAttachments(pixelBuffer, .shouldPropagate) // CVCleanAperture, CVImageBufferColorPrimaries, atd.
+            }*/
+
             // Lock & unlock source buffer
             CVPixelBufferLockBaseAddress(pixelBuffer, CVPixelBufferLockFlags.readOnly)
             defer {
@@ -182,6 +188,11 @@ internal extension CVPixelBuffer {
                 return nil
             }
             guard let outputPixelBuffer = outputPixelBuffer else { return nil }
+
+            // Insert buffer attachments
+            /*if let attachments = attachments {
+                CVBufferSetAttachments(pixelBuffer, attachments, .shouldPropagate)
+            }*/
 
             // Tag pixel buffer with video color information
             // https://developer.apple.com/documentation/avfoundation/media_reading_and_writing/tagging_media_with_video_color_information
