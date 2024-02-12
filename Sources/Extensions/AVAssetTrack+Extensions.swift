@@ -63,4 +63,9 @@ internal extension AVAssetTrack {
             return self.naturalTimeScale
         }
     }
+
+    /// Estimated data rate rounded to integer
+    var estimatedDataRateInt: Int {
+        Int(self.estimatedDataRate.rounded())
+    }
 }

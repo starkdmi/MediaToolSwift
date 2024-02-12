@@ -20,6 +20,9 @@ internal struct VideoVariables {
     /// Require to encode
     var hasChanges = true
 
+    /// Video track
+    var videoTrack: AVAssetTrack?
+
     /// Video reader
     var videoOutput: AVAssetReaderOutput!
 

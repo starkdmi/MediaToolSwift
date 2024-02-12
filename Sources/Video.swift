@@ -266,6 +266,23 @@ public struct VideoTool {
         // The progress keeper
         let totalUnitCount = duration.value
         let progress = Progress(totalUnitCount: totalUnitCount)
+        let timeStarted = Date() // elapsed and remaining time calculation
+        // Percentage offset used before starting the remaining time calculations
+        let timeBufferPercentage: Double
+        if let bitrate = videoVariables.bitrate ?? videoVariables.videoTrack?.estimatedDataRateInt {
+            switch bitrate { // bits per second
+            case 0...10_000_000: // small file, 10% offset
+                timeBufferPercentage = 0.1
+            case 10_000_000...25_000_000: // medium file, 5% offset
+                timeBufferPercentage = 0.05
+            case 25_000_000...50_000_000: // large file, 3% offset
+                timeBufferPercentage = 0.03
+            default: // very big file, 1% offset
+                timeBufferPercentage = 0.01
+            }
+        } else {
+            timeBufferPercentage = 0.5 // default, 5% offset
+        }
 
         let group = DispatchGroup()
         var success = 0 // amount of completed operations
@@ -323,6 +340,18 @@ public struct VideoTool {
                         // Check the current state is maximum, due to async processing
                         if completedUnitCount > progress.completedUnitCount {
                             progress.completedUnitCount = completedUnitCount
+
+                            // Calculate estimated remaining time
+                            let fractionCompleted = progress.fractionCompleted
+                            if fractionCompleted > timeBufferPercentage { // offset for more accurate time calculation
+                                let timeElapsed = Date().timeIntervalSince(timeStarted)
+                                if fractionCompleted > 0.0 {
+                                    let fractionRemaining = 1.0 - fractionCompleted
+                                    let timeRemaining = timeElapsed / fractionCompleted * fractionRemaining
+                                    progress.estimatedTimeRemaining = timeRemaining
+                                }
+                            }
+
                             callback(.progress(progress))
                         }
                     }
@@ -433,6 +462,7 @@ public struct VideoTool {
         guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
             throw CompressionError.videoTrackNotFound
         }
+        variables.videoTrack = videoTrack
 
         // MARK: Reader
         let durationInSeconds = asset.duration.seconds
@@ -733,7 +763,7 @@ public struct VideoTool {
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = value
                 setBitrate(value)
             case .dynamic(let handler):
-                let sourceBitrate = Int(videoTrack.estimatedDataRate.rounded())
+                let sourceBitrate = videoTrack.estimatedDataRateInt
                 let value = handler(sourceBitrate)
                 setBitrate(value)
             case .filesize(let filesize):
@@ -1274,7 +1304,7 @@ public struct VideoTool {
                 var bitrateChanged = false
                 if !audioCodecChanged, let targetBitrate = targetBitrate {
                     // Retrieve source bitrate for comparison
-                    let sourceBitrate = Int(audioTrack!.estimatedDataRate.rounded())
+                    let sourceBitrate = audioTrack!.estimatedDataRateInt
                     bitrateChanged = targetBitrate < sourceBitrate
                 }
 
@@ -1422,7 +1452,7 @@ public struct VideoTool {
             let audioFormatID = CMFormatDescriptionGetMediaSubType(audioDesc)
             audioCodec = CompressionAudioCodec(formatId: audioFormatID)
             // Bitrate
-            audioBitrate = Int(audioTrack!.estimatedDataRate.rounded())
+            audioBitrate = audioTrack!.estimatedDataRateInt
         }
 
         // Extended info
