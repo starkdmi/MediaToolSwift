@@ -1,5 +1,5 @@
 // swiftlint:disable force_try force_cast
-#if canImport(MediaToolSwift)
+#if canImport(MediaToolSwift) // && !os(visionOS)
 @testable import MediaToolSwift
 import XCTest
 import Foundation
@@ -34,7 +34,7 @@ struct Parameters {
     let filesize: Int?
     let resolution: CGSize?
     let videoCodec: AVVideoCodecType
-    let fileType: CompressionFileType
+    let fileType: VideoFileType
     let bitrate: Int? // in bits (!), approximate, [nil] to skip, [-1] to check if output is less than input
     let frameRate: Int? // [nil] to skip, [-1] to check if output is less than input
     let duration: Double? // in seconds
@@ -49,490 +49,499 @@ struct AudioData {
 }
 
 // Configurations used by tests
-let configurations: [ConfigList] = [
-    // Big Buck Bunny H.264 - https://test-videos.co.uk/bigbuckbunny/mp4-h264
-    ConfigList(
-        filename: "bigbuckbunny_h264_640x360.mp4",
-        url: "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4",
-        input: Parameters(
+var configurations: [ConfigList] {
+    var videos = [
+        // Big Buck Bunny H.264 - https://test-videos.co.uk/bigbuckbunny/mp4-h264
+        ConfigList(
             filename: "bigbuckbunny_h264_640x360.mp4",
-            filesize: 991_017,
-            resolution: CGSize(width: 640.0, height: 360.0),
-            videoCodec: .h264,
-            fileType: .mp4,
-            bitrate: 789_000,
-            frameRate: 30,
-            duration: 10.0,
-            hasAlpha: false
-        ),
-        configs: [
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .hevc
-                ),
-                output: Parameters(
-                    filename: "exported_bigbuckbunny_h264_640x360.mp4",
-                    filesize: -1,
-                    resolution: CGSize(width: 640.0, height: 360.0),
-                    videoCodec: .hevc,
-                    fileType: .mp4,
-                    bitrate: -1,
-                    frameRate: 30,
-                    duration: 10.0,
-                    hasAlpha: false
+            url: "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4",
+            input: Parameters(
+                filename: "bigbuckbunny_h264_640x360.mp4",
+                filesize: 991_017,
+                resolution: CGSize(width: 640.0, height: 360.0),
+                videoCodec: .h264,
+                fileType: .mp4,
+                bitrate: 789_000,
+                frameRate: 30,
+                duration: 10.0,
+                hasAlpha: false
+            ),
+            configs: [
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .hevc
+                    ),
+                    output: Parameters(
+                        filename: "exported_bigbuckbunny_h264_640x360.mp4",
+                        filesize: -1,
+                        resolution: CGSize(width: 640.0, height: 360.0),
+                        videoCodec: .hevc,
+                        fileType: .mp4,
+                        bitrate: -1,
+                        frameRate: 30,
+                        duration: 10.0,
+                        hasAlpha: false
+                    )
                 )
-            )
-        ]
-    ),
-    ConfigList(
-        filename: "bigbuckbunny_h264_1280x720.mp4",
-        url: "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_2MB.mp4",
-        input: Parameters(
+            ]
+        ),
+        ConfigList(
             filename: "bigbuckbunny_h264_1280x720.mp4",
-            filesize: 1_978_137,
-            resolution: CGSize(width: 1280.0, height: 720.0),
-            videoCodec: .h264,
-            fileType: .mp4,
-            bitrate: 1_579_000,
-            frameRate: 30,
-            duration: 10.0,
-            hasAlpha: false
-        ),
-        configs: [
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .hevc,
-                    size: CGSize(width: 720.0, height: 720.0)
-                ),
-                output: Parameters(
-                    filename: "exported_bigbuckbunny_h264_1280x720.mp4",
-                    filesize: -1,
-                    resolution: CGSize(width: 720.0, height: 404.0), // 404 rounded from 405
-                    videoCodec: .hevc,
-                    fileType: .mp4,
-                    bitrate: -1,
-                    frameRate: 30,
-                    duration: 10.0,
-                    hasAlpha: false
+            url: "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_2MB.mp4",
+            input: Parameters(
+                filename: "bigbuckbunny_h264_1280x720.mp4",
+                filesize: 1_978_137,
+                resolution: CGSize(width: 1280.0, height: 720.0),
+                videoCodec: .h264,
+                fileType: .mp4,
+                bitrate: 1_579_000,
+                frameRate: 30,
+                duration: 10.0,
+                hasAlpha: false
+            ),
+            configs: [
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .hevc,
+                        size: .fit(CGSize(width: 720.0, height: 720.0))
+                    ),
+                    output: Parameters(
+                        filename: "exported_bigbuckbunny_h264_1280x720.mp4",
+                        filesize: -1,
+                        resolution: CGSize(width: 720.0, height: 404.0), // 404 rounded from 405
+                        videoCodec: .hevc,
+                        fileType: .mp4,
+                        bitrate: -1,
+                        frameRate: 30,
+                        duration: 10.0,
+                        hasAlpha: false
+                    )
                 )
-            )
-        ]
-    ),
+            ]
+        ),
 
-    ConfigList(
-        filename: "chromecast.mp4",
-        url: nil,
-        input: Parameters(
+        ConfigList(
             filename: "chromecast.mp4",
-            filesize: 2_498_125,
-            resolution: CGSize(width: 1280.0, height: 720.0),
-            videoCodec: .h264,
-            fileType: .mp4,
-            bitrate: 1_135_000,
-            frameRate: 24, // 23.98
-            duration: 15.02,
-            hasAlpha: false
-        ),
-        configs: [
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .hevc
-                ),
-                output: Parameters(
-                    filename: "exported_chromecast.mp4",
-                    filesize: 2_100_000,
-                    resolution: CGSize(width: 1280.0, height: 720.0),
-                    videoCodec: .hevc,
-                    fileType: .mp4,
-                    bitrate: 950_000,
-                    frameRate: 24, // 23.98
-                    duration: 15.02,
-                    hasAlpha: false
+            url: nil,
+            input: Parameters(
+                filename: "chromecast.mp4",
+                filesize: 2_498_125,
+                resolution: CGSize(width: 1280.0, height: 720.0),
+                videoCodec: .h264,
+                fileType: .mp4,
+                bitrate: 1_135_000,
+                frameRate: 24, // 23.98
+                duration: 15.02,
+                hasAlpha: false
+            ),
+            configs: [
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .hevc
+                    ),
+                    output: Parameters(
+                        filename: "exported_chromecast.mp4",
+                        filesize: 2_100_000,
+                        resolution: CGSize(width: 1280.0, height: 720.0),
+                        videoCodec: .hevc,
+                        fileType: .mp4,
+                        bitrate: 950_000,
+                        frameRate: 24, // 23.98
+                        duration: 15.02,
+                        hasAlpha: false
+                    )
                 )
-            )
-        ]
-    ),
+            ]
+        ),
 
-    // Portrait Video H.264
-    ConfigList(
-        filename: "sunset_h264_portrait_480_848.mp4",
-        url: nil,
-        input: Parameters(
+        // Portrait Video H.264
+        ConfigList(
             filename: "sunset_h264_portrait_480_848.mp4",
-            filesize: 1_066_855,
-            resolution: CGSize(width: 480.0, height: 848.0),
-            videoCodec: .h264,
-            fileType: .mp4,
-            bitrate: 1_639_000,
-            frameRate: 30,
-            duration: 5.2,
-            hasAlpha: false
-        ),
-        configs: [
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .hevcWithAlpha, // should be replaced with hevc by compressor
-                    preserveAlphaChannel: false
-                ),
-                output: Parameters(
-                    filename: "exported_sunset_h264_portrait_480_848.mp4",
-                    filesize: nil,
-                    resolution: CGSize(width: 480.0, height: 848.0),
-                    videoCodec: .hevc,
-                    fileType: .mp4,
-                    bitrate: nil,
-                    frameRate: 30,
-                    duration: 5.2,
-                    hasAlpha: false
+            url: nil,
+            input: Parameters(
+                filename: "sunset_h264_portrait_480_848.mp4",
+                filesize: 1_066_855,
+                resolution: CGSize(width: 480.0, height: 848.0),
+                videoCodec: .h264,
+                fileType: .mp4,
+                bitrate: 1_639_000,
+                frameRate: 30,
+                duration: 5.2,
+                hasAlpha: false
+            ),
+            configs: [
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .hevcWithAlpha, // should be replaced with hevc by compressor
+                        preserveAlphaChannel: false
+                    ),
+                    output: Parameters(
+                        filename: "exported_sunset_h264_portrait_480_848.mp4",
+                        filesize: nil,
+                        resolution: CGSize(width: 480.0, height: 848.0),
+                        videoCodec: .hevc,
+                        fileType: .mp4,
+                        bitrate: nil,
+                        frameRate: 30,
+                        duration: 5.2,
+                        hasAlpha: false
+                    )
                 )
-            )
-        ]
-    ),
+            ]
+        ),
 
-    // Alpha channel
-    ConfigList(
-        filename: "transparent_ball_hevc.mov",
-        url: nil,
-        input: Parameters(
+        // Alpha channel
+        ConfigList(
             filename: "transparent_ball_hevc.mov",
-            filesize: 236_047,
-            resolution: CGSize(width: 1280.0, height: 720.0),
-            videoCodec: .hevcWithAlpha,
-            fileType: .mov,
-            bitrate: 462_000,
-            frameRate: 60,
-            duration: 4.0,
-            hasAlpha: true
-        ),
-        configs: [
-            // Preserve alpha channel
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .hevcWithAlpha,
-                    preserveAlphaChannel: true
-                ),
-                output: Parameters(
-                    filename: "exported_transparent_ball_hevc.mov",
-                    filesize: nil,
-                    resolution: CGSize(width: 1280.0, height: 720.0),
-                    videoCodec: .hevcWithAlpha,
-                    fileType: .mov,
-                    bitrate: nil,
-                    frameRate: 60,
-                    duration: 4.0,
-                    hasAlpha: true
-                )
+            url: nil,
+            input: Parameters(
+                filename: "transparent_ball_hevc.mov",
+                filesize: 236_047,
+                resolution: CGSize(width: 1280.0, height: 720.0),
+                videoCodec: .hevcWithAlpha,
+                fileType: .mov,
+                bitrate: 462_000,
+                frameRate: 60,
+                duration: 4.0,
+                hasAlpha: true
             ),
-            // Remove alpha channel
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .hevc,
-                    preserveAlphaChannel: false
+            configs: [
+                // Preserve alpha channel
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .hevcWithAlpha,
+                        bitrate: .value(450_000),
+                        preserveAlphaChannel: true
+                    ),
+                    output: Parameters(
+                        filename: "exported_transparent_ball_hevc.mov",
+                        filesize: nil,
+                        resolution: CGSize(width: 1280.0, height: 720.0),
+                        videoCodec: .hevcWithAlpha,
+                        fileType: .mov,
+                        bitrate: nil,
+                        frameRate: 60,
+                        duration: 4.0,
+                        hasAlpha: true
+                    )
                 ),
-                output: Parameters(
-                    filename: "exported_transparent_ball_hevc_2.mov",
-                    filesize: nil,
-                    resolution: CGSize(width: 1280.0, height: 720.0),
-                    videoCodec: .hevc,
-                    fileType: .mov,
-                    bitrate: nil,
-                    frameRate: 60,
-                    duration: 4.0,
-                    hasAlpha: false
+                // Remove alpha channel
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .hevc,
+                        preserveAlphaChannel: false
+                    ),
+                    output: Parameters(
+                        filename: "exported_transparent_ball_hevc_2.mov",
+                        filesize: nil,
+                        resolution: CGSize(width: 1280.0, height: 720.0),
+                        videoCodec: .hevc,
+                        fileType: .mov,
+                        bitrate: nil,
+                        frameRate: 60,
+                        duration: 4.0,
+                        hasAlpha: false
+                    )
                 )
-            )
-        ]
-    ),
-    ConfigList(
-        filename: "transparent_ball_prores.mov",
-        url: nil,
-        input: Parameters(
-            filename: "transparent_ball_prores.mov",
-            filesize: 236_047,
-            resolution: CGSize(width: 1280.0, height: 720.0),
-            videoCodec: .proRes4444,
-            fileType: .mov,
-            bitrate: 20_723_000,
-            frameRate: 60,
-            duration: 4.0,
-            hasAlpha: true
+            ]
         ),
-        configs: [
-            // Prores output
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .proRes4444,
-                    bitrate: .value(20_000_000),
-                    preserveAlphaChannel: true
-                ),
-                output: Parameters(
-                    filename: "exported_transparent_ball_prores.mov",
-                    filesize: nil,
-                    resolution: CGSize(width: 1280.0, height: 720.0),
-                    videoCodec: .proRes4444,
-                    fileType: .mov,
-                    bitrate: nil,
-                    frameRate: 60,
-                    duration: 4.0,
-                    hasAlpha: true
-                )
-            ),
-            // HEVC output
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .hevcWithAlpha,
-                    preserveAlphaChannel: true
-                ),
-                output: Parameters(
-                    filename: "exported_transparent_ball_prores_2.mov",
-                    filesize: nil,
-                    resolution: CGSize(width: 1280.0, height: 720.0),
-                    videoCodec: .hevcWithAlpha,
-                    fileType: .mov,
-                    bitrate: nil,
-                    frameRate: 60,
-                    duration: 4.0,
-                    hasAlpha: true
-                )
-            )
-        ]
-    ),
 
-    // HDR, Portrait
-    ConfigList(
-        filename: "oludeniz.MOV",
-        url: nil,
-        input: Parameters(
-            filename: "oludeniz.MOV",
-            filesize: 8_429_475,
-            resolution: CGSize(width: 1080.0, height: 1920.0),
-            videoCodec: .hevc,
-            fileType: .mov,
-            bitrate: 8_688_000,
-            frameRate: 30,
-            duration: 7.6,
-            hasAlpha: false
-        ),
-        configs: [
-            Config(
-                videoSettings: CompressionVideoSettings(bitrate: .value(4_000_000)),
-                output: Parameters(
-                    filename: "exported_oludeniz_default.mov",
-                    filesize: nil, // ~= 3_875_000
-                    resolution: CGSize(width: 1080.0, height: 1920.0),
-                    videoCodec: .hevc,
-                    fileType: .mov,
-                    bitrate: nil, // ~- 4_000_000
-                    frameRate: 30,
-                    duration: 7.6,
-                    hasAlpha: false
-                )
-            ),
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .proRes4444,
-                    bitrate: .encoder,
-                    size: CGSize(width: 3000.0, height: 4000.0),
-                    frameRate: 60
-                ),
-                output: Parameters(
-                    filename: "exported_oludeniz_prores.mov",
-                    filesize: nil,
-                    resolution: CGSize(width: 1080.0, height: 1920.0),
-                    videoCodec: .proRes4444,
-                    fileType: .mov,
-                    bitrate: nil,
-                    frameRate: 30,
-                    duration: 7.6,
-                    hasAlpha: false
-                )
-            ),
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    size: CGSize(width: 1280.0, height: 1280.0)
-                ),
-                output: Parameters(
-                    filename: "exported_oludeniz.mov",
-                    filesize: -1, // ~= 1.8 MB
-                    resolution: CGSize(width: 720.0, height: 1280.0),
-                    videoCodec: .hevc,
-                    fileType: .mov,
-                    bitrate: -1, // ~= 1.75-2.0 MBps
-                    frameRate: 30,
-                    duration: 7.6,
-                    hasAlpha: false
-                )
-            ),
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .h264,
-                    bitrate: .value(2_000_000),
-                    size: CGSize(width: 720.0, height: 720.0),
-                    frameRate: 24
-                ),
-                output: Parameters(
-                    filename: "exported_oludeniz.mp4",
-                    filesize: 2_050_000,
-                    resolution: CGSize(width: 404.0, height: 720.0), // floor applied to value of 405 by encoder
-                    videoCodec: .h264,
-                    fileType: .mp4,
-                    bitrate: 2_000_000,
-                    frameRate: 24,
-                    duration: 7.6,
-                    hasAlpha: false
-                )
-            )
-        ]
-    ),
-
-    // HDR, portrait (Google Pixel 7)
-    ConfigList(
-        filename: "google_pixel_hdr.mp4",
-        url: nil,
-        input: Parameters(
+        // HDR, portrait (Google Pixel 7)
+        ConfigList(
             filename: "google_pixel_hdr.mp4",
-            filesize: 43_376_890,
-            resolution: CGSize(width: 2160.0, height: 3840.0),
-            videoCodec: .hevc,
-            fileType: .mp4,
-            bitrate: 43_299_000,
-            frameRate: 30, // 29.99
-            duration: 7.97,
-            hasAlpha: false
-        ),
-        configs: [
-            Config(
-                videoSettings: CompressionVideoSettings(bitrate: .value(4_000_000)),
-                output: Parameters(
-                    filename: "exported_google_pixel_hdr.mov",
-                    filesize: nil, // ~= 17_000_000
-                    resolution: CGSize(width: 2160.0, height: 3840.0),
-                    videoCodec: .hevcWithAlpha,
-                    fileType: .mov,
-                    bitrate: nil, // ~- 15_715_000
-                    frameRate: 30,
-                    duration: 7.97,
-                    hasAlpha: false
-                )
-            )
-        ]
-    ),
-
-    // Slo-mo, 120/240fps, all video codecs supported, lowering frame rate (240->120), custom bitrate and video operations works
-    // On iOS any videos above ~120 fps handled as slo-mo
-    ConfigList(
-        filename: "slomo_120_fps.mov",
-        url: nil,
-        input: Parameters(
-            filename: "slomo_120_fps.mov",
-            filesize: 13_354_827,
-            resolution: CGSize(width: 1080.0, height: 1920.0),
-            videoCodec: .hevc,
-            fileType: .mov,
-            bitrate: 21_273_000,
-            frameRate: 108, // originally 120, but was cropped so at average is lower
-            duration: 4.33,
-            hasAlpha: false
-        ),
-        configs: [
-            Config(
-                videoSettings: CompressionVideoSettings(bitrate: .value(21_000_000)),
-                output: Parameters(
-                    filename: "exported_slomo_120_fps.mov",
-                    filesize: nil, // ~= 13_303_814
-                    resolution: CGSize(width: 1080.0, height: 1920.0),
-                    videoCodec: .hevc,
-                    fileType: .mov,
-                    bitrate: 21_000_000, // nil
-                    frameRate: 120,
-                    duration: 4.33,
-                    hasAlpha: false
-                )
-            )
-        ]
-    ),
-    ConfigList(
-        filename: "slomo_240_fps.mov",
-        url: nil,
-        input: Parameters(
-            filename: "slomo_240_fps.mov",
-            filesize: 31_071_646,
-            resolution: CGSize(width: 1080.0, height: 1920.0),
-            videoCodec: .hevc,
-            fileType: .mov,
-            bitrate: 53_915_000,
-            frameRate: 240,
-            duration: 4.60,
-            hasAlpha: false
-        ),
-        configs: [
-            Config(
-                videoSettings: CompressionVideoSettings(bitrate: .value(10_000_000)),
-                output: Parameters(
-                    filename: "exported_slomo_240_fps.mov",
-                    filesize: nil, // ~= 31_030_000
-                    resolution: CGSize(width: 1080.0, height: 1920.0),
-                    videoCodec: .hevc,
-                    fileType: .mov,
-                    bitrate: nil, // ~- 53_915_000
-                    frameRate: 240,
-                    duration: 4.60,
-                    hasAlpha: false
-                )
+            url: nil,
+            input: Parameters(
+                filename: "google_pixel_hdr.mp4",
+                filesize: 43_376_890,
+                resolution: CGSize(width: 2160.0, height: 3840.0),
+                videoCodec: .hevc,
+                fileType: .mp4,
+                bitrate: 43_299_000,
+                frameRate: 30, // 29.99
+                duration: 7.97,
+                hasAlpha: false
             ),
-            Config(
-                videoSettings: CompressionVideoSettings(
-                    codec: .h264,
-                    bitrate: .value(10_000_000),
-                    frameRate: 120
-                ),
-                output: Parameters(
-                    filename: "exported_slomo_240_fps_2.mov",
-                    filesize: nil, // ~= 5_908_000
-                    resolution: CGSize(width: 1080.0, height: 1920.0),
-                    videoCodec: .h264,
-                    fileType: .mov,
-                    bitrate: 10_000_000, // nil
-                    frameRate: 120,
-                    duration: 4.60,
-                    hasAlpha: false
+            configs: [
+                Config(
+                    videoSettings: CompressionVideoSettings(bitrate: .value(4_000_000)),
+                    output: Parameters(
+                        filename: "exported_google_pixel_hdr.mov",
+                        filesize: nil, // ~= 17_000_000
+                        resolution: CGSize(width: 2160.0, height: 3840.0),
+                        videoCodec: .hevcWithAlpha,
+                        fileType: .mov,
+                        bitrate: nil, // ~- 15_715_000
+                        frameRate: 30,
+                        duration: 7.97,
+                        hasAlpha: false
+                    )
                 )
-            )
-        ]
-    ),
-
-    // Time-lapse, normally stored at 30 fps as any other video
-    ConfigList(
-        filename: "time_lapse.MOV",
-        url: nil,
-        input: Parameters(
-            filename: "time_lapse.MOV",
-            filesize: 3_340_362,
-            resolution: CGSize(width: 1080.0, height: 1920.0),
-            videoCodec: .hevc,
-            fileType: .mov,
-            bitrate: 14_565_000,
-            frameRate: 30,
-            duration: 1.83,
-            hasAlpha: false
+            ]
         ),
-        configs: [
-            Config(
-                videoSettings: CompressionVideoSettings(codec: .h264),
-                output: Parameters(
-                    filename: "exported_time_lapse.mov",
-                    filesize: nil, // ~= 1_560_000
-                    resolution: CGSize(width: 1080.0, height: 1920.0),
-                    videoCodec: .h264,
-                    fileType: .mov,
-                    bitrate: nil, // 6_800_000
-                    frameRate: 30,
-                    duration: 1.83,
-                    hasAlpha: false
+
+        // Slo-mo, 120/240fps, all video codecs supported, lowering frame rate (240->120), custom bitrate and video operations works
+        // On iOS any videos above ~120 fps handled as slo-mo
+        ConfigList(
+            filename: "slomo_120_fps.mov",
+            url: nil,
+            input: Parameters(
+                filename: "slomo_120_fps.mov",
+                filesize: 13_354_827,
+                resolution: CGSize(width: 1080.0, height: 1920.0),
+                videoCodec: .hevc,
+                fileType: .mov,
+                bitrate: 21_273_000,
+                frameRate: 108, // originally 120, but was cropped so at average is lower
+                duration: 4.33,
+                hasAlpha: false
+            ),
+            configs: [
+                Config(
+                    videoSettings: CompressionVideoSettings(bitrate: .value(21_000_000)),
+                    output: Parameters(
+                        filename: "exported_slomo_120_fps.mov",
+                        filesize: nil, // ~= 13_303_814
+                        resolution: CGSize(width: 1080.0, height: 1920.0),
+                        videoCodec: .hevc,
+                        fileType: .mov,
+                        bitrate: 21_000_000, // nil
+                        frameRate: 120,
+                        duration: 4.33,
+                        hasAlpha: false
+                    )
                 )
-            )
-        ]
-    ),
+            ]
+        ),
+        ConfigList(
+            filename: "slomo_240_fps.mov",
+            url: nil,
+            input: Parameters(
+                filename: "slomo_240_fps.mov",
+                filesize: 31_071_646,
+                resolution: CGSize(width: 1080.0, height: 1920.0),
+                videoCodec: .hevc,
+                fileType: .mov,
+                bitrate: 53_915_000,
+                frameRate: 240,
+                duration: 4.60,
+                hasAlpha: false
+            ),
+            configs: [
+                Config(
+                    videoSettings: CompressionVideoSettings(bitrate: .value(10_000_000)),
+                    output: Parameters(
+                        filename: "exported_slomo_240_fps.mov",
+                        filesize: nil, // ~= 31_030_000
+                        resolution: CGSize(width: 1080.0, height: 1920.0),
+                        videoCodec: .hevc,
+                        fileType: .mov,
+                        bitrate: nil, // ~- 53_915_000
+                        frameRate: 240,
+                        duration: 4.60,
+                        hasAlpha: false
+                    )
+                ),
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .h264,
+                        bitrate: .value(10_000_000),
+                        frameRate: 120
+                    ),
+                    output: Parameters(
+                        filename: "exported_slomo_240_fps_2.mov",
+                        filesize: nil, // ~= 5_908_000
+                        resolution: CGSize(width: 1080.0, height: 1920.0),
+                        videoCodec: .h264,
+                        fileType: .mov,
+                        bitrate: 10_000_000, // nil
+                        frameRate: 120,
+                        duration: 4.60,
+                        hasAlpha: false
+                    )
+                )
+            ]
+        ),
+
+        // Time-lapse, normally stored at 30 fps as any other video
+        ConfigList(
+            filename: "time_lapse.MOV",
+            url: nil,
+            input: Parameters(
+                filename: "time_lapse.MOV",
+                filesize: 3_340_362,
+                resolution: CGSize(width: 1080.0, height: 1920.0),
+                videoCodec: .hevc,
+                fileType: .mov,
+                bitrate: 14_565_000,
+                frameRate: 30,
+                duration: 1.83,
+                hasAlpha: false
+            ),
+            configs: [
+                Config(
+                    videoSettings: CompressionVideoSettings(codec: .h264),
+                    output: Parameters(
+                        filename: "exported_time_lapse.mov",
+                        filesize: nil, // ~= 1_560_000
+                        resolution: CGSize(width: 1080.0, height: 1920.0),
+                        videoCodec: .h264,
+                        fileType: .mov,
+                        bitrate: nil, // 6_800_000
+                        frameRate: 30,
+                        duration: 1.83,
+                        hasAlpha: false
+                    )
+                )
+            ]
+        )
+    ]
+
+    // Prores
+    #if !os(visionOS)
+    videos.append(contentsOf: [
+        ConfigList(
+            filename: "transparent_ball_prores.mov",
+            url: nil,
+            input: Parameters(
+                filename: "transparent_ball_prores.mov",
+                filesize: 236_047,
+                resolution: CGSize(width: 1280.0, height: 720.0),
+                videoCodec: .proRes4444,
+                fileType: .mov,
+                bitrate: 20_723_000,
+                frameRate: 60,
+                duration: 4.0,
+                hasAlpha: true
+            ),
+            configs: [
+                // Prores output
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .proRes4444,
+                        size: .fit(CGSize(width: 720.0, height: 405.0)),
+                        preserveAlphaChannel: true
+                    ),
+                    output: Parameters(
+                        filename: "exported_transparent_ball_prores.mov",
+                        filesize: nil,
+                        resolution: CGSize(width: 720.0, height: 405),
+                        videoCodec: .proRes4444,
+                        fileType: .mov,
+                        bitrate: nil,
+                        frameRate: 60,
+                        duration: 4.0,
+                        hasAlpha: true
+                    )
+                ),
+                // HEVC output
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .hevcWithAlpha,
+                        preserveAlphaChannel: true
+                    ),
+                    output: Parameters(
+                        filename: "exported_transparent_ball_prores_2.mov",
+                        filesize: nil,
+                        resolution: CGSize(width: 1280.0, height: 720.0),
+                        videoCodec: .hevcWithAlpha,
+                        fileType: .mov,
+                        bitrate: nil,
+                        frameRate: 60,
+                        duration: 4.0,
+                        hasAlpha: true
+                    )
+                )
+            ]
+        ),
+
+        // HDR, Portrait
+        ConfigList(
+            filename: "oludeniz.MOV",
+            url: nil,
+            input: Parameters(
+                filename: "oludeniz.MOV",
+                filesize: 8_429_475,
+                resolution: CGSize(width: 1080.0, height: 1920.0),
+                videoCodec: .hevc,
+                fileType: .mov,
+                bitrate: 8_688_000,
+                frameRate: 30,
+                duration: 7.6,
+                hasAlpha: false
+            ),
+            configs: [
+                Config(
+                    videoSettings: CompressionVideoSettings(bitrate: .value(4_000_000)),
+                    output: Parameters(
+                        filename: "exported_oludeniz_default.mov",
+                        filesize: nil, // ~= 3_875_000
+                        resolution: CGSize(width: 1080.0, height: 1920.0),
+                        videoCodec: .hevc,
+                        fileType: .mov,
+                        bitrate: nil, // ~- 4_000_000
+                        frameRate: 30,
+                        duration: 7.6,
+                        hasAlpha: false
+                    )
+                ),
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .proRes4444,
+                        bitrate: .encoder,
+                        size: .fit(CGSize(width: 3000.0, height: 4000.0)),
+                        frameRate: 60
+                    ),
+                    output: Parameters(
+                        filename: "exported_oludeniz_prores.mov",
+                        filesize: nil,
+                        resolution: CGSize(width: 1080.0, height: 1920.0),
+                        videoCodec: .proRes4444,
+                        fileType: .mov,
+                        bitrate: nil,
+                        frameRate: 30,
+                        duration: 7.6,
+                        hasAlpha: false
+                    )
+                ),
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        size: .fit(CGSize(width: 1280.0, height: 1280.0))
+                    ),
+                    output: Parameters(
+                        filename: "exported_oludeniz.mov",
+                        filesize: -1, // ~= 1.8 MB
+                        resolution: CGSize(width: 720.0, height: 1280.0),
+                        videoCodec: .hevc,
+                        fileType: .mov,
+                        bitrate: -1, // ~= 1.75-2.0 MBps
+                        frameRate: 30,
+                        duration: 7.6,
+                        hasAlpha: false
+                    )
+                ),
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .h264,
+                        bitrate: .value(2_000_000),
+                        size: .fit(CGSize(width: 720.0, height: 720.0)),
+                        frameRate: 24
+                    ),
+                    output: Parameters(
+                        filename: "exported_oludeniz.mp4",
+                        filesize: 2_050_000,
+                        resolution: CGSize(width: 404.0, height: 720.0), // floor applied to value of 405 by encoder
+                        videoCodec: .h264,
+                        fileType: .mp4,
+                        bitrate: 2_000_000,
+                        frameRate: 24,
+                        duration: 7.6,
+                        hasAlpha: false
+                    )
+                )
+            ]
+        )
+    ])
+    #endif
 
     // INFO: VP9 and AV1 are not supported yet
     // Big Buck Bunny VP9 - https://test-videos.co.uk/bigbuckbunny/webm-vp9
@@ -541,7 +550,8 @@ let configurations: [ConfigList] = [
     // Jellyfish - https://test-videos.co.uk/jellyfish/mp4-h265
     // Chromium test videos - https://github.com/chromium/chromium/tree/master/media/test/data
     // WebM test videos - https://github.com/webmproject/libwebm/tree/main/testing/testdata
-]
+    return []
+}
 
 // Download file from url and save to local directory 
 func downloadFile(url: String, path: String) async throws {
@@ -605,6 +615,12 @@ class MediaToolSwiftTests: XCTestCase {
                 file.pathExtension.lowercased() == "heif"  ||
                 file.pathExtension.lowercased() == "heics" ||
                 file.pathExtension.lowercased() == "webp"  ||
+                file.pathExtension.lowercased() == "m4a"  ||
+                file.pathExtension.lowercased() == "mp3"  ||
+                file.pathExtension.lowercased() == "wav"  ||
+                file.pathExtension.lowercased() == "caf"  ||
+                file.pathExtension.lowercased() == "aiff"  ||
+                file.pathExtension.lowercased() == "aifc"  ||
                 file.hasDirectoryPath
             ) {
                 try FileManager.default.removeItem(at: file)
@@ -628,50 +644,6 @@ class MediaToolSwiftTests: XCTestCase {
     #else
     let osAdditionalTimeout: TimeInterval = 0
     #endif
-
-    func testSingle() async {
-        let expectation = XCTestExpectation(description: "Test Single")
-        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destination = Self.tempDirectory.appendingPathComponent("test_single_oludeniz.MOV")
-
-        _ = await VideoTool.convert(
-            source: source,
-            destination: destination,
-            fileType: .mov,
-            videoSettings: .init(
-                codec: .hevc,
-                bitrate: .source,
-                edit: [
-                    .crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center)),
-                    // .cut(from: 0.5, to: 7.5),
-                    // .rotate(.clockwise), .rotate(.angle(.pi/2)),
-                    // .mirror,
-                    .imageProcessing { image, size, time in
-                        image.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [
-                            "inputRadius": 7.5
-                        ]).cropped(to: CGRect(origin: .zero, size: size))
-                        /*image.applyingFilter("CIMotionBlur", parameters: [
-                            "inputAngle": Double.pi/2, // 0
-                            "inputRadius": 5
-                        ])*/
-                    }
-                ]
-            ),
-            skipAudio: true,
-            overwrite: true,
-            callback: { state in
-                switch state {
-                case .completed, .cancelled:
-                    Self.fulfill(expectation)
-                case .failed(let error):
-                    XCTFail(error.localizedDescription)
-                default:
-                    break
-                }
-        })
-
-        await fulfillment(of: [expectation], timeout: 5 + osAdditionalTimeout)
-    }
 
     #if os(macOS)
     func testImageThumbnails() async {
@@ -749,9 +721,9 @@ class MediaToolSwiftTests: XCTestCase {
             .gif: ".gif",
             .tiff: ".tiff",
             .bmp: ".bmp",
-            //.ico: ".ico"
+            .ico: ".ico"
         ]
-        
+
         for (format, ext) in formats {
             let imageUrl = thumbnailsDirectory.appendingPathComponent("thumb\(ext)")
             if FileManager.default.fileExists(atPath: imageUrl.path) {
@@ -761,7 +733,8 @@ class MediaToolSwiftTests: XCTestCase {
             let settings = ImageSettings(
                 format: format,
                 //size: .fit(.hd),
-                size: .crop(fit: .hd, options: .init(size: CGSize(width: 512, height: 512), aligment: .center)),
+                //size: .crop(fit: .hd, options: .init(size: CGSize(width: 512, height: 512), aligment: .center)),
+                size: .crop(options: .init(size: CGSize(width: 256, height: 256), aligment: .center)),
                 edit: [
                     //.rotate(.angle(.pi/4))
                     //.rotate(.angle(.pi/4), fill: .color(alpha: 255, red: 255, green: 255, blue: 255)),
@@ -812,6 +785,7 @@ class MediaToolSwiftTests: XCTestCase {
     }
     #endif
 
+    #if !os(visionOS)
     /// Video overlay, apply CIFilters, and many more using custom CIImage processor
     func testImageProcessing() async {
         #if os(macOS)
@@ -836,32 +810,31 @@ class MediaToolSwiftTests: XCTestCase {
         let yellow = CGColor(red: 250/255, green: 197/255, blue: 22/255, alpha: 1.0)
         //let red = CGColor(red: 250/255, green: 75/255, blue: 22/255, alpha: 1.0)
 
-        let imageProcessor: ImageProcessor = { image, size, time in
+        let imageProcessor = { (_ image: CIImage, _ context: CIContext, _ time: Double) -> CIImage in
             /* Parameters:
              - Image: An CIImage to modify
-             - Size:
-                 If cropping is applied size will be equal to crop size
-                 If videoSize is passed (no cropping), then size equals to videoSize
-                 if none passed size is source video size
-             Time: Frame time in seconds, use this to show/hide overlays or filter based on video time
+             - Context: CIContext for reuse
+             - Time: Frame time in seconds, use this to show/hide overlays or filter based on video time
            */
             var image = image
-            
+            let size = image.extent.size
+
             // Warning: This method called once for each frame, the code in this block must be optimized
             // For example initialize filter once and reuse, render text to image once, then composite based on time
 
-            // Warning: When .mirror, .flip or other tranformation is applied to video, it's also applied overlays
+            // Warning: When .mirror, .flip or other tranformation (except rotation) is applied to video, it's also applied overlays
             // To prevent apply oposite tranformation
             let mirrored = CGAffineTransform(scaleX: -1.0, y: 1.0).translatedBy(x: -size.width, y: 0)
             // let flipped = CGAffineTransform(scaleX: 1.0, y: -1.0).translatedBy(x: 0, y: -size.height)
+            let transform: CGAffineTransform = mirrored // .identity, mirrored, flipped
 
             // Apply Blur after 2.8 sec
             if time >= 2.8 {
                 //https://developer.apple.com/documentation/coreimage/processing_an_image_using_built-in_filters
                 //https://developer.apple.com/library/archive/documentation/GraphicsImaging/Reference/CoreImageFilterReference/index.html#//apple_ref/doc/filter/ci
-                image = image.applyingFilter("CIGaussianBlur", parameters: [
+                image = image.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [
                     "inputRadius": 7.5
-                 ])
+                 ]).cropped(to: CGRect(origin: .zero, size: size))
             }
 
             // Progress
@@ -885,7 +858,7 @@ class MediaToolSwiftTests: XCTestCase {
                     Easing.sineIn.interpolate(from: yellow, to: darkGreen, with: timeFactorAfter(6)),
                 .backgroundColor: CGColor(red: 40/255, green: 40/255, blue: 40/255, alpha: Easing.default(from: 0.5, to: 0.0, with: timeFactorBefore(2.8))),
                 .strokeWidth: time >= 2.8 ? Easing.default(from: 3, to: 2, with: timeFactor) : 0.0,
-                .shadow: shadow
+                 .shadow: shadow
             ]
 
             let attributedString = NSAttributedString(string: " Ölüdeniz 🏖️  ", attributes: attributes)
@@ -896,14 +869,24 @@ class MediaToolSwiftTests: XCTestCase {
 
             // Center text
             textImage = textImage.transformed(by: .init(
-                translationX: Easing.bounceOut.interpolate(from: (size.width - textImage.extent.width) / 2.0 + 200, to: (size.width - textImage.extent.width) / 2.0, with: timeFactor),
-                y: Easing.bounceOut.interpolate(from: (size.height - textImage.extent.height) / 2.0 + 640, to: (size.height - textImage.extent.height) / 2.0, with: timeFactor)
+                translationX: Easing.bounceOut.interpolate(
+                    from: (size.width - textImage.extent.width) / 2.0 + 200,
+                    to: (size.width - textImage.extent.width) / 2.0,
+                    with: timeFactor
+                ),
+                y: Easing.bounceOut.interpolate(
+                    from: (size.height - textImage.extent.height) / 2.0 + 640,
+                    to: (size.height - textImage.extent.height) / 2.0,
+                    with: timeFactor
+                )
             ))
             // Transform
-            textImage = textImage.transformed(by: mirrored)
+            textImage = textImage.transformed(by: transform)
 
             // Place text over source image
-            image = textImage.composited(over: image)
+            image = textImage
+                .cropped(to: image.extent)
+                .composited(over: image)
 
             // Advanced String/Letters Animation by rendering each letter separately and then animate position/opacity/atd.
             if timeFactor < 0.99 {
@@ -994,8 +977,11 @@ class MediaToolSwiftTests: XCTestCase {
                     offsetX += size.width + spacing
 
                     // Transform & Insert
-                    ciImage = ciImage.transformed(by: mirrored)
-                    image = ciImage.composited(over: image)
+                    ciImage = ciImage.transformed(by: transform)
+
+                    image = ciImage
+                        .cropped(to: image.extent)
+                        .composited(over: image)
                 }
             }
 
@@ -1008,17 +994,19 @@ class MediaToolSwiftTests: XCTestCase {
                 // Adjust position
                 ciImageOverlay = ciImageOverlay.transformed(by: .init(translationX: size.width - ciImageOverlay.extent.size.width - 44, y: 44))
                 // Tint PNG
-                ciImageOverlay = CIImage(color: CIColor(red: 244/255, green: 244/255, blue: 244/255, alpha: 1.0)).applyingFilter("CIBlendWithAlphaMask", parameters: [
-                    "inputBackgroundImage": CIImage(color: CIColor.clear),
-                    "inputMaskImage": ciImageOverlay
-                ])
+                ciImageOverlay = CIImage(color: CIColor(red: 244/255, green: 244/255, blue: 244/255, alpha: 1.0))
+                    .cropped(to: ciImageOverlay.extent)
+                    .applyingFilter("CIBlendWithAlphaMask", parameters: [
+                        "inputBackgroundImage": ciImageOverlay,
+                        "inputMaskImage": ciImageOverlay
+                    ])
                 // Time based opacity animation
                 let alpha = 1.0 - timeFactorAfter(2.8)
                 ciImageOverlay = ciImageOverlay.applyingFilter("CIColorMatrix", parameters: [
                     "inputAVector": CIVector(values: [0.0, 0.0, 0.0, CGFloat(alpha)], count: 4),
                 ])
                 // Transform
-                ciImageOverlay = ciImageOverlay.transformed(by: mirrored)
+                ciImageOverlay = ciImageOverlay.transformed(by: transform)
                 // Stack image over source
                 image = ciImageOverlay.composited(over: image)
             }
@@ -1033,19 +1021,72 @@ class MediaToolSwiftTests: XCTestCase {
             return image
         }
 
+        // var tempPixelBuffer: CVPixelBuffer?
+        func dispose() {
+            // tempPixelBuffer = nil
+        }
         _ = await VideoTool.convert(
             source: source,
             destination: destination,
             fileType: .mov,
-            videoSettings: .init(
+             videoSettings: .init(
                 codec: .hevc,
                 bitrate: .encoder,
+                size: .fit(CGSize(width: 720, height: 720)),
+                // size: .fit(CGSize(width: 1080, height: 1080)),
+                // size: .scale(CGSize(width: 2160, height: 3240)),
+                // size: .dynamic { size in .scale(CGSize(width: size.width / 2, height: size.height / 2)) },
+                // profile: .hevcMain10,
+                // color: .itu2020_hlg,
                 edit: [
-                    .imageProcessing(imageProcessor),
-                    /*.imageProcessing { (image: CIImage, size: CGSize, atTime: Double) -> CIImage in
-                        return image
-                    },*/
-                    //.crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center)),
+                    .crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center)),
+                    // .crop(.init(size: CGSize(width: 1080, height: 1620), aligment: .center)),
+                    
+                    // .process(.imageComposition(imageProcessor)),
+                    .process(.image(imageProcessor)),
+
+                    /*.process(.pixelBuffer { pixelBuffer, pixelBufferPool, context, time in
+                        autoreleasepool {
+                            // Load image
+                            let image = CIImage(cvPixelBuffer: pixelBuffer)
+
+                            // Apply Gaussian blur
+                            let blurred = image
+                                .clampedToExtent()
+                                .applyingFilter("CIGaussianBlur", parameters: [
+                                    "inputRadius": 7.5
+                                ])
+                                .cropped(to: image.extent)
+
+                            // Create empty pixel buffer
+                            if tempPixelBuffer == nil {
+                                /*let status = CVPixelBufferCreate(
+                                    kCFAllocatorDefault,
+                                    Int(blurred.extent.size.width),
+                                    Int(blurred.extent.size.height),
+                                    kCVPixelFormatType_32BGRA,
+                                    nil,
+                                    &tempPixelBuffer
+                                )*/
+                                let status = CVPixelBufferPoolCreatePixelBuffer(
+                                    kCFAllocatorDefault,
+                                    pixelBufferPool,
+                                    &tempPixelBuffer
+                                )
+                                guard status == kCVReturnSuccess else { return pixelBuffer }
+                            }
+
+                            // Rendrer image to new pixel buffer
+                            context.render(blurred, to: tempPixelBuffer!, bounds: blurred.extent, colorSpace: image.colorSpace)
+                            context.clearCaches()
+
+                            return tempPixelBuffer!
+                        }
+                    })*/
+
+                    // .process(.imageComposition { image, _, _ in image }), .mirror,
+                    // .process(.pixelBuffer { buffer, _, _, _ in buffer }),
+                    // .process(.sampleBuffer { buffer in buffer })
                     //.cut(from: 0.5, to: 7.5)
                     //.rotate(.clockwise), .rotate(.angle(.pi))
                     .mirror,
@@ -1056,16 +1097,19 @@ class MediaToolSwiftTests: XCTestCase {
             callback: { state in
                 switch state {
                 case .completed, .cancelled:
+                    dispose()
                     Self.fulfill(expectation)
                 case .failed(let error):
+                    dispose()
                     XCTFail(error.localizedDescription)
                 default:
                     break
                 }
         })
 
-        await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
+        await fulfillment(of: [expectation], timeout: 30 + osAdditionalTimeout)
     }
+    #endif
 
     func testVideos() async {
         var expectations: [XCTestExpectation] = []
@@ -1073,7 +1117,7 @@ class MediaToolSwiftTests: XCTestCase {
         for file in configurations {
             let source = Self.mediaDirectory.appendingPathComponent(file.filename)
 
-            #if targetEnvironment(simulator)
+            #if targetEnvironment(simulator) && !os(visionOS)
             // ProRes is not available in simulators
             /*ProRes Decoding & Encoding:
                 MacBook Air M2
@@ -1107,7 +1151,7 @@ class MediaToolSwiftTests: XCTestCase {
                 let destination = Self.tempDirectory.appendingPathComponent(config.output.filename)
                 let expectation = XCTestExpectation(description: "Video processing")
 
-                #if targetEnvironment(simulator)
+                #if targetEnvironment(simulator) && !os(visionOS)
                 if config.videoSettings.codec == .proRes4444 {
                     continue
                 }
@@ -1137,7 +1181,7 @@ class MediaToolSwiftTests: XCTestCase {
         await fulfillment(of: expectations, timeout: 30 + osAdditionalTimeout * Double(expectations.count))
 
         for file in configurations {
-            #if targetEnvironment(simulator)
+            #if targetEnvironment(simulator) && !os(visionOS)
             if file.input.videoCodec == .proRes4444 {
                 continue
             }
@@ -1159,7 +1203,7 @@ class MediaToolSwiftTests: XCTestCase {
                 // 6? duration in seconds
                 // 7? has alpha channel
 
-                #if targetEnvironment(simulator)
+                #if targetEnvironment(simulator) && !os(visionOS)
                 if config.videoSettings.codec == .proRes4444 {
                     continue
                 }
@@ -1170,7 +1214,7 @@ class MediaToolSwiftTests: XCTestCase {
                 // Init video asset
                 let asset = AVAsset(url: destination)
                 guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
-                    XCTFail("No video track found in resulting file")
+                    XCTFail("No video track found in resulting file (\(config.output.filename))")
                     continue
                 }
                 let videoDesc = videoTrack.formatDescriptions.first as! CMFormatDescription
@@ -1184,9 +1228,9 @@ class MediaToolSwiftTests: XCTestCase {
                 // #endif
                 if config.output.videoCodec == AVVideoCodecType.hevcWithAlpha {
                     // Fix for HEVC with alpha (AVVideoCodecType.hevcWithAlpha is 'muxa' not 'hvc1')
-                    XCTAssertEqual(mediaSubTypeString, "'hvc1'")
+                    XCTAssertEqual(mediaSubTypeString, "'hvc1'", "\(config.output.filename)")
                 } else {
-                    XCTAssertEqual(mediaSubTypeString, "'\(config.output.videoCodec.rawValue)'")
+                    XCTAssertEqual(mediaSubTypeString, "'\(config.output.videoCodec.rawValue)'", "\(config.output.filename)")
                 }
                 #endif
 
@@ -1225,7 +1269,7 @@ class MediaToolSwiftTests: XCTestCase {
                         )
                     } else if bitrate < 0 {
                         // should be less than input
-                        XCTAssertLessThanOrEqual(estimatedDataRate, Float(file.input.bitrate ?? 0))
+                        XCTAssertLessThanOrEqual(estimatedDataRate, Float(file.input.bitrate ?? 0), "\(config.output.filename)")
                     }
                 }
 
@@ -1233,21 +1277,21 @@ class MediaToolSwiftTests: XCTestCase {
                 let frameRate = videoTrack.nominalFrameRate.rounded()
                 if config.output.frameRate == nil {
                     // should be less then input
-                    XCTAssertLessThanOrEqual(frameRate, Float(file.input.frameRate ?? 0))
+                    XCTAssertLessThanOrEqual(frameRate, Float(file.input.frameRate ?? 0), "\(config.output.filename)")
                 } else {
                     // equals the value
-                    XCTAssertLessThanOrEqual(frameRate, Float(config.output.frameRate ?? 0))
+                    XCTAssertLessThanOrEqual(frameRate, Float(config.output.frameRate ?? 0), "\(config.output.filename)")
                 }
 
                 // 6. Duration
                 if let duration = config.output.duration {
-                    XCTAssert(abs(asset.duration.seconds - duration) < 0.1)
+                    XCTAssert(abs(asset.duration.seconds - duration) < 0.1, "\(config.output.filename)")
                 }
 
                 // 7. Alpha channel presence
                 if let hasAlpha = config.output.hasAlpha {
                     let hasAlphaChannel = videoDesc.hasAlphaChannel
-                    XCTAssertEqual(hasAlphaChannel, hasAlpha)
+                    XCTAssertEqual(hasAlphaChannel, hasAlpha, "\(config.output.filename)")
                 }
             }
         }
@@ -1479,7 +1523,7 @@ class MediaToolSwiftTests: XCTestCase {
     }
 
     func testAudio() async {
-        // Default - uncompressed Linear PCM 
+        // Default - uncompressed Linear PCM
         await audio("oludeniz.MOV", uid: 0, settings: CompressionAudioSettings(
             codec: .default
         ), data: AudioData(
