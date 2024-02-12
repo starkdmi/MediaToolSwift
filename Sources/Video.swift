@@ -268,20 +268,20 @@ public struct VideoTool {
         let progress = Progress(totalUnitCount: totalUnitCount)
         let timeStarted = Date() // elapsed and remaining time calculation
         // Percentage offset used before starting the remaining time calculations
-        let timeBufferPercentage: Double
+        let timeProgressOffset: Double
         if let bitrate = videoVariables.bitrate ?? videoVariables.videoTrack?.estimatedDataRateInt {
             switch bitrate { // bits per second
             case 0...10_000_000: // small file, 10% offset
-                timeBufferPercentage = 0.1
+                timeProgressOffset = 0.1
             case 10_000_000...25_000_000: // medium file, 5% offset
-                timeBufferPercentage = 0.05
+                timeProgressOffset = 0.05
             case 25_000_000...50_000_000: // large file, 3% offset
-                timeBufferPercentage = 0.03
+                timeProgressOffset = 0.03
             default: // very big file, 1% offset
-                timeBufferPercentage = 0.01
+                timeProgressOffset = 0.01
             }
         } else {
-            timeBufferPercentage = 0.5 // default, 5% offset
+            timeProgressOffset = 0.5 // default, 5% offset
         }
 
         let group = DispatchGroup()
@@ -343,13 +343,11 @@ public struct VideoTool {
 
                             // Calculate estimated remaining time
                             let fractionCompleted = progress.fractionCompleted
-                            if fractionCompleted > timeBufferPercentage { // offset for more accurate time calculation
+                            if fractionCompleted > 0.0, fractionCompleted > timeProgressOffset { // offset for more accurate time calculation
                                 let timeElapsed = Date().timeIntervalSince(timeStarted)
-                                if fractionCompleted > 0.0 {
-                                    let fractionRemaining = 1.0 - fractionCompleted
-                                    let timeRemaining = timeElapsed / fractionCompleted * fractionRemaining
-                                    progress.estimatedTimeRemaining = timeRemaining
-                                }
+                                let fractionRemaining = 1.0 - fractionCompleted
+                                let timeRemaining = timeElapsed / fractionCompleted * fractionRemaining
+                                progress.estimatedTimeRemaining = timeRemaining
                             }
 
                             callback(.progress(progress))
