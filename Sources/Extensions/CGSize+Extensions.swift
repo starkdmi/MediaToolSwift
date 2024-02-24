@@ -36,8 +36,8 @@ public extension CGSize {
     }
 
     /// Oriented size
-    internal func oriented(_ isPortrait: Bool) -> CGSize {
-        if isPortrait {
+    internal func oriented(_ orientation: VideoOrientation) -> CGSize {
+        if orientation == .portrait {
             return CGSize(width: height, height: width)
         } else {
             return self

@@ -409,7 +409,8 @@ public struct VideoTool {
                     let extendedInfo = FileExtendedAttributes.extractExtendedFileInfo(from: data)
                     let videoInfo = VideoInfo(
                         url: writer.outputURL,
-                        resolution: videoVariables.size,
+                        resolution: videoVariables.size.oriented(videoVariables.orientation),
+                        // orientation: videoVariables.orientation,
                         frameRate: videoVariables.frameRate ?? Int(videoVariables.nominalFrameRate.rounded()),
                         totalFrames: Int(videoVariables.totalFrames),
                         duration: duration.seconds,
@@ -552,8 +553,9 @@ public struct VideoTool {
         // MARK: Writer
 
         // Source video resolution
-        let isPortrait = videoTrack.isPortrait
-        let sourceVideoSize = videoTrack.naturalSize.oriented(isPortrait)
+        let orientation = videoTrack.orientation
+        variables.orientation = orientation
+        let sourceVideoSize = videoTrack.naturalSize.oriented(orientation)
 
         // Video settings
         var videoCompressionSettings: [String: Any] = [:]
@@ -709,7 +711,7 @@ public struct VideoTool {
         // Video Composition require tranformed video size, while other processors don't
         if !useVideoComposition {
             // Transform size back
-            targetVideoSize = targetVideoSize.oriented(isPortrait)
+            targetVideoSize = targetVideoSize.oriented(orientation)
         }
 
         // Set final video resolution
@@ -989,7 +991,7 @@ public struct VideoTool {
                             presentationTimeStamp: timeStamp,
                             processor: frameProcessor!,
                             videoSize: videoSize,
-                            targetSize: targetVideoSize.oriented(isPortrait),
+                            targetSize: targetVideoSize.oriented(orientation),
                             cropRect: cropRect,
                             transform: videoTrack.fixedPreferredTransform,
                             pixelBufferAdaptor: variables.videoInputAdaptor!,
@@ -1414,7 +1416,7 @@ public struct VideoTool {
         let videoDesc = videoTrack.formatDescriptions.first as! CMFormatDescription
 
         // Resolution
-        let size = videoTrack.naturalSize
+        let size = videoTrack.naturalSizeWithOrientation // videoTrack.naturalSize
         // Duration
         let duration = asset.duration.seconds
         // Frame rate
@@ -1458,6 +1460,7 @@ public struct VideoTool {
         return VideoInfo(
             url: source,
             resolution: size,
+            // orientation: videoTrack.orientation,
             frameRate: Int(frameRate),
             totalFrames: Int(totalFrames),
             duration: duration,

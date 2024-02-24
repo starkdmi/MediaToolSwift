@@ -6,6 +6,7 @@ public struct VideoInfo: MediaInfo {
     public init(
         url: URL,
         resolution: CGSize,
+        // orientation: VideoOrientation,
         frameRate: Int,
         totalFrames: Int,
         duration: Double,
@@ -20,6 +21,7 @@ public struct VideoInfo: MediaInfo {
     ) {
         self.url = url
         self.resolution = resolution
+        // self.orientation = orientation
         self.frameRate = frameRate
         self.totalFrames = totalFrames
         self.duration = duration
@@ -36,8 +38,11 @@ public struct VideoInfo: MediaInfo {
     /// Video file path
     public let url: URL
 
-    /// Video resolution
+    /// Video resolution (oriented)
     public let resolution: CGSize
+
+    /// Video orientation
+    // public let orientation: VideoOrientation
 
     /// Frame rate
     public let frameRate: Int

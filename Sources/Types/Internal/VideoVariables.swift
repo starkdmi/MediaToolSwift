@@ -37,6 +37,9 @@ internal struct VideoVariables {
     /// Video resolution
     var size: CGSize!
 
+    /// Video orientation
+    var orientation: VideoOrientation!
+
     /// Video codec
     var codec: AVVideoCodecType!
 
