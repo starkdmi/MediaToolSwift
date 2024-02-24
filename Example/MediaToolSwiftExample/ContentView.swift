@@ -110,7 +110,7 @@ struct ContentView: View {
                                     Text("HEVC").tag(AVVideoCodecType.hevc)
                                     Text("H.264").tag(AVVideoCodecType.h264)
                                     #if !os(visionOS)
-                                    Text("Prores").tag(AVVideoCodecType.proRes4444)
+                                    Text("ProRes").tag(AVVideoCodecType.proRes4444)
                                     #endif
                                     Text("JPEG").tag(AVVideoCodecType.jpeg)
                                 }.pickerStyle(.menu).frame(maxWidth: 160)
