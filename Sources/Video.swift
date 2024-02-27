@@ -527,16 +527,20 @@ public struct VideoTool {
             if hasAlphaChannel {
                 // Fix codec, only .hevcWithAlpha and .proRes4444 support alpha channel
                 switch videoCodec! {
-                case .hevc:
+                case .hevc, .hevcWithAlpha:
                     videoCodec = .hevcWithAlpha
+                    variables.hasAlpha = true
                 #if !os(visionOS)
-                case .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy:
+                case .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy, .proRes4444:
                     videoCodec = .proRes4444
+                    variables.hasAlpha = true
                 #endif
+                case .h264, .jpeg:
+                    // Codec has no alpha channel support
+                    preserveAlphaChannel = false
                 default:
                     break
                 }
-                variables.hasAlpha = true
             } else {
                 // Video has no alpha data
                 preserveAlphaChannel = false
