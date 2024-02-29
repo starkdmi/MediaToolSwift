@@ -23,18 +23,18 @@ public enum CompressionAudioCodec: Int {
     /// Initialize using `AudioFormatID` value
     init?(formatId: AudioFormatID) {
         switch formatId {
-        case kAudioFormatMPEG4AAC:
-            self.init(rawValue: 1)
+        case kAudioFormatMPEG4AAC: // kAudioFormatMPEGLayer3
+            self = .aac
         case kAudioFormatOpus:
-            self.init(rawValue: 2)
+            self = .opus
         case kAudioFormatFLAC:
-            self.init(rawValue: 3)
+            self = .flac
         case kAudioFormatLinearPCM:
-            self.init(rawValue: 4)
+            self = .lpcm
         case kAudioFormatAppleLossless:
-            self.init(rawValue: 5)
+            self = .alac
         default:
-            self.init(formatId: 0)
+            self = .default
         }
     }
 
