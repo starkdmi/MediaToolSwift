@@ -269,14 +269,14 @@ public struct VideoTool {
         let timeStarted = Date() // elapsed and remaining time calculation
         // Percentage offset used before starting the remaining time calculations
         let timeProgressOffset: Double
-        switch videoVariables.estimatedFileLength! / 1024 { // file size in MB
-        case 0...10: // small file, 10% offset
+        switch videoVariables.estimatedFileLength! {
+        case 0...10_000: // small file (10MB), 10% offset
             timeProgressOffset = 0.1
-        case 10...25: // medium file, 5% offset
+        case 10_000...25_000: // medium file (10-25MB), 5% offset
             timeProgressOffset = 0.05
-        case 25...50: // large file, 3% offset
+        case 25_000...50_000: // large file (25-50MB), 3% offset
             timeProgressOffset = 0.03
-        default: // very big file, 1% offset
+        default: // very big file (>50MB), 1% offset
             timeProgressOffset = 0.01
         }
 
@@ -338,15 +338,14 @@ public struct VideoTool {
                             progress.completedUnitCount = completedUnitCount
 
                             // Calculate estimated remaining time
-                            let fractionCompleted = progress.fractionCompleted
-                            if fractionCompleted > 0.0, fractionCompleted > timeProgressOffset { // offset for more accurate time calculation
-                                let timeElapsed = Date().timeIntervalSince(timeStarted)
-                                let fractionRemaining = 1.0 - fractionCompleted
-                                let timeRemaining = timeElapsed / fractionCompleted * fractionRemaining
+                            if let timeRemaining = progress.estimateRemainingTime(
+                                startedAt: timeStarted,
+                                offset: timeProgressOffset
+                            ) {
                                 progress.estimatedTimeRemaining = timeRemaining
                             }
 
-                            callback(.progress(progress))
+                            callback(.progress(encoding: progress, writing: nil))
                         }
                     }
                 }
@@ -391,12 +390,54 @@ public struct VideoTool {
                 // Confirm the progress is 1.0
                 if progress.completedUnitCount != totalUnitCount {
                     progress.completedUnitCount = totalUnitCount
-                    callback(.progress(progress))
+                    callback(.progress(encoding: progress, writing: nil))
+                }
+
+                // Saving/writing progress
+                var observer: FileSizeObserver?
+                let estimatedFileLength = Int64(videoVariables.estimatedFileLength! * 1024) // bytes
+                let writingProgress = Progress(totalUnitCount: estimatedFileLength)
+                writingProgress.kind = .file
+                writingProgress.fileURL = destination
+                // Skip writing progress for small files due to inaccurate file size estimation
+                if videoVariables.estimatedFileLength! >= 25_000 { // 25MB
+                    let writingStarted = Date() // elapsed and remaining time calculation
+
+                    // Run file size changes observer
+                    observer = FileSizeObserver(url: destination, queue: completionQueue) { fileSize in
+                        // Could be larger due to rough file lenght estimation
+                        let fileSize = min(Int64(fileSize), estimatedFileLength - 1)
+                        // guard fileSize <= writingProgress.totalUnitCount else { return }
+
+                        // Update progress
+                        writingProgress.completedUnitCount = fileSize
+
+                        // Calculate estimated remaining time
+                        if let timeRemaining = writingProgress.estimateRemainingTime(
+                            startedAt: writingStarted,
+                            offset: timeProgressOffset
+                        ) {
+                            writingProgress.estimatedTimeRemaining = timeRemaining
+                        }
+
+                        // Notify
+                        callback(.progress(encoding: progress, writing: writingProgress))
+                    }
                 }
 
                 // Wasn't cancelled and reached OR all operation was completed
                 reader.cancelReading()
                 writer.finishWriting(completionHandler: {
+                    // Stop observing file size changes
+                    if let observer = observer {
+                        observer.finish()
+
+                        if writingProgress.completedUnitCount != estimatedFileLength {
+                            writingProgress.completedUnitCount = estimatedFileLength
+                            callback(.progress(encoding: progress, writing: writingProgress))
+                        }
+                    }
+
                     // Extended file metadata
                     let data = FileExtendedAttributes.setExtendedMetadata(
                         source: source,
@@ -791,7 +832,8 @@ public struct VideoTool {
                 }
                 let totalPixels = Float(targetVideoSize.width * targetVideoSize.height)
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
-                let rate = (totalPixels * codecMultiplier * fps) * 0.0075
+                // let rate = (totalPixels * codecMultiplier * fps) / 8
+                let rate = totalPixels * codecMultiplier * fps * 0.0075
 
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
                 setBitrate(Int(rate.rounded()))

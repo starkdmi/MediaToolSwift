@@ -247,7 +247,7 @@ public struct AudioTool {
                         // Check the current state is maximum, due to async processing
                         if completedUnitCount > progress.completedUnitCount {
                             progress.completedUnitCount = completedUnitCount
-                            callback(.progress(progress))
+                            callback(.progress(encoding: progress, writing: nil))
                         }
                     }
                 }
@@ -275,7 +275,7 @@ public struct AudioTool {
                 // Confirm the progress is 1.0
                 if progress.completedUnitCount != progress.totalUnitCount {
                     progress.completedUnitCount = Int64(progress.totalUnitCount)
-                    callback(.progress(progress))
+                    callback(.progress(encoding: progress, writing: nil))
                 }
 
                 // Wasn't cancelled and reached OR all operation was completed
