@@ -269,7 +269,7 @@ public struct VideoTool {
         let timeStarted = Date() // elapsed and remaining time calculation
         // Percentage offset used before starting the remaining time calculations
         let timeProgressOffset: Double
-        switch videoVariables.estimatedFileLength! { // file size in MB
+        switch videoVariables.estimatedFileLength! / 1024 { // file size in MB
         case 0...10: // small file, 10% offset
             timeProgressOffset = 0.1
         case 10...25: // medium file, 5% offset
@@ -791,7 +791,7 @@ public struct VideoTool {
                 }
                 let totalPixels = Float(targetVideoSize.width * targetVideoSize.height)
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
-                let rate = (totalPixels * codecMultiplier * fps) / 8
+                let rate = (totalPixels * codecMultiplier * fps) * 0.0075
 
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
                 setBitrate(Int(rate.rounded()))
@@ -805,10 +805,10 @@ public struct VideoTool {
         variables.bitrate = targetBitrate
         videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
 
-        // Estimate output file size in MB
+        // Estimate output file size in Kilobytes
         let rate = targetBitrate == nil ? Double(sourceBitrate) : Double(targetBitrate!)
         let seconds = cutDurationInSeconds ?? durationInSeconds
-        variables.estimatedFileLength = rate * seconds / 8 / 1024 / 1024
+        variables.estimatedFileLength = rate * (seconds / 60) * 0.0075
 
         // Pixel format
         let pixelFormat = !preserveAlphaChannel && frameProcessor == nil ? kCVPixelFormatType_422YpCbCr8 : kCVPixelFormatType_32BGRA

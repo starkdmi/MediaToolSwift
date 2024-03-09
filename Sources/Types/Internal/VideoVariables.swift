@@ -46,7 +46,7 @@ internal struct VideoVariables {
     /// Video bitrate
     var bitrate: Int?
 
-    /// Estimated output file size in MB
+    /// Estimated output file size in Kilobytes
     var estimatedFileLength: Double!
 
     /// Alpha channel presence
