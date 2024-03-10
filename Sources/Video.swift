@@ -253,7 +253,7 @@ public struct VideoTool {
         callback(.started)
 
         // Progress
-        var progress = VideoCompressionProgress(
+        var progress = CompressionVideoProgress(
             timeRange: videoVariables.range ?? CMTimeRange(start: .zero, duration: asset.duration),
             estimatedFileLengthInKB: videoVariables.estimatedFileLength!,
             frameRate: videoVariables.nominalFrameRate,

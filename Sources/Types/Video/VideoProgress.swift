@@ -1,5 +1,5 @@
 //
-//  VideoCompressionProgress.swift
+//  VideoProgress.swift
 //
 //
 //  Created by Dmitry Starkov on 10/03/2024.
@@ -8,7 +8,7 @@
 import AVFoundation
 
 /// Compression Progress
-internal struct VideoCompressionProgress {
+internal struct CompressionVideoProgress {
     /// Encoding progress
     let encodingProgress: Progress
     // Encoding progress variables
@@ -43,6 +43,8 @@ internal struct VideoCompressionProgress {
         optimizeForNetworkUse: Bool,
         onProgress: @escaping (_ encoding: Progress, _ writing: Progress?) -> Void
     ) {
+        self.onProgress = onProgress
+
         startTime = timeRange.start.value
         let duration = timeRange.duration
         // Calculate frame duration based on source frame rate
@@ -81,11 +83,11 @@ internal struct VideoCompressionProgress {
         // Additionally skip writing progress for small (<25MB) files due to inaccurate file size estimation
         useWritingProgress = !optimizeForNetworkUse && estimatedFileLengthInKB >= 25_000
 
-        // Warning: Writing progress initialized in encoding progress after time offset is reached,
-        // in this case the destination file is more likely created
-        // initWriting()
-
-        self.onProgress = onProgress
+        // Start file size observer, called once again in encoding progress after time offset is reached
+        // Alternatively file creating can be observed before `writer.startWriting()` is called
+        if FileManager.default.fileExists(atPath: destination.path) {
+            initWriting()
+        }
     }
 
     mutating private func initWriting() {
