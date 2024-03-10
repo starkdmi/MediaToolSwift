@@ -252,33 +252,17 @@ public struct VideoTool {
         // Notify caller
         callback(.started)
 
-        // Progress related variables
-        let timeRange = videoVariables.range ?? CMTimeRange(start: .zero, duration: asset.duration)
-        let startTime = timeRange.start.value
-        let duration = timeRange.duration
-        // Calculate frame duration based on source frame rate
-        let frameDuration: Int64
-        if let nominalFrameRate = videoVariables.nominalFrameRate {
-            frameDuration = Int64(duration.timescale / Int32(nominalFrameRate.rounded()))
-        } else {
-            frameDuration = .zero
-        }
-        // The progress keeper
-        let totalUnitCount = duration.value
-        let progress = Progress(totalUnitCount: totalUnitCount)
-        let timeStarted = Date() // elapsed and remaining time calculation
-        // Percentage offset used before starting the remaining time calculations
-        let timeProgressOffset: Double
-        switch videoVariables.estimatedFileLength! {
-        case 0...10_000: // small file (10MB), 10% offset
-            timeProgressOffset = 0.1
-        case 10_000...25_000: // medium file (10-25MB), 5% offset
-            timeProgressOffset = 0.05
-        case 25_000...50_000: // large file (25-50MB), 3% offset
-            timeProgressOffset = 0.03
-        default: // very big file (>50MB), 1% offset
-            timeProgressOffset = 0.01
-        }
+        // Progress
+        var progress = VideoCompressionProgress(
+            timeRange: videoVariables.range ?? CMTimeRange(start: .zero, duration: asset.duration),
+            estimatedFileLengthInKB: videoVariables.estimatedFileLength!,
+            frameRate: videoVariables.nominalFrameRate,
+            destination: destination,
+            optimizeForNetworkUse: optimizeForNetworkUse,
+            onProgress: { encoding, writing in
+                callback(.progress(encoding: encoding, writing: writing))
+            }
+        )
 
         let group = DispatchGroup()
         var success = 0 // amount of completed operations
@@ -325,28 +309,8 @@ public struct VideoTool {
                     if input.mediaType == .video {
                         // Get current time stamp (proceed asynchronously)
                         let timeStamp = sample.presentationTimeStamp.value
-                        // Add frame duration to the starting time stamp
-                        let currentTime = timeStamp + frameDuration
-                        // Distract cutted out media part at the beginning
-                        var completedUnitCount = currentTime - startTime
-
-                        // Progress can overflow a bit (less than `frameDuration` value)
-                        completedUnitCount = min(completedUnitCount, totalUnitCount)
-
-                        // Check the current state is maximum, due to async processing
-                        if completedUnitCount > progress.completedUnitCount {
-                            progress.completedUnitCount = completedUnitCount
-
-                            // Calculate estimated remaining time
-                            if let timeRemaining = progress.estimateRemainingTime(
-                                startedAt: timeStarted,
-                                offset: timeProgressOffset
-                            ) {
-                                progress.estimatedTimeRemaining = timeRemaining
-                            }
-
-                            callback(.progress(encoding: progress, writing: nil))
-                        }
+                        // Update progress
+                        progress.updadeEncoding(timeStamp)
                     }
                 }
 
@@ -387,56 +351,12 @@ public struct VideoTool {
                 writer.cancelWriting()
                 callback(.failed(error))
             } else if !task.isCancelled || success == processes {
-                // Confirm the progress is 1.0
-                if progress.completedUnitCount != totalUnitCount {
-                    progress.completedUnitCount = totalUnitCount
-                    callback(.progress(encoding: progress, writing: nil))
-                }
-
-                // Saving/writing progress
-                var observer: FileSizeObserver?
-                let estimatedFileLength = Int64(videoVariables.estimatedFileLength! * 1024) // bytes
-                let writingProgress = Progress(totalUnitCount: estimatedFileLength)
-                writingProgress.kind = .file
-                writingProgress.fileURL = destination
-                // Skip writing progress for small files due to inaccurate file size estimation
-                if videoVariables.estimatedFileLength! >= 25_000 { // 25MB
-                    let writingStarted = Date() // elapsed and remaining time calculation
-
-                    // Run file size changes observer
-                    observer = FileSizeObserver(url: destination, queue: completionQueue) { fileSize in
-                        // Could be larger due to rough file lenght estimation
-                        let fileSize = min(Int64(fileSize), estimatedFileLength - 1)
-                        // guard fileSize <= writingProgress.totalUnitCount else { return }
-
-                        // Update progress
-                        writingProgress.completedUnitCount = fileSize
-
-                        // Calculate estimated remaining time
-                        if let timeRemaining = writingProgress.estimateRemainingTime(
-                            startedAt: writingStarted,
-                            offset: timeProgressOffset
-                        ) {
-                            writingProgress.estimatedTimeRemaining = timeRemaining
-                        }
-
-                        // Notify
-                        callback(.progress(encoding: progress, writing: writingProgress))
-                    }
-                }
+                progress.completeEncoding()
 
                 // Wasn't cancelled and reached OR all operation was completed
                 reader.cancelReading()
                 writer.finishWriting(completionHandler: {
-                    // Stop observing file size changes
-                    if let observer = observer {
-                        observer.finish()
-
-                        if writingProgress.completedUnitCount != estimatedFileLength {
-                            writingProgress.completedUnitCount = estimatedFileLength
-                            callback(.progress(encoding: progress, writing: writingProgress))
-                        }
-                    }
+                    progress.completeWriting()
 
                     // Extended file metadata
                     let data = FileExtendedAttributes.setExtendedMetadata(
@@ -454,7 +374,7 @@ public struct VideoTool {
                         // orientation: videoVariables.orientation,
                         frameRate: videoVariables.frameRate ?? Int(videoVariables.nominalFrameRate.rounded()),
                         totalFrames: Int(videoVariables.totalFrames),
-                        duration: duration.seconds,
+                        duration: (videoVariables.range?.duration ?? asset.duration).seconds,
                         videoCodec: videoVariables.codec,
                         videoBitrate: videoVariables.bitrate,
                         hasAlpha: videoVariables.hasAlpha,
