@@ -43,7 +43,7 @@ public class FileSizeObserver {
                 guard let self = self else { return }
 
                 if self.source?.data == .extend {
-                    if let fileSize = try? fileHandle.seekToEnd() {
+                    if let fileSize = fileHandle.seekToFileEnd() {
                         // Get file size using seeking the reading pointer (unique per file handle)
                         self.onChange(fileSize)
                     } else if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
