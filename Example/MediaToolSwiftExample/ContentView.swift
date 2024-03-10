@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var tab: Int = 0
     @State private var task: CompressionTask?
     @State private var progress: Double?
+    @State private var isSaving: Bool = false
     @State private var error: CompressionError?
     @State private var isErrorAlertPresented = false
     // File
@@ -350,7 +351,8 @@ struct ContentView: View {
                     }
 
                     if let progress = progress, error == nil {
-                        Text("Progress: ").foregroundColor(.gray) + Text("\(progress * 100.0, specifier: "%.0f")%").foregroundColor(.blue)
+                        Text("Progress: ").foregroundColor(.gray) + Text("\(progress * 100.0, specifier: "%.0f")%\(isSaving ? " (Saving)" : "")").foregroundColor(.blue)
+                            .font(.system(.subheadline).monospacedDigit())
                     }
                 }
             }
@@ -364,6 +366,7 @@ struct ContentView: View {
     private func reset() {
         task = nil
         progress = nil
+        isSaving = false
         error = nil
         tab = 0
         outputURL = nil
@@ -441,21 +444,32 @@ struct ContentView: View {
                 destination: destination,
                 fileType: fileType,
                 videoSettings: videoSettings,
+                optimizeForNetworkUse: false,
                 skipAudio: skipAudio,
                 audioSettings: audioSettings,
                 // By default XCode remove the metadata from output file, to prevent:
                 // Go to Build Settings tab, Under the "Other C Flags" section, add the following flag: -fno-strip-metadata
                 skipSourceMetadata: false,
                 copyExtendedFileMetadata: true,
+                cacheDirectory: directory,
                 overwrite: overwrite,
                 callback: { state in
                     switch state {
                     case .started:
                         print("Started")
                         self.progress = 0.0
-                    case .progress(let progress):
-                        // print("Progress: \(progress.fractionCompleted)")
-                        self.progress = progress.fractionCompleted
+                    case let .progress(encoding, writing):
+                        if encoding.isFinished, let writing = writing {
+                            guard !writing.isFinished else { break }
+                            print("Writing: \(writing.localizedAdditionalDescription ?? String(writing.fractionCompleted))")
+                            self.isSaving = true
+                            self.progress = writing.fractionCompleted
+                        } else {
+                            print("Encoding: \(encoding.localizedAdditionalDescription ?? String(encoding.fractionCompleted))")
+                            self.progress = encoding.fractionCompleted
+                        }
+                        // print("Progress: \(Int(floor(encoding.fractionCompleted * 100)))%, \(encoding.localizedAdditionalDescription ?? "calculatibg...")")
+                        // self.progress = encoding.fractionCompleted
                     case .completed(let info):
                         let url = info.url
                         print("Done: \(url.absoluteString)")
@@ -489,7 +503,7 @@ struct ContentView: View {
                             isErrorAlertPresented = true
                         } else {
                             // Objective-C NSException
-                            print("Error: \(error.localizedDescription)")
+                            print("NSError: \(error.localizedDescription)")
                             self.error = CompressionError(description: error.localizedDescription)
                             isErrorAlertPresented = true
                         }
