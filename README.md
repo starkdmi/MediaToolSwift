@@ -98,7 +98,7 @@ let task = await VideoTool.convert(
         switch state {
         case .started:
             print("Started")
-        case .progress(let progress):
+        case .progress(let progress, _):
             print("Progress: \(progress.fractionCompleted)")
         case .completed(let info):
             print("Done: \(info.url.path)")
