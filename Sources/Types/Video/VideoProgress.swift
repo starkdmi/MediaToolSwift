@@ -22,7 +22,6 @@ internal struct CompressionVideoProgress {
     // Writing progress variables
     private let useWritingProgress: Bool
     private var writingInitialized: Bool = false
-    private let writingTotal: Int64
     private let fileURL: URL
     private var observer: FileSizeObserver?
 
@@ -32,6 +31,7 @@ internal struct CompressionVideoProgress {
 
     private func updateProgress() {
         onProgress(encodingProgress, useWritingProgress && writingInitialized ? writingProgress : nil)
+        // onProgress(encodingProgress, useWritingProgress ? writingProgress : nil)
     }
 
     /// Public initializer
@@ -70,7 +70,7 @@ internal struct CompressionVideoProgress {
             timeOffset = 0.01
         }
 
-        writingTotal = Int64(estimatedFileLengthInKB * 1024) // bytes
+        let writingTotal = Int64(estimatedFileLengthInKB * 1024) // bytes
         writingProgress = Progress(totalUnitCount: writingTotal)
         writingProgress.kind = .file
         writingProgress.fileURL = destination
@@ -96,9 +96,13 @@ internal struct CompressionVideoProgress {
 
         // Run file size changes observer
         observer = FileSizeObserver(url: fileURL) { [self] fileSize in
-            // Could be larger due to rough file lenght estimation
-            let fileSize = min(Int64(fileSize), writingTotal - 1)
-            // guard fileSize <= writingProgress.totalUnitCount else { return }
+            let fileSize = Int64(fileSize)
+            // Actual file size could be larger due to rough file lenght estimation
+            if fileSize > writingProgress.totalUnitCount {
+                // Update total units, progress will be around 99.99% from this point
+                writingProgress.totalUnitCount = fileSize + 1
+            }
+            // let fileSize = min(Int64(fileSize), writingProgress.totalUnitCount - 1)
 
             // Filter similar events
             guard writingProgress.completedUnitCount != fileSize else { return }
@@ -165,8 +169,9 @@ internal struct CompressionVideoProgress {
         if useWritingProgress {
             observer?.finish()
 
-            if writingProgress.completedUnitCount != writingTotal {
-                writingProgress.completedUnitCount = writingTotal
+            if writingProgress.completedUnitCount != writingProgress.totalUnitCount {
+                // Set total to actually written bytes amount
+                writingProgress.totalUnitCount = writingProgress.completedUnitCount
                 updateProgress()
             }
         }
