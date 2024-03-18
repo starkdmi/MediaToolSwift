@@ -85,7 +85,7 @@ internal struct CompressionVideoProgress {
 
         // Start file size observer, called once again in encoding progress after time offset is reached
         // Alternatively file creating can be observed before `writer.startWriting()` is called
-        if FileManager.default.fileExists(atPath: destination.path) {
+        if useWritingProgress, FileManager.default.fileExists(atPath: destination.path) {
             initWriting()
         }
     }
