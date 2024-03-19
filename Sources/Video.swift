@@ -99,7 +99,7 @@ public struct VideoTool {
             return task
         }
 
-        // Running in Xcode project do not leave temp file, but swift cmd will store temp file near source after compression
+        // Directory for temporary files
         if let directoryForTemporaryFiles = cacheDirectory {
             writer.directoryForTemporaryFiles = directoryForTemporaryFiles // URL(fileURLWithPath: "/tmp")
         }
@@ -258,7 +258,11 @@ public struct VideoTool {
             estimatedFileLengthInKB: videoVariables.estimatedFileLength!,
             frameRate: videoVariables.nominalFrameRate,
             destination: destination,
-            optimizeForNetworkUse: optimizeForNetworkUse,
+            // File Observing Config
+            // (optimizeForNetworkUse == false) => `matching`
+            // (optimizeForNetworkUse == true && cacheDirectory == nil) => `temp` || `directory`
+            // (optimizeForNetworkUse == true && cacheDirectory != nil) => `directory`
+            config: optimizeForNetworkUse ? .disabled : .matching,
             onProgress: { encoding, writing in
                 callback(.progress(encoding: encoding, writing: writing))
             }
@@ -347,6 +351,7 @@ public struct VideoTool {
         group.notify(queue: completionQueue) {
             if let error = error {
                 // Error in reading/writing process
+                progress.finishWritingObserver()
                 reader.cancelReading()
                 writer.cancelWriting()
                 callback(.failed(error))
@@ -396,6 +401,9 @@ public struct VideoTool {
             } else { // Cancelled            
                 // Wait for sample in progress to complete, 0.5 sec is more than enough
                 usleep(500_000)
+
+                // Stop writing progress
+                progress.finishWritingObserver()
 
                 // This method should not be called concurrently with any calls to `output.copyNextSampleBuffer()`
                 // The documentation of that is unclear - https://developer.apple.com/documentation/avfoundation/avassetreader/1390258-cancelreading

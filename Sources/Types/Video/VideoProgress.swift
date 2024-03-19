@@ -40,7 +40,7 @@ internal struct CompressionVideoProgress {
         estimatedFileLengthInKB: Double,
         frameRate: Float?,
         destination: URL,
-        optimizeForNetworkUse: Bool,
+        config: FileObserverConfig,
         onProgress: @escaping (_ encoding: Progress, _ writing: Progress?) -> Void
     ) {
         self.onProgress = onProgress
@@ -76,12 +76,19 @@ internal struct CompressionVideoProgress {
         writingProgress.fileURL = destination
         fileURL = destination
 
-        // Skip writing progress when temporary file is internally used by `AVAssetWriter`
-        // temp file name is internal, but could be retreived using custom new/empty cacheDirectory
-        // newly created temp file could be then tracked and used in FileSizeObserver
-        //
-        // Additionally skip writing progress for small (<25MB) files due to inaccurate file size estimation
-        useWritingProgress = !optimizeForNetworkUse && estimatedFileLengthInKB >= 25_000
+        // Detect writing progress algorithm
+        if estimatedFileLengthInKB < FileObserverConfig.minimalFileLenght {
+            // Skip writing progress for small (<25MB) files due to inaccurate file size estimation
+            useWritingProgress = false
+        } else {
+            switch config {
+            case .disabled:
+                useWritingProgress = false
+            case .matching:
+                useWritingProgress = true
+            // case .directory(let path), .temp(let path): <#FileCreationObserver#>
+            }
+        }
 
         // Start file size observer, called once again in encoding progress after time offset is reached
         // Alternatively file creating can be observed before `writer.startWriting()` is called
@@ -166,14 +173,17 @@ internal struct CompressionVideoProgress {
     /// Finish writing/saving progress
     func completeWriting() {
         // Stop observing file size changes
-        if useWritingProgress {
-            observer?.finish()
+        finishWritingObserver()
 
-            if writingProgress.completedUnitCount != writingProgress.totalUnitCount {
-                // Set total to actually written bytes amount
-                writingProgress.totalUnitCount = writingProgress.completedUnitCount
-                updateProgress()
-            }
+        if useWritingProgress, writingProgress.completedUnitCount != writingProgress.totalUnitCount {
+            // Set total to actually written bytes amount
+            writingProgress.totalUnitCount = writingProgress.completedUnitCount
+            updateProgress()
         }
+    }
+
+    /// Stop observing writing events
+    func finishWritingObserver() {
+        observer?.finish()
     }
 }
