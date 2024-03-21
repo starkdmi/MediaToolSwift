@@ -75,6 +75,10 @@ internal struct CompressionVideoProgress {
         writingProgress.kind = .file
         writingProgress.fileURL = destination
         fileURL = destination
+        // Show progress indicator in Finder
+        writingProgress.fileOperationKind = .decompressingAfterDownloading // .copying
+        writingProgress.isCancellable = false
+        writingProgress.publish()
 
         // Detect writing progress algorithm
         if estimatedFileLengthInKB < FileObserverConfig.minimalFileLenght {
