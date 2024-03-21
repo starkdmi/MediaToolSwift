@@ -75,10 +75,9 @@ internal struct CompressionVideoProgress {
         writingProgress.kind = .file
         writingProgress.fileURL = destination
         fileURL = destination
-        // Show progress indicator in Finder
+        // Finder progress indicator
         writingProgress.fileOperationKind = .decompressingAfterDownloading // .copying
         writingProgress.isCancellable = false
-        writingProgress.publish()
 
         // Detect writing progress algorithm
         if estimatedFileLengthInKB < FileObserverConfig.minimalFileLenght {
@@ -104,6 +103,9 @@ internal struct CompressionVideoProgress {
     mutating private func initWriting() {
         guard !writingInitialized else { return }
         writingInitialized = true
+
+        // Publish progress
+        writingProgress.publish()
 
         // Run file size changes observer
         observer = FileSizeObserver(url: fileURL) { [self] fileSize in
@@ -177,17 +179,25 @@ internal struct CompressionVideoProgress {
     /// Finish writing/saving progress
     func completeWriting() {
         // Stop observing file size changes
-        finishWritingObserver()
+        finishWritingObserver(unpublish: false)
 
         if useWritingProgress, writingProgress.completedUnitCount != writingProgress.totalUnitCount {
             // Set total to actually written bytes amount
             writingProgress.totalUnitCount = writingProgress.completedUnitCount
+            // Notify
             updateProgress()
         }
+
+        // Unpublish progress
+        writingProgress.unpublish()
     }
 
     /// Stop observing writing events
-    func finishWritingObserver() {
+    func finishWritingObserver(unpublish: Bool = true) {
         observer?.finish()
+
+        if unpublish {
+            writingProgress.unpublish()
+        }
     }
 }
