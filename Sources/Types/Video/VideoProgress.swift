@@ -104,8 +104,10 @@ internal struct CompressionVideoProgress {
         guard !writingInitialized else { return }
         writingInitialized = true
 
+        #if os(macOS)
         // Publish progress
         writingProgress.publish()
+        #endif
 
         // Run file size changes observer
         observer = FileSizeObserver(url: fileURL) { [self] fileSize in
@@ -188,16 +190,20 @@ internal struct CompressionVideoProgress {
             updateProgress()
         }
 
+        #if os(macOS)
         // Unpublish progress
         writingProgress.unpublish()
+        #endif
     }
 
     /// Stop observing writing events
     func finishWritingObserver(unpublish: Bool = true) {
         observer?.finish()
 
+        #if os(macOS)
         if unpublish {
             writingProgress.unpublish()
         }
+        #endif
     }
 }
