@@ -732,9 +732,9 @@ public struct ImageTool {
             // Format using source path extension
             format = sourcePathFormat
         }
-        guard let format = format else {
+        /*guard let format = format else {
             throw CompressionError.unknownImageFormat
-        }
+        }*/
 
         // Base properties
         let framesCount = CGImageSourceGetCount(imageSource)

@@ -4,7 +4,7 @@ import CoreImage
 public struct ImageInfo {
     /// Public initializer
     public init(
-        format: ImageFormat,
+        format: ImageFormat?,
         size: CGSize,
         hasAlpha: Bool,
         isHDR: Bool,
@@ -24,7 +24,7 @@ public struct ImageInfo {
     }
 
     /// Image format, default to source image format
-    public let format: ImageFormat
+    public let format: ImageFormat?
 
     /// Image resolution to fit in, default to source resolution
     public let size: CGSize
