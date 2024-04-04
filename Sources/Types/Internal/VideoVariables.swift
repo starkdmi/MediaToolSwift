@@ -49,6 +49,9 @@ internal struct VideoVariables {
     /// Estimated output file size in Kilobytes
     var estimatedFileLength: Double!
 
+    /// Estimated output file size accuracy
+    var isEstimatedFileSizeAccurate: Bool!
+
     /// Alpha channel presence
     var hasAlpha: Bool = false
 

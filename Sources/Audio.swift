@@ -40,9 +40,10 @@ public struct AudioTool {
         cacheDirectory: URL? = nil,
         overwrite: Bool = false,
         deleteSourceFile: Bool = false,
+        progressQueue: DispatchQueue = .main,
         callback: @escaping (CompressionState) -> Void
     ) async -> CompressionTask {
-        let task = CompressionTask()
+        let task = CompressionTask(destination: destination)
 
         // Check source file existence
         if !FileManager.default.fileExists(atPath: source.path) {
@@ -107,7 +108,7 @@ public struct AudioTool {
 
         // MARK: Edit
 
-        var duration = asset.duration
+        var duration = asset.duration // asset.providesPreciseDurationAndTiming
         var timeRange: CMTimeRange?
         for operation in edit {
             switch operation {
@@ -202,7 +203,18 @@ public struct AudioTool {
         callback(.started)
 
         // Progress related variables
-        let progress = Progress(totalUnitCount: duration.value)
+        let progress = task.progress
+        let startedTime = Date() // elapsed and remaining time calculation
+        let minSteps: Int64 = 100 // min 100 steps (at least one step per 1%)
+        let scaleFactor = 0.05 // 0.05 events per second of source duration
+        let total = max(Int64(ceil(duration.seconds * scaleFactor)), minSteps)
+        progressQueue.async(qos: .userInteractive) {
+            progress.totalUnitCount = total // duration.value
+        }
+        let progressTotal = Double(total)
+        let startTime = timeRange?.start.seconds ?? 0.0
+        let durationInSeconds = duration.seconds
+
         let group = DispatchGroup()
         var success = 0 // amount of completed operations
         var processes = 0 // amount of operations to be done
@@ -243,11 +255,26 @@ public struct AudioTool {
 
                     // Progress
                     if input.mediaType == .audio {
-                        let completedUnitCount = Int64(sample.presentationTimeStamp.value)
-                        // Check the current state is maximum, due to async processing
-                        if completedUnitCount > progress.completedUnitCount {
-                            progress.completedUnitCount = completedUnitCount
-                            callback(.progress(encoding: progress, writing: nil))
+                        // Distract cutted out media part at the beginning
+                        let currentTime = sample.presentationTimeStamp.seconds - startTime
+                        // Calculate current progress
+                        let percentage = currentTime / durationInSeconds
+                        // Current step
+                        let completedUnitCount = Int64(percentage * progressTotal)
+                        progressQueue.async(qos: .userInteractive) {
+                            // Check the current state is maximum, due to async processing
+                            if completedUnitCount > progress.completedUnitCount {
+                                // Update progress
+                                progress.completedUnitCount = completedUnitCount
+
+                                // Calculate estimated remaining time
+                                if let timeRemaining = progress.estimateRemainingTime(
+                                    startedAt: startedTime,
+                                    offset: 0.05 // 5% offset
+                                ) {
+                                    progress.estimatedTimeRemaining = timeRemaining
+                                }
+                            }
                         }
                     }
                 }
@@ -270,12 +297,18 @@ public struct AudioTool {
                 // Error in reading/writing process
                 reader.cancelReading()
                 writer.cancelWriting()
+                // Clear estimated time
+                progressQueue.async(qos: .userInteractive) {
+                    progress.estimatedTimeRemaining = nil
+                }
                 callback(.failed(error))
             } else if !task.isCancelled || success == processes {
-                // Confirm the progress is 1.0
-                if progress.completedUnitCount != progress.totalUnitCount {
-                    progress.completedUnitCount = Int64(progress.totalUnitCount)
-                    callback(.progress(encoding: progress, writing: nil))
+                progressQueue.async(qos: .userInteractive) {
+                    // Confirm the progress is 1.0
+                    if progress.completedUnitCount != progress.totalUnitCount {
+                        progress.completedUnitCount = progress.totalUnitCount
+                    }
+                    progress.estimatedTimeRemaining = nil
                 }
 
                 // Wasn't cancelled and reached OR all operation was completed
@@ -312,6 +345,11 @@ public struct AudioTool {
             } else { // Cancelled
                 // Wait for sample in progress to complete, 0.5 sec is more than enough
                 usleep(500_000)
+
+                // Clear estimated time
+                progressQueue.async(qos: .userInteractive) {
+                    progress.estimatedTimeRemaining = nil
+                }
 
                 // This method should not be called concurrently with any calls to `output.copyNextSampleBuffer()`
                 // The documentation of that is unclear - https://developer.apple.com/documentation/avfoundation/avassetreader/1390258-cancelreading

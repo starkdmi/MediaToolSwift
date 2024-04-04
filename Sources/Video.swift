@@ -41,6 +41,7 @@ public struct VideoTool {
     ///   - cacheDirectory: Directory for AVAssetWriter to save temporary files before copying to destination
     ///   - overwrite: Replace destination file if exists, for `false` error will be raised when file already exists
     ///   - deleteSourceFile: Delete source file on success 
+    ///   - progressQueue: Queue for progress updates
     ///   - callback: Compression process state notifier, including error handling and completion
     /// - Returns: Task with option to control the compression process
     public static func convert(
@@ -57,9 +58,10 @@ public struct VideoTool {
         cacheDirectory: URL? = nil,
         overwrite: Bool = false,
         deleteSourceFile: Bool = false,
+        progressQueue: DispatchQueue = .main,
         callback: @escaping (CompressionState) -> Void
     ) async -> CompressionTask {
-        let task = CompressionTask()
+        let task = CompressionTask(destination: destination)
 
         // Check source file existence
         if !FileManager.default.fileExists(atPath: source.path) {
@@ -249,24 +251,24 @@ public struct VideoTool {
             writer.startSession(atSourceTime: .zero)
         }
 
-        // Notify caller
-        callback(.started)
-
         // Progress
-        var progress = CompressionVideoProgress(
+        let progress = CompressionVideoProgress(
+            progress: task.progress,
+            writingProgress: task.writingProgress,
             timeRange: videoVariables.range ?? CMTimeRange(start: .zero, duration: asset.duration),
             estimatedFileLengthInKB: videoVariables.estimatedFileLength!,
             frameRate: videoVariables.nominalFrameRate,
             destination: destination,
+            queue: progressQueue,
             // File Observing Config
             // (optimizeForNetworkUse == false) => `matching`
             // (optimizeForNetworkUse == true && cacheDirectory == nil) => `temp` || `directory`
             // (optimizeForNetworkUse == true && cacheDirectory != nil) => `directory`
-            config: optimizeForNetworkUse ? .disabled : .matching,
-            onProgress: { encoding, writing in
-                callback(.progress(encoding: encoding, writing: writing))
-            }
+            config: optimizeForNetworkUse || !videoVariables.isEstimatedFileSizeAccurate ? .disabled : .matching
         )
+
+        // Notify caller
+        callback(.started)
 
         let group = DispatchGroup()
         var success = 0 // amount of completed operations
@@ -312,9 +314,9 @@ public struct VideoTool {
                     // Progress
                     if input.mediaType == .video {
                         // Get current time stamp (proceed asynchronously)
-                        let timeStamp = sample.presentationTimeStamp.value
+                        let timeStamp = sample.presentationTimeStamp
                         // Update progress
-                        progress.updadeEncoding(timeStamp)
+                        progress.update(timeStamp)
                     }
                 }
 
@@ -351,12 +353,12 @@ public struct VideoTool {
         group.notify(queue: completionQueue) {
             if let error = error {
                 // Error in reading/writing process
-                progress.finishWritingObserver()
+                progress.cancelWriting()
                 reader.cancelReading()
                 writer.cancelWriting()
                 callback(.failed(error))
             } else if !task.isCancelled || success == processes {
-                progress.completeEncoding()
+                progress.complete()
 
                 // Wasn't cancelled and reached OR all operation was completed
                 reader.cancelReading()
@@ -403,7 +405,7 @@ public struct VideoTool {
                 usleep(500_000)
 
                 // Stop writing progress
-                progress.finishWritingObserver()
+                progress.cancelWriting()
 
                 // This method should not be called concurrently with any calls to `output.copyNextSampleBuffer()`
                 // The documentation of that is unclear - https://developer.apple.com/documentation/avfoundation/avassetreader/1390258-cancelreading
@@ -706,6 +708,7 @@ public struct VideoTool {
         var bitrateChanged = false
         let sourceBitrate = videoTrack.estimatedDataRate.rounded()
         var targetBitrate: Int?
+        let isEstimatedFileSizeAccurate: Bool
         if videoCodec == .h264 || videoCodec == .hevc || videoCodec == .hevcWithAlpha {
             /// Set bitrate value and update `targetBitrate` variable
             func setBitrate(_ value: Int) {
@@ -731,8 +734,11 @@ public struct VideoTool {
             case .value(let value):
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = value
                 setBitrate(value)
+                isEstimatedFileSizeAccurate = value >= 8_000_000 // ~1.0 Mbps
             case .dynamic(let handler):
-                setBitrate(handler(Int(sourceBitrate)))
+                let value = handler(Int(sourceBitrate))
+                setBitrate(value)
+                isEstimatedFileSizeAccurate = value >= 8_000_000 // ~1.0 Mbps
             case .filesize(let filesize):
                 // Convert MB to bits (roughly) and divide by duration
                 var rate = filesize * Double(8_000_000) / (cutDurationInSeconds ?? durationInSeconds)
@@ -751,6 +757,7 @@ public struct VideoTool {
                 }
 
                 setBitrate(Int(rate.rounded()))
+                isEstimatedFileSizeAccurate = true
             case .auto:
                 var codecMultiplier: Float = 1.0
                 if videoCodec == .hevc || videoCodec == .hevcWithAlpha {
@@ -760,25 +767,30 @@ public struct VideoTool {
                 }
                 let totalPixels = Float(targetVideoSize.width * targetVideoSize.height)
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
-                // let rate = (totalPixels * codecMultiplier * fps) / 8
-                let rate = totalPixels * codecMultiplier * fps * 0.0075
+                let rate = (totalPixels * codecMultiplier * fps) / 8
 
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
                 setBitrate(Int(rate.rounded()))
+                isEstimatedFileSizeAccurate = true
             case .source:
                 videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
                 targetBitrate = Int(sourceBitrate)
+                isEstimatedFileSizeAccurate = true
             case .encoder:
-                break
+                isEstimatedFileSizeAccurate = false
             }
+        } else {
+            // ProRes
+            isEstimatedFileSizeAccurate = false
         }
         variables.bitrate = targetBitrate
         videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
 
-        // Estimate output file size in Kilobytes
+        // Estimate output file size in kilobytes
         let rate = targetBitrate == nil ? Double(sourceBitrate) : Double(targetBitrate!)
         let seconds = cutDurationInSeconds ?? durationInSeconds
         variables.estimatedFileLength = rate * (seconds / 60) * 0.0075
+        variables.isEstimatedFileSizeAccurate = isEstimatedFileSizeAccurate
 
         // Pixel format
         let pixelFormat = !preserveAlphaChannel && frameProcessor == nil ? kCVPixelFormatType_422YpCbCr8 : kCVPixelFormatType_32BGRA

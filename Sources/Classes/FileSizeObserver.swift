@@ -60,7 +60,7 @@ public class FileSizeObserver {
             }
 
             // Run observer
-            self.source?.activate() // .resume()
+            self.source?.activate()
         }
     }
 

@@ -151,6 +151,9 @@ internal enum FileObserverConfig: Equatable {
     /// Only observe files larger than `minimalFileLenght`, in KB
     static let minimalFileLenght: Double = 25_000
 
+    /// Offset in bytes between the events
+    static let threshold: Int64 = 102_400 // 0.1 MB
+
     /// Do not observe file lenght in any case
     case disabled
 

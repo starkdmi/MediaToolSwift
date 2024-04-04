@@ -18,8 +18,6 @@ struct ContentView: View {
     // Settings
     @State private var tab: Int = 0
     @State private var task: CompressionTask?
-    @State private var progress: Double?
-    @State private var isSaving: Bool = false
     @State private var error: CompressionError?
     @State private var isErrorAlertPresented = false
     // File
@@ -84,7 +82,8 @@ struct ContentView: View {
                         reset()
                     }
                     .buttonStyle(BorderedProminentButtonStyle())
-                    .disabled(progress != nil && error == nil)
+                    .disabled(inProgress)
+                    
                 }.padding(.bottom, 8)
 
                 if let url = sourceURL {
@@ -339,9 +338,9 @@ struct ContentView: View {
                     HStack {
                         Button("Compress", action: compress)
                             .buttonStyle(BorderedProminentButtonStyle())
-                            .disabled(progress != nil && error == nil)
+                            .disabled(inProgress)
 
-                        if progress != nil && error == nil {
+                        if inProgress {
                             Button("Cancel") {
                                 task?.cancel()
                             }
@@ -350,9 +349,13 @@ struct ContentView: View {
                         }
                     }
 
-                    if let progress = progress, error == nil {
-                        Text("Progress: ").foregroundColor(.gray) + Text("\(progress * 100.0, specifier: "%.0f")%\(isSaving ? " (Saving)" : "")").foregroundColor(.blue)
-                            .font(.system(.subheadline).monospacedDigit())
+                    if let progress = task?.progress, !progress.isIndeterminate {
+                        ProgressView(progress)
+                            // .progressViewStyle(.circular)
+                    }
+                    if let progress = task?.writingProgress, progress.totalUnitCount > 1 {
+                        ProgressView(progress)
+                            // .progressViewStyle(.circular)
                     }
                 }
             }
@@ -363,10 +366,12 @@ struct ContentView: View {
         }
     }
 
+    var inProgress: Bool {
+        task?.progress.isIndeterminate == false && task?.progress.isFinished == false && error == nil
+    }
+
     private func reset() {
         task = nil
-        progress = nil
-        isSaving = false
         error = nil
         tab = 0
         outputURL = nil
@@ -439,6 +444,7 @@ struct ContentView: View {
 
         Task {
             reset()
+            task = nil
             task = await VideoTool.convert(
                 source: url,
                 destination: destination,
@@ -457,23 +463,9 @@ struct ContentView: View {
                     switch state {
                     case .started:
                         print("Started")
-                        self.progress = 0.0
-                    case let .progress(encoding, writing):
-                        if encoding.isFinished, let writing = writing {
-                            guard !writing.isFinished else { break }
-                            print("Writing: \(writing.localizedAdditionalDescription ?? String(writing.fractionCompleted))")
-                            self.isSaving = true
-                            self.progress = writing.fractionCompleted
-                        } else {
-                            print("Encoding: \(encoding.localizedAdditionalDescription ?? String(encoding.fractionCompleted))")
-                            self.progress = encoding.fractionCompleted
-                        }
-                        // print("Progress: \(Int(floor(encoding.fractionCompleted * 100)))%, \(encoding.localizedAdditionalDescription ?? "calculatibg...")")
-                        // self.progress = encoding.fractionCompleted
                     case .completed(let info):
                         let url = info.url
                         print("Done: \(url.absoluteString)")
-                        self.progress = nil
                         self.outputURL = url
                         outputFilesize = url.fileSizeInMB
                         // Preview
@@ -496,7 +488,9 @@ struct ContentView: View {
                         }
                         #endif
                     case .failed(let error):
-                        self.progress = nil
+                        self.task = nil
+                        // encodingProgress = nil
+                        // writingProgress = nil
                         if let error = error as? CompressionError {
                             print("Error: \(error.description)")
                             self.error = error
@@ -509,7 +503,7 @@ struct ContentView: View {
                         }
                     case .cancelled:
                         print("Cancelled")
-                        self.progress = nil
+                        self.task = nil
                         self.error = CompressionError(description: "Cancelled")
                         isErrorAlertPresented = true
                     }

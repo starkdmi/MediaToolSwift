@@ -5,7 +5,7 @@ public struct CompressionVideoSettings {
     /// Public initializer with default settings
     public init(
         codec: AVVideoCodecType? = nil,
-        bitrate: CompressionVideoBitrate = .encoder,
+        bitrate: CompressionVideoBitrate = .auto,
         quality: Double? = nil,
         size: CompressionVideoSize = .original,
         frameRate: Int? = nil,

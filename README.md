@@ -98,8 +98,6 @@ let task = await VideoTool.convert(
         switch state {
         case .started:
             print("Started")
-        case .progress(let progress, _):
-            print("Progress: \(progress.fractionCompleted)")
         case .completed(let info):
             print("Done: \(info.url.path)")
         case .failed(let error):
@@ -109,7 +107,12 @@ let task = await VideoTool.convert(
         }
 })
 
-// Cancel the compression
+// Observe progress
+task.progress.observe(\.fractionCompleted) { progress, _ in
+    print("Progress", progress.fractionCompleted)
+}
+
+// Cancel compression
 task.cancel()
 ```
 Complex example can be found in [this](Example/) directory.
@@ -217,8 +220,6 @@ let task = await AudioTool.convert(
         switch state {
         case .started:
             print("Started")
-        case .progress(let progress):
-            print("Progress: \(progress.fractionCompleted)")
         case .completed(let info):
             print("Done: \(info.url.path)")
         case .failed(let error):
@@ -228,7 +229,12 @@ let task = await AudioTool.convert(
         }
 })
 
-// Cancel the conversion
+// Observe progress
+task.progress.observe(\.fractionCompleted) { progress, _ in
+    print("Progress", progress.fractionCompleted)
+}
+
+// Cancel conversion
 task.cancel()
 ```
 
