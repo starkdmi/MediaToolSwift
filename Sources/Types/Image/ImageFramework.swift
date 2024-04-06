@@ -112,7 +112,11 @@ internal enum ImageLoadingMethod: Equatable {
                 }
             case .cgImage:
                 // `CGImage` loaded always as a thumb so it will be already in supported by `CGContext` format
-                return .cgImageThumb(nil)
+                if let fitSize = fitSize {
+                    return .cgImageThumb(fitSize)
+                } else {
+                    return .cgImageThumb(nil)
+                }
             case .ciImage:
                 return .ciImage
             }
