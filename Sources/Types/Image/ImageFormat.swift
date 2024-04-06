@@ -122,16 +122,21 @@ public enum ImageFormat: String, CaseIterable {
     }
 
     /// Init `ImageFormat` using file extension
-    public init?(_ filenameExtension: String) {
+    public init?(_ fileExtension: String) {
         // Extension `.heif` isn't associated with HEIF image internally
-        var filenameExtension = filenameExtension
+        var filenameExtension = fileExtension
         if filenameExtension == "heif" {
             filenameExtension = "heic"
         }
 
         if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
             if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
-                self = format
+                if format == .heif, fileExtension == "heic" { // type == .heic
+                    // Fix `.heic` file extension recognized as `.heif` format
+                    self = .heic
+                } else {
+                    self = format
+                }
             } else {
                 return nil
             }
@@ -140,7 +145,12 @@ public enum ImageFormat: String, CaseIterable {
             #if os(visionOS)
             // Warning: dublicate code for visionOS
             if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
-                self = format
+                if format == .heif, fileExtension == "heic" { // type == .heic
+                    // Fix `.heic` file extension recognized as HEIF image
+                    self = .heic
+                } else {
+                    self = format
+                }
             } else {
                 return nil
             }

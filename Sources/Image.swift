@@ -117,9 +117,24 @@ public struct ImageTool {
 
         // Animation
         var isAnimated: Bool = !settings.skipAnimation && totalFrames > 1
+
+        // Fix HEIC format based on animation presence
+        if !isHDR, isAnimated, format == .heic {
+            format = .heics
+        }
+        if !isAnimated, format == .heics {
+            format = .heic
+        }
+
+        // Fix HEIF animated images (only when format wasn't passed)
+        if !isHDR, isAnimated, settings.format == nil, format == .heif || format == .heif10 {
+            format = .heics
+        }
+
         if isAnimated, format?.isAnimationSupported == false {
             isAnimated = false
         }
+
         if isAnimated, framework == .ciImage {
             // `CIImage` has no support for animated sequences
             framework = ImageFramework.animatedFramework(
@@ -265,7 +280,7 @@ public struct ImageTool {
             frameRate = updatedFrameRate
         }
 
-        // Fix HEIC format based on animation presence
+        // Fix HEIC format based on animation presence (duplicate, properties may have changed)
         if !isHDR, isAnimated, format == .heic {
             format = .heics
         }
