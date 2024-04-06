@@ -97,7 +97,7 @@ internal struct ImageFrame: Equatable, Hashable {
             guard cgImage != nil else { throw CompressionError.failedToReadImage }
 
             frame.cgImage = cgImage
-            frame.shouldResize = false
+            frame.shouldResize = size == nil
         }
 
         // Retrieve animation properties
