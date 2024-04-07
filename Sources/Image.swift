@@ -403,6 +403,7 @@ public struct ImageTool {
         try saveImage(images,
             at: destination,
             overwrite: overwrite,
+            skipGPSMetadata: skipMetadata,
             settings: settings,
             orientation: orientation,
             isHDR: isHDR,
@@ -435,6 +436,7 @@ public struct ImageTool {
         _ frames: [ImageFrame],
         at url: URL,
         overwrite: Bool = false,
+        skipGPSMetadata: Bool = false,
         settings: ImageSettings,
         orientation: CGImagePropertyOrientation? = nil,
         isHDR: Bool? = nil,
@@ -465,6 +467,10 @@ public struct ImageTool {
         switch imageFormat {
         case .heif, .heif10, nil:
             let ciContext = CIContext()
+            var metadata = metadata
+            if skipGPSMetadata {
+                metadata?[kCGImagePropertyGPSDictionary] = nil
+            }
 
             // Get image
             let ciImage: CIImage
@@ -551,6 +557,11 @@ public struct ImageTool {
                 kCGImageDestinationEmbedThumbnail: embedThumbnail
             ]
 
+            // Exclude GPS
+            if skipGPSMetadata {
+                imageOptions[kCGImageMetadataShouldExcludeGPS] = kCFBooleanTrue!
+            }
+
             // Adjust colors for sharing
             if settings.optimizeColorForSharing {
                 imageOptions[kCGImageDestinationOptimizeColorForSharing] = optimizeColors
@@ -600,8 +611,8 @@ public struct ImageTool {
                 }
 
                 // IPTC
-                if let apple = metadata[kCGImagePropertyIPTCDictionary] {
-                    imageOptions[kCGImagePropertyIPTCDictionary] = apple
+                if let iptc = metadata[kCGImagePropertyIPTCDictionary] {
+                    imageOptions[kCGImagePropertyIPTCDictionary] = iptc
                 }
             }
 
