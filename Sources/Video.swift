@@ -1147,20 +1147,24 @@ public struct VideoTool {
                         bitrate = 128_000
                     }
                     let quality = (audioSettings.quality ?? .high).rawValue
+                    if quality != 0 {
+                        // Formula: bitrate / (8 * channels * quality)
+                        let doubleValue: Double = Double(bitrate) / (8 * Double(channelsPerFrame!) * Double(quality))
 
-                    // Formula: bitrate / (8 * channels * quality)
-                    let doubleValue: Double = Double(bitrate) / (8 * Double(channelsPerFrame!) * Double(quality))
+                        // Limit values in range 0-31
+                        let intValue = Int(doubleValue + 0.5) & 0x1F
 
-                    // Limit values in range 0-31
-                    let intValue = Int(doubleValue + 0.5) & 0x1F
+                        // Find closest divadable by 8 value
+                        let remainder = intValue % 8
+                        bitsPerChannel = remainder == 0 ? intValue : intValue + (8 - remainder)
 
-                    // Find closest divadable by 8 value
-                    let remainder = intValue % 8
-                    bitsPerChannel = remainder == 0 ? intValue : intValue + (8 - remainder)
-
-                    // Bit depth can only be one of: 8, 16, 24, 32
-                    if ![8, 16, 24, 32].contains(bitsPerChannel) {
-                        bitsPerChannel = 16
+                        // Bit depth can only be one of: 8, 16, 24, 32
+                        if ![8, 16, 24, 32].contains(bitsPerChannel) {
+                            bitsPerChannel = 16
+                        }
+                    } else {
+                        // Minimal quality
+                        bitsPerChannel = 8
                     }
                 }
 
