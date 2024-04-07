@@ -150,33 +150,38 @@ public struct AudioTool {
 
         // MARK: Metadata
 
-        // Load file metadata
-        var metadata = await asset.getMetadata()
-        // Convert ID3 and other tags to common key space when possible
-        if !metadata.isEmpty {
-            var commonMetadata: [AVMetadataItem] = []
+        var metadata: [AVMetadataItem] = []
+        if !skipSourceMetadata {
+            // Load file metadata
+            metadata = await asset.getMetadata()
+            // Convert ID3 and other tags to common key space when possible
+            if !metadata.isEmpty {
+                var commonMetadata: [AVMetadataItem] = []
 
-            for item in metadata {
-                guard let key = item.commonKey else { continue }
+                for item in metadata {
+                    guard let key = item.commonKey else { continue }
 
-                let metadataItem = AVMutableMetadataItem()
-                metadataItem.key = key as NSString
-                metadataItem.keySpace = AVMetadataKeySpace.common
-                metadataItem.value = item.value
-                metadataItem.dataType = item.dataType
+                    let metadataItem = AVMutableMetadataItem()
+                    metadataItem.key = key as NSString
+                    metadataItem.keySpace = AVMetadataKeySpace.common
+                    metadataItem.value = item.value
+                    metadataItem.dataType = item.dataType
 
-                commonMetadata.append(metadataItem)
+                    commonMetadata.append(metadataItem)
+                }
+
+                // Append converted tags without removing original items
+                metadata.append(contentsOf: commonMetadata)
             }
-
-            // Append converted tags without removing original items
-            metadata.append(contentsOf: commonMetadata)
         }
 
         // Append custom metadata
         metadata.append(contentsOf: customMetadata)
 
         // Insert source file and custom metadata
-        writer.metadata = metadata
+        if !metadata.isEmpty {
+            writer.metadata = metadata
+        }
 
         // MARK: Compression
 
