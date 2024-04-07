@@ -1451,7 +1451,7 @@ public struct VideoTool {
             url: source,
             resolution: size,
             // orientation: videoTrack.orientation,
-            frameRate: Int(frameRate),
+            frameRate: Int(frameRate.rounded()),
             totalFrames: Int(totalFrames),
             duration: duration,
             videoCodec: videoCodec,
