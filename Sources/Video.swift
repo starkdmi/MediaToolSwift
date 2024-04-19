@@ -530,7 +530,8 @@ public struct VideoTool {
         // Source video resolution
         let orientation = videoTrack.orientation
         variables.orientation = orientation
-        let sourceVideoSize = videoTrack.naturalSize.oriented(orientation)
+        let naturalSize = videoTrack.naturalSize
+        let sourceVideoSize = naturalSize.oriented(orientation)
 
         // Video settings
         var videoCompressionSettings: [String: Any] = [:]
@@ -712,8 +713,9 @@ public struct VideoTool {
         if videoCodec == .h264 || videoCodec == .hevc || videoCodec == .hevcWithAlpha {
             /// Set bitrate value and update `targetBitrate` variable
             func setBitrate(_ value: Int) {
-                // For the same codec use source bitrate as maximum value
-                if !videoCodecChanged {
+                // For the same codec and resolution use source bitrate as maximum value
+                if !videoCodecChanged &&
+                    targetVideoSize.width <= naturalSize.width && targetVideoSize.height <= naturalSize.height {
                     if value >= Int(sourceBitrate) {
                         // Use source bitrate when higher value targeted
                         videoCompressionSettings[AVVideoAverageBitRateKey] = sourceBitrate
@@ -803,7 +805,7 @@ public struct VideoTool {
         if videoCodecChanged == false, // output codec equals source video codec
            bitrateChanged == false, // bitrate not changed
            videoSettings.quality == defaultSettings.quality, // quality set to default value
-           targetVideoSize == sourceVideoSize, // output size equals source resolution
+           targetVideoSize == naturalSize, // output size equals source resolution
            variables.frameRate == defaultSettings.frameRate, // output frame rate greater or equals source frame rate
            !(videoSettings.preserveAlphaChannel == false && hasAlphaChannel == true), // false if alpha is removed
            videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue, // profile set to default value
