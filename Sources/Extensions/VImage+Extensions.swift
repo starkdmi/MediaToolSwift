@@ -142,6 +142,7 @@ internal extension vImage {
         }
 
         // Apply operations in sorted order
+        var imageProcessor: ImageProcessor?
         let operations = operations.sorted()
         for operation in operations {
             switch operation {
@@ -196,10 +197,9 @@ internal extension vImage {
                         premultipliedAlpha = true
                     }*/
                 }
-            /*case .imageProcessing(let function):
+            case .imageProcessing(let processor):
                 // Custom image processing callback, executed after all the other image operations
-                break
-            */
+                imageProcessor = processor
             }
         }
 
@@ -221,6 +221,11 @@ internal extension vImage {
             image = cgImage
         }
         try error.check()*/
+
+        // Apply custom image processor
+        if let imageProcessor = imageProcessor, let cgImage = imageProcessor(nil, image, orientation, index).cgImage {
+            image = cgImage
+        }
 
         return image
     }

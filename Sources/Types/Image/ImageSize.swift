@@ -8,7 +8,7 @@ public enum ImageSize: Equatable {
     /// Size to fit in
     case fit(CGSize)
 
-    /// Scale (fill) - no aspect ration preserving
+    /// Scale (fill) - no aspect ratio preserving
     // case scale(CGSize)
 
     /// Cropping size and alignment, `fit` primarly used in video thumbnails

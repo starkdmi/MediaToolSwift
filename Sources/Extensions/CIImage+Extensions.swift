@@ -171,6 +171,7 @@ internal extension CIImage {
         }
 
         // Apply operations in sorted order
+        var imageProcessor: ImageProcessor?
         for operation in operations.sorted() {
             switch operation {
             case let .rotate(value, fill):
@@ -195,8 +196,8 @@ internal extension CIImage {
                     ciImage = ciImage
                         .transformed(by: CGAffineTransform(scaleX: -1.0, y: 1.0))
                 }
-            /*case .imageProcessing(let function):
-                ciImage = function(ciImage, index)*/
+            case .imageProcessing(let processor):
+                imageProcessor = processor
             }
         }
 
@@ -211,6 +212,11 @@ internal extension CIImage {
             let color = CIColor(cgColor: backgroundColor ?? CGColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)) // black
             let background = CIImage(color: color).cropped(to: ciImage.extent)
             ciImage = ciImage.premultiplyingAlpha().composited(over: background)
+        }
+
+        // Apply custom image processor
+        if let imageProcessor = imageProcessor, let image = imageProcessor(ciImage, nil, orientation, index).ciImage {
+            ciImage = image
         }
 
         // Return modified image

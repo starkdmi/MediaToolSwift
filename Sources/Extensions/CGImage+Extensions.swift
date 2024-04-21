@@ -31,10 +31,21 @@ public extension CGImage {
         return nil
     }
 
-    /// Resize `CGImage`
+    /// Resize `CGImage` to fit, with aspect ration preserving
     func resizing(to size: CGSize) -> CGImage? {
         let size = self.size.fit(in: size)
 
+        guard let context = CGContext.make(self, width: Int(size.width), height: Int(size.height)) else {
+            return nil
+        }
+
+        context.draw(self, in: CGRect(origin: .zero, size: size))
+
+        return context.makeImage()
+    }
+
+    /// Scale `CGImage` to fill
+    func scaling(to size: CGSize) -> CGImage? {
         guard let context = CGContext.make(self, width: Int(size.width), height: Int(size.height)) else {
             return nil
         }
@@ -255,6 +266,7 @@ internal extension CGImage {
         }
 
         // Apply operations in sorted order
+        var imageProcessor: ImageProcessor?
         for operation in operations.sorted() {
             switch operation {
             case let .rotate(value, fill):
@@ -285,8 +297,8 @@ internal extension CGImage {
                         cgImage = mirrored
                     }
                 }
-            /*case .imageProcessing(let function):
-                cgImage = function(cgImage, index)*/
+            case .imageProcessing(let processor):
+                imageProcessor = processor
             }
         }
 
@@ -297,6 +309,11 @@ internal extension CGImage {
             if let blended = cgImage.replacingAlphaChannel(with: color) {
                 cgImage = blended
             }
+        }
+
+        // Apply custom image processor
+        if let imageProcessor = imageProcessor, let image = imageProcessor(nil, cgImage, orientation, index).cgImage {
+            cgImage = image
         }
 
         // Return modified image

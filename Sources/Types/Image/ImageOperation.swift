@@ -15,6 +15,12 @@ public enum RotationFill {
     case color(alpha: UInt8, red: UInt8, green: UInt8, blue: UInt8)
 }
 
+/// Image processor type
+/// Only one image passed in based on `preferredFramework` and internal framework support (`CIImage` doesn't support animations)
+/// Return image of the same type to be written - when `CGImage` is not `nil`, modify and return `CGImage` while passing `nil` for `CIImage`
+/// Index used as a frame number (starts with zero), `0` for static images
+public typealias ImageProcessor = (_ ciImage: CIImage?, _ cgImage: CGImage?, _ orientation: CGImagePropertyOrientation?, _ index: Int) -> (ciImage: CIImage?, cgImage: CGImage?)
+
 /// Image operations
 public enum ImageOperation: Equatable, Hashable, Comparable {
     /// Rotation
@@ -29,8 +35,7 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
     case mirror
 
     /// Custom image processing function, appplied after all the other image operations
-    /// Index used as a frame number, `0` for static images
-    // case imageProcessing((_ image: CGImage, _ index: Int) -> CGImage) // vImage, CIImage
+    case imageProcessing(ImageProcessor)
 
     /// Operation priority
     private var priority: Int {
@@ -41,9 +46,9 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
             return 2
         case .mirror:
             return 3
-        /*case .imageProcessing(_):
+        case .imageProcessing(_):
             // Should be executed after all the operations
-            return 100*/
+            return 100
         }
     }
 
@@ -65,8 +70,8 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
             hasher.combine("flip")
         case .mirror:
             hasher.combine("mirror")
-        /*case .imageProcessing(_):
-             hasher.combine("ImageProcessing")*/
+        case .imageProcessing(_):
+             hasher.combine("ImageProcessing")
         }
     }
 
@@ -78,6 +83,8 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
         case (.flip, .flip):
             return true
         case (.mirror, .mirror):
+            return true
+        case (.imageProcessing, .imageProcessing):
             return true
         default:
             return false
