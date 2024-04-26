@@ -257,7 +257,7 @@ public enum ImageFormat: Hashable, Equatable {
             return format.isAnimationSupported
         }
 
-        return self == .gif || self == .heics || self == .png
+        return self == .gif || self == .heics || self == .png || self == .pdf
     }
 
     /// Format works in old color format and low quality
