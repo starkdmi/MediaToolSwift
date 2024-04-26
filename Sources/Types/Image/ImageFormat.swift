@@ -86,6 +86,11 @@ public enum ImageFormat: Hashable, Equatable {
     ]
     #endif
 
+    /// Available output image formats
+    public static var allCases: [ImageFormat] {
+        return allFormats
+    }
+
     /// Registered custom  formats
     internal static var customFormats: [String: any CustomImageFormat] = [:]
 
