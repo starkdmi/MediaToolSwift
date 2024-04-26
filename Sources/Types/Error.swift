@@ -26,7 +26,7 @@ public struct CompressionError: LocalizedError, Equatable {
     public static let destinationFileExists = CompressionError(description: "Destination file already exists, use `overwrite` flag to overwrite")
     public static let cannotOverWrite = CompressionError(description: "Cannot overwrite file at selected destination")
     public static let invalidFileType = CompressionError(description: "Invalid combination of file type and destination file extension")
-    public static let redunantCompression = CompressionError(description: "Compression is redunant - video and audio won't be modified during the compression")
+    public static let redundantCompression = CompressionError(description: "Compression is redundant - video and audio won't be modified during the compression")
     public static let failedToReadVideo = CompressionError(description: "Couldn't add video to reader")
     public static let failedToWriteVideo = CompressionError(description: "Couldn't add video to writer")
     public static let failedToReadAudio = CompressionError(description: "Couldn't add audio to reader")

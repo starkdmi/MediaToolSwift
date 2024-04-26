@@ -1,5 +1,5 @@
 ## Convert
-Convert video and audio tracks between multiple formats. Converting __audio/video__ only track will preserve original __video/audio__ (lossless). In case the video and audio won't be modified based on source file and output settings the compression will __throw__ with ```CompressionError.redunantCompression```.
+Convert video and audio tracks between multiple formats. Converting __audio/video__ only track will preserve original __video/audio__ (lossless). In case the video and audio won't be modified based on source file and output settings the compression will __throw__ with ```CompressionError.redundantCompression```.
 
 <!--__Supported video codecs:__
 - H.264

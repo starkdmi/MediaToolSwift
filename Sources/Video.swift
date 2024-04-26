@@ -174,7 +174,7 @@ public struct VideoTool {
 
         // Prevent the compression when video and audio settings are same as the source file
         if !videoVariables.hasChanges, !audioVariables.hasChanges {
-            callback(.failed(CompressionError.redunantCompression))
+            callback(.failed(CompressionError.redundantCompression))
             return task
         }
 

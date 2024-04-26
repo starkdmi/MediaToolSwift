@@ -129,7 +129,7 @@ public struct AudioTool {
 
         // Prevent the compression when audio settings are same as the source file
         if audioVariables.skipAudio || !(audioVariables.hasChanges || timeRange != nil) {
-            callback(.failed(CompressionError.redunantCompression))
+            callback(.failed(CompressionError.redundantCompression))
             return task
         }
 
