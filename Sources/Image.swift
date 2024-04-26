@@ -547,7 +547,7 @@ public struct ImageTool {
         case .jpeg2000:
             fallthrough
         #endif
-        case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic, .heics:
+        case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic, .heics, .pdf:
             guard let utType = format.utType, let destination = CGImageDestinationCreateWithURL(url as CFURL, utType, frames.count, nil) else {
                 // debugPrint(CGImageSourceCopyTypeIdentifiers()) // supported output image formats when using `CGImageDestination` methods
                 throw CompressionError.failedToCreateImageFile
@@ -727,6 +727,22 @@ public struct ImageTool {
 
             // Write
             if CGImageDestinationFinalize(destination) == false {
+                throw CompressionError.failedToSaveImage
+            }
+        case .custom(let identifier):
+            do {
+                // Custom encoder
+                try ImageFormat.customFormats[identifier]!.write(
+                    frames: frames,
+                    to: url,
+                    skipMetadata: skipGPSMetadata,
+                    settings: settings,
+                    orientation: orientation,
+                    isHDR: isHDR,
+                    primaryIndex: primaryIndex,
+                    metadata: metadata
+                )
+            } catch {
                 throw CompressionError.failedToSaveImage
             }
         }

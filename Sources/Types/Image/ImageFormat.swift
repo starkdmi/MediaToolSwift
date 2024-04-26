@@ -4,8 +4,35 @@ import AVFoundation
 import MobileCoreServices
 #endif
 
+/// Custom image encoder
+public protocol CustomImageFormat {
+    /// Type ID, should be unique for each custom format
+    var identifier: String { get }
+
+    /// Corresponding `kUTType`,  should be unique per format
+    var utType: CFString? { get }
+
+    /// Indicator of animation supported format
+    var isAnimationSupported: Bool { get }
+
+    /// Format works in old color format and low quality
+    var isLowQuality: Bool { get }
+
+    /// Encode and write an image to the file
+    func write(
+        frames: [ImageFrame],
+        to url: URL,
+        skipMetadata: Bool,
+        settings: ImageSettings,
+        orientation: CGImagePropertyOrientation?,
+        isHDR: Bool?,
+        primaryIndex: Int,
+        metadata: [CFString: Any]?
+    ) throws
+}
+
 /// Image formats, only formats with encoding/writing support are included
-public enum ImageFormat: String, CaseIterable {
+public enum ImageFormat: Hashable, Equatable {
     /// HEIC (HEIF with HEVC compression) image format
     case heif
 
@@ -42,9 +69,60 @@ public enum ImageFormat: String, CaseIterable {
     /// Icon image format, squared only with 6, 32, 48, 128, or 256 pixels wide
     case ico
 
-    /// Decoding of static and animated images is supported by Apple
-    /// The encoding implemented in separate `plus` branch - https://github.com/starkdmi/MediaToolSwift/tree/plus
-    // case webp // UTType.webP
+    /// Adobe PDF format
+    case pdf
+
+    /// Custom image format, should be a registered format
+    case custom(String)
+
+    /// Predefined formats
+    #if os(macOS)
+    internal static var allFormats: [ImageFormat] = [
+        .heif, .heif10, .heic, .heics, .png, .jpeg, .jpeg2000, .gif, .tiff, .bmp, .ico, .pdf
+    ]
+    #else
+    internal static var allFormats: [ImageFormat] = [
+        .heif, .heif10, .heic, .heics, .png, .jpeg, .gif, .tiff, .bmp, .ico, .pdf
+    ]
+    #endif
+
+    /// Registered custom  formats
+    internal static var customFormats: [String: any CustomImageFormat] = [:]
+
+    /// Register custom image format
+    public static func registerCustomFormat(_ format: any CustomImageFormat) {
+        let identifier = format.identifier
+        Self.customFormats[identifier] = format
+        Self.allFormats.append(.custom(identifier))
+    }
+
+    /// Equatable conformance
+    public static func == (lhs: ImageFormat, rhs: ImageFormat) -> Bool {
+        switch (lhs, rhs) {
+        case (.heif, .heif): return true
+        case (.heif10, .heif10): return true
+        case (.heic, .heic): return true
+        case (.heics, .heics): return true
+        case (.png, .png): return true
+        case (.jpeg, .jpeg): return true
+        #if os(macOS)
+        case (.jpeg2000, .jpeg2000): return true
+        #endif
+        case (.gif, .gif): return true
+        case (.tiff, .tiff): return true
+        case (.bmp, .bmp): return true
+        case (.ico, .ico): return true
+        case (.pdf, .pdf): return true
+        case (.custom(let lhsFormatId), .custom(let rhsFormatId)):
+            return lhsFormatId == rhsFormatId
+        default: return false
+        }
+    }
+
+    /// Hashable conformance
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(utType)
+    }
 
     /// Corresponding `kUTType`
     public var utType: CFString? {
@@ -93,13 +171,21 @@ public enum ImageFormat: String, CaseIterable {
             } else {
                 return kUTTypeICO
             }
+        case .pdf:
+            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
+                return UTType.pdf.identifier as CFString
+            } else {
+                return kUTTypePDF
+            }
+        case .custom(let identifier):
+            return Self.customFormats[identifier]?.utType
         }
     }
 
     /// Init `ImageFormat` using UTType CFString
     /// Warning: `ImageFormat.heif` is returned for all the HEIF related formats
     public init?(_ cfString: CFString) {
-        if let format = ImageFormat.allCases.first(where: { format in
+        if let format = ImageFormat.allFormats.first(where: { format in
             if let utType = format.utType, utType == cfString {
                 return true
             }
@@ -167,11 +253,19 @@ public enum ImageFormat: String, CaseIterable {
 
     /// Indicator of animation supported format
     internal var isAnimationSupported: Bool {
+        if case .custom(let identifier) = self, let format = Self.customFormats[identifier] {
+            return format.isAnimationSupported
+        }
+
         return self == .gif || self == .heics || self == .png
     }
 
     /// Format works in old color format and low quality
     internal var isLowQuality: Bool {
+        if case .custom(let identifier) = self, let format = Self.customFormats[identifier] {
+            return format.isLowQuality
+        }
+
         #if os(macOS)
         return self == .gif || self == .jpeg2000
         #else

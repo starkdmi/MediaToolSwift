@@ -2,41 +2,41 @@ import Foundation
 import CoreImage
 
 /// Image frame of a static or animated image
-internal struct ImageFrame: Equatable, Hashable {
+public struct ImageFrame: Equatable, Hashable {
     /// A `CGImage` representing frame, operations in`vImage`
-    var cgImage: CGImage?
+    public var cgImage: CGImage?
 
     /// A `CIImage` representing frame, operations in `CIImage`
-    var ciImage: CIImage?
+    public var ciImage: CIImage?
 
     /// Flag for additional image resizing
-    var shouldResize: Bool = false
+    public var shouldResize: Bool = false
 
     /// The number of seconds to wait before displaying the next image in an animated sequence, clamped to a minimum of 100 milliseconds
-    var delayTime: Double?
+    public var delayTime: Double?
 
     /// The number of seconds to wait before displaying the next image in an animated sequence
-    var unclampedDelayTime: Double?
+    public var unclampedDelayTime: Double?
 
     /// The number of times to repeat an animated sequence.
-    var loopCount: Int?
+    public var loopCount: Int?
 
     /// The width of the main image, in pixels
-    var canvasWidth: Double?
+    public var canvasWidth: Double?
 
     /// The height of the main image, in pixels
-    var canvasHeight: Double?
+    public var canvasHeight: Double?
 
     /// An array of dictionaries that contain timing information for the image sequence
-    var frameInfoArray: [CFDictionary]?
+    public var frameInfoArray: [CFDictionary]?
 
     /// Image size
-    var size: CGSize {
+    public var size: CGSize {
         return cgImage?.size ?? ciImage?.extent.size ?? .zero
     }
 
     /// Canvas size
-    var canvasSize: CGSize? {
+    public var canvasSize: CGSize? {
         if let width = self.canvasWidth, let height = self.canvasHeight {
             return CGSize(width: width, height: height)
         } else {
@@ -45,7 +45,7 @@ internal struct ImageFrame: Equatable, Hashable {
     }
 
     /// Load image frame from file
-    static func load(
+    internal static func load(
         url: URL,
         imageSource: CGImageSource,
         index: Int,
