@@ -562,8 +562,8 @@ public struct ImageTool {
                 imageOptions[kCGImageMetadataShouldExcludeGPS] = kCFBooleanTrue!
             }
 
-            // Adjust colors for sharing
-            if settings.optimizeColorForSharing {
+            // Adjust colors for sharing, GIF and BMP provide incorrect image orientation
+            if settings.optimizeColorForSharing && format != .gif && format != .bmp {
                 imageOptions[kCGImageDestinationOptimizeColorForSharing] = optimizeColors
             }
 
