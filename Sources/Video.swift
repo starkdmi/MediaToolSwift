@@ -767,9 +767,10 @@ public struct VideoTool {
                 } else if videoCodec == .h264 {
                     codecMultiplier = 0.9
                 }
+                let bitsPerPixelMultiplier: Float = isHDR ? 1.25 : 1.0
                 let totalPixels = Float(targetVideoSize.width * targetVideoSize.height)
                 let fps = variables.frameRate == nil ? nominalFrameRate : Float(variables.frameRate!)
-                let rate = (totalPixels * codecMultiplier * fps) / 8
+                let rate = (totalPixels * bitsPerPixelMultiplier * codecMultiplier * fps) / 8
 
                 // videoCompressionSettings[AVVideoAverageBitRateKey] = rate.rounded()
                 setBitrate(Int(rate.rounded()))
