@@ -129,7 +129,7 @@ __Image converter focused on:__
 __[Features](Files/IMAGE.md)__
 | Convert | Resize | Crop | Rotate, Flip, Mirror | Image Processing | FPS | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| ✔️ | ✔️ | ✔️ | ✔️ | 🚧 | ✔️ | ✔️ |
+| ✔️ | ✔️ | ✔️ | ✔️ | ✔️ | ✔️ | ✔️ |
 
 __Supported image formats:__
 - HEIF
@@ -143,6 +143,7 @@ __Supported image formats:__
 - BMP
 - JPEG 2000
 - ICO
+- PDF
 
 > Additionally decoding is supported for: WebP ✨, AVIF and others
 
