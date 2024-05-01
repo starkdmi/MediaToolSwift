@@ -25,7 +25,8 @@ let package = Package(
             path: "Sources",
             exclude: [
                 "Classes/ObjCExceptionCatcher"
-            ]
+            ],
+            resources: [.copy("PrivacyInfo.xcprivacy")]
             // swiftSettings: [
             //     .unsafeFlags(["-DADVANCED", "-DIMAGEPLUS"])
             // ]

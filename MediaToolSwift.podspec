@@ -17,6 +17,7 @@ Pod::Spec.new do |spec|
   spec.platforms            = { :ios => "13.0", :osx => "11.0", :tvos => "13.0" } # :visionos => "1.0"
   spec.source_files         = "Sources/**/*.swift", "Sources/Classes/ObjCExceptionCatcher/**/*.{h,m}"
   spec.public_header_files  = "Sources/Classes/ObjCExceptionCatcher/**/*.h"
+  spec.resource_bundles     = {"MediaToolSwift" => ["Sources/PrivacyInfo.xcprivacy"]}
   #spec.pod_target_xcconfig = {
   #  'OTHER_SWIFT_FLAGS[config=Advanced]' => '-DADVANCED -DIMAGEPLUS',
   #}
