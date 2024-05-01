@@ -246,3 +246,6 @@ Use those links for more info on [video](Files/VIDEO.md), [image](Files/IMAGE.md
 
 ## Flutter
 `MediaToolSwift` is available in [Flutter](https://github.com/flutter/flutter) via [media_tool_flutter](https://pub.dev/packages/media_tool_flutter) plugin.
+
+## Media Tool
+There is a standalone macOS application based on `MediaToolSwift` source, more info can be found at [mediatool.pro](https://mediatool.pro).
