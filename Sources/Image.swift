@@ -588,7 +588,11 @@ public struct ImageTool {
             }*/
 
             // Apply orientation and remove EXIF/TIFF orientation related keys from metadata
+            #if os(macOS)
             let orientInPlace = format == .jpeg2000
+            #else
+            let orientInPlace = false
+            #endif
 
             // Metadata
             if let metadata = metadata {
@@ -725,11 +729,14 @@ public struct ImageTool {
                     image = frame.cgImage!
                 }
 
+                #if os(macOS)
+                // Color space fallback for JP2
+                let colorSpace = format == .jpeg2000 ? CGColorSpace(name: CGColorSpace.sRGB) : image.colorSpace
+                #else
+                let colorSpace = image.colorSpace
+                #endif
                 // Orient
-                if orientInPlace, let oriented = image.orient(orientation,
-                    // Color space fallback for JP2
-                    colorSpace: format == .jpeg2000 ? CGColorSpace(name: CGColorSpace.sRGB) : image.colorSpace
-                ) {
+                if orientInPlace, let oriented = image.orient(orientation, colorSpace: colorSpace) {
                     image = oriented
                 }
 
