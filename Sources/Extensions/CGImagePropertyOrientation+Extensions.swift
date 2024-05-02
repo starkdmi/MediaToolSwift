@@ -68,5 +68,5 @@ internal extension CGImagePropertyOrientation {
         case .rightMirrored: return "Right Mirrored"
         default: return "Unknown"
         }
-    })*/
+    }*/
 }

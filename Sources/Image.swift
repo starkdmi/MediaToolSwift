@@ -587,6 +587,9 @@ public struct ImageTool {
                 imageOptions[kCGImageDestinationBackgroundColor] = bgraColor
             }*/
 
+            // Apply orientation and remove EXIF/TIFF orientation related keys from metadata
+            let orientInPlace = format == .jpeg2000
+
             // Metadata
             if let metadata = metadata {
                 // GPS
@@ -601,7 +604,7 @@ public struct ImageTool {
 
                 // TIFF
                 if var tiff = metadata[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
-                    tiff[kCGImagePropertyTIFFOrientation] = orientation?.rawValue // override orientation
+                    tiff[kCGImagePropertyTIFFOrientation] = orientInPlace ? nil : orientation?.rawValue // override orientation
                     imageOptions[kCGImagePropertyTIFFDictionary] = tiff
                 }
 
@@ -618,7 +621,7 @@ public struct ImageTool {
 
             // Orientation
             if let orientation = orientation {
-                imageOptions[kCGImagePropertyOrientation] = orientation.rawValue
+                imageOptions[kCGImagePropertyOrientation] = orientInPlace ? nil : orientation.rawValue
             }
 
             // Set all frame properties
@@ -714,12 +717,20 @@ public struct ImageTool {
                 }
 
                 // If image was proceed using `CIImage` convert it to `CGImage` instead of using cached `CGImage` at `frame.image`
-                let image: CGImage
+                var image: CGImage
                 if let ciImage = frame.ciImage {
                     // image = context.createCGImage(ciImage, from: ciImage.extent, format: <#T##CIFormat#>, colorSpace: <#T##CGColorSpace?#>)
                     image = context.createCGImage(ciImage, from: ciImage.extent) ?? frame.cgImage!
                 } else {
                     image = frame.cgImage!
+                }
+
+                // Orient
+                if orientInPlace, let oriented = image.orient(orientation,
+                    // Color space fallback for JP2
+                    colorSpace: format == .jpeg2000 ? CGColorSpace(name: CGColorSpace.sRGB) : image.colorSpace
+                ) {
+                    image = oriented
                 }
 
                 CGImageDestinationAddImage(destination, image, properties as CFDictionary?)

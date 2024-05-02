@@ -31,6 +31,52 @@ public extension CGImage {
         return nil
     }
 
+    /// Orient `CGImage` based on `CGImagePropertyOrientation`
+    func orient(_ orientation: CGImagePropertyOrientation?, colorSpace: CGColorSpace? = nil) -> CGImage? {
+        guard orientation != nil && orientation != .up else { return self }
+
+        let size = self.size.oriented(orientation)
+        var transform: CGAffineTransform = .identity
+
+        switch orientation {
+        case .down, .downMirrored:
+            transform = CGAffineTransformTranslate(transform, size.width, size.height)
+            transform = CGAffineTransformRotate(transform, .pi)
+        case .left, .leftMirrored:
+            transform = CGAffineTransformTranslate(transform, size.width, 0)
+            transform = CGAffineTransformRotate(transform, .pi / 2)
+        case .right, .rightMirrored:
+            transform = CGAffineTransformTranslate(transform, 0, size.height)
+            transform = CGAffineTransformRotate(transform, -.pi / 2)
+        default:
+            break
+        }
+
+        switch orientation {
+        case .upMirrored, .downMirrored:
+            transform = CGAffineTransformTranslate(transform, size.width, 0)
+            transform = CGAffineTransformScale(transform, -1, 1)
+        case .leftMirrored, .rightMirrored:
+            transform = CGAffineTransformTranslate(transform, size.height, 0)
+            transform = CGAffineTransformScale(transform, -1, 1)
+        default:
+            break
+        }
+
+        guard let context = CGContext.make(self, width: Int(size.width), height: Int(size.height), colorSpace: colorSpace) else { return nil }
+
+        context.concatenate(transform)
+
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            context.draw(self, in: CGRect(origin: .zero, size: CGSize(width: size.height, height: size.width)))
+        default:
+            context.draw(self, in: CGRect(origin: .zero, size: size))
+        }
+
+        return context.makeImage()
+    }
+
     /// Resize `CGImage` to fit, with aspect ration preserving
     func resizing(to size: CGSize) -> CGImage? {
         let size = self.size.fit(in: size)
