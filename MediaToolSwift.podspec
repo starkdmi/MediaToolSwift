@@ -5,7 +5,7 @@
 
 Pod::Spec.new do |spec|
   spec.name                 = "MediaToolSwift"
-  spec.version              = "1.1.2"
+  spec.version              = "1.2.0"
   spec.summary              = "A Swift library for media handling and manipulation."
   spec.description          = <<-DESC
                       MediaToolSwift is a Swift library that provides a collection of classes and utilities for media handling and manipulation. It provides an easy-to-use interface for performing common media operations such as compression, conversion, resizing and more. Supports video, image and audio media types.
