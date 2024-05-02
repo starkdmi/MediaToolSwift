@@ -164,6 +164,12 @@ let info = try ImageTool.convert(
             // .rotate(.angle(.pi/4), fill: .blur(kernel: 55)), // rotate extend blurred
             // .rotate(.angle(.pi/4), fill: .color(alpha: 255, red: 255, green: 255, blue: 255)), // rotate extend with color
             // flip, mirror, atd.
+
+            // modify image frame(s)
+            .imageProcessing { ciImage, cgImage, _, _ in
+                guard let ciImage = ciImage else { return (ciImage, cgImage) }
+                return (ciImage.applyingGaussianBlur(sigma: 7), nil)
+            }
         ]
     )
 )
@@ -248,4 +254,4 @@ Use those links for more info on [video](Files/VIDEO.md), [image](Files/IMAGE.md
 `MediaToolSwift` is available in [Flutter](https://github.com/flutter/flutter) via [media_tool_flutter](https://pub.dev/packages/media_tool_flutter) plugin.
 
 ## Media Tool
-There is a standalone macOS application based on `MediaToolSwift` source, more info can be found at [mediatool.pro](https://mediatool.pro).
+There is a standalone macOS application based on `MediaToolSwift` source, more info can be found at [mediatool.pro](https://mediatool.pro)

@@ -67,7 +67,6 @@ filesize, sample rate, waveform
 ## Image
 
 __Base__
-- ImageEncoder protocol - Expose encoder to easily add support for WebP and others
 - Quality options should also apply to lossless formats to decrease file size when converting PNG to PNG
 - Prefer `CIImage` load/edit when output format is HEIF/HEIF10
 - `CGColorSpace` and `CIFormat` optional parameters
@@ -77,24 +76,11 @@ __Base__
 - Test images with HDR Gain Map, fallback to `CIImage` if contains gain map?
 - Frame rate adjustment performance improvement - when `settings.frameRate` is specified, load properties, calculate duration and frame rate and do NOT load unused frames.
 - Animated image concurency
-- Instead of custom `imageProcessing()` for images use the `CGAffineTransform`? Supported by all three image frameworks.
 - New image/video operation - blur region of interest - `vImage_Buffer.blurred_ARGB8888(regionOfInterest:blurRadius:)`
 - `RotationFill.blur` for `CIImage` and `vImage` may resize background to smaller resolution before applying the blur effect for better performance (will require lower kernel value)
-- Strip GPS metadata using `kCGImageMetadataShouldExcludeGPS`?
 - Resolve invalid frame rate (rounding)
 - Background remover (lift an object via [VNGenerateForegroundInstanceMaskRequest](https://developer.apple.com/videos/play/wwdc2023/10176/)) iOS 17+ or `VNGeneratePersonSegmentationRequest` iOS 15+)
 - BlurHash
-
-__Formats__
-```
-WebP
-
-[AVIF](https://github.com/SDWebImage/SDWebImageAVIFCoder)
-
-SVG (PNG, JPEG, ... in SVG tag) - https://github.com/dagronf/SwiftImageReadWrite
-
-PDF
-```
 
 __Panoramas, Portraits, Live Photos, Raw Images__
 - Live Photo = Heic image + QuickTime video, [LivePhoto.Swift](https://github.com/LimitPoint/LivePhoto), `UTType.livePhoto`

@@ -109,3 +109,25 @@ let info = try ImageTool.getInfo(source: url)
 
 ## Image Frameworks
 Three image frameworks are capable to execute the same image operations. The choice of framework is based on `preferredFramework` parameter and supported by framework image formats. For example `CIImage` cannot load animated image from file, so will fallback to `CGImage`.
+
+## Frame Processing
+Based on image format and settings the `CIImage` or `CGImage` is used internally, that exact type is available via `imageProcessing` callback. For example, static HDR image is proceed using `CIImage` framework, so the `CGImage` in `ImageProcessor` will be nil, and you only need to pass the proceed `CIImage` back. Index is helpful for animated images. The next code will scale image by 4X:
+
+```Swift
+ImageSettings(edit: [
+    .imageProcessing { ciImage, cgImage, orientation, index in
+        if let ciImage = ciImage {
+            let resized = ciImage.resizing(to: CGSize(width: ciImage.extent.width * 4.0, height: ciImage.extent.height * 4.0))
+            return (resized, cgImage)
+        } else if let cgImage = cgImage {
+            let resized = cgImage.resizing(to: CGSize(width: cgImage.width * 4, height: cgImage.height * 4)) ?? cgImage
+            return (ciImage, resized)
+        } else {
+            return (ciImage, cgImage)
+        }
+    }
+])
+```
+
+## Custom Image Format/Encoder
+Custom image encoder should implement `CustomImageFormat` protocol and be registered using `ImageFormat.registerCustomFormat(SomeCustomImageFormat())`. Custom image encoder receives the final image and is responsible for writing encoded data to the file at provided url.
