@@ -100,6 +100,12 @@ public struct ImageTool {
         // Other settings
         var settings = settings
         var framework = settings.preferredFramework
+        #if !os(macOS)
+        // Custom encoder require conversion to a platform specific image class, which fails on iOS when CIImage image loader is used
+        if framework == .ciImage, case .custom = format {
+            framework = .cgImage
+        }
+        #endif
         let isRotationByCustomAngle = settings.edit.containsRotationByCustomAngle
 
         // HDR
@@ -549,7 +555,7 @@ public struct ImageTool {
         #endif
         case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic, .heics, .pdf:
             guard let utType = format.utType, let destination = CGImageDestinationCreateWithURL(url as CFURL, utType, frames.count, nil) else {
-                // debugPrint(CGImageSourceCopyTypeIdentifiers()) // supported output image formats when using `CGImageDestination` methods
+                // debugPrint(CGImageDestinationCopyTypeIdentifiers()) // supported output image formats when using `CGImageDestination` methods
                 throw CompressionError.failedToCreateImageFile
             }
 
