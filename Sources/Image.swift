@@ -512,6 +512,9 @@ public struct ImageTool {
             if let quality = settings.quality {
                 optionsDict[CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)] = quality
             }
+            if skipGPSMetadata {
+                optionsDict[CIImageRepresentationOption(rawValue: kCGImageMetadataShouldExcludeGPS as String)] = kCFBooleanTrue!
+            }
 
             do {
                 func getColorSpace() -> CGColorSpace {
