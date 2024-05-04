@@ -537,8 +537,8 @@ public struct ImageTool {
                         try ciContext.writeHEIFRepresentation(of: ciImage, to: url, format: pixelFormat, colorSpace: colorSpace, options: optionsDict)
                     }
                 case .png:
-                    // Warning: PNG will store up to 16 bit per component, no OpenEXR support
-                    let colorSpace = CGColorSpace(name: CGColorSpace.genericRGBLinear)! // ciImage.depth <= 8 ? getColorSpace() :
+                    // Warning: PNG will store up to 16 bit per component
+                    let colorSpace = ciImage.depth <= 8 ? getColorSpace() : CGColorSpace(name: CGColorSpace.genericRGBLinear)!
                     try ciContext.writePNGRepresentation(of: ciImage, to: url, format: ciImage.pixelFormat, colorSpace: colorSpace, options: optionsDict)
                 case .tiff:
                     let colorSpace = ciImage.depth <= 8 ? getColorSpace() : CGColorSpace(name: CGColorSpace.displayP3_HLG)! // itur_2100_HLG/displayP3_PQ
