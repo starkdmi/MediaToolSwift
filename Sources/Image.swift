@@ -556,7 +556,7 @@ public struct ImageTool {
         case .jpeg2000:
             fallthrough
         #endif
-        case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic, .heics, .pdf:
+        case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic, .heics, .exr, .pdf:
             guard let utType = format.utType, let destination = CGImageDestinationCreateWithURL(url as CFURL, utType, frames.count, nil) else {
                 // debugPrint(CGImageDestinationCopyTypeIdentifiers()) // supported output image formats when using `CGImageDestination` methods
                 throw CompressionError.failedToCreateImageFile
@@ -629,6 +629,11 @@ public struct ImageTool {
                 // IPTC
                 if let iptc = metadata[kCGImagePropertyIPTCDictionary] {
                     imageOptions[kCGImagePropertyIPTCDictionary] = iptc
+                }
+
+                // OpenEXR
+                if let exr = metadata[kCGImagePropertyOpenEXRDictionary] {
+                    imageOptions[kCGImagePropertyOpenEXRDictionary] = exr
                 }
             }
 

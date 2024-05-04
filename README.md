@@ -142,6 +142,7 @@ __Supported image formats:__
 - TIFF
 - BMP
 - JPEG 2000
+- OpenEXR
 - ICO
 - PDF
 
