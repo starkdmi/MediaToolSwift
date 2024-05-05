@@ -423,6 +423,7 @@ public struct ImageTool {
             size: size,
             hasAlpha: hasAlpha && settings.preserveAlphaChannel,
             isHDR: isHDR,
+            bitDepth: depth,
             orientation: orientation,
             framesCount: images.count,
             frameRate: frameRate,
@@ -820,6 +821,7 @@ public struct ImageTool {
         var height: CGFloat?
         var hasAlpha: Bool = false
         var isHDR: Bool = false
+        var bitDepth = 8
         var orientation: CGImagePropertyOrientation?
         // Loop over all the frames
         for index in 0 ..< framesCount {
@@ -835,8 +837,10 @@ public struct ImageTool {
                 hasAlpha = properties[kCGImagePropertyHasAlpha] as? Bool ?? false
 
                 // HDR
-                let depth = properties[kCGImagePropertyDepth] as? Int ?? 8
-                isHDR = depth > 8
+                if let depth = properties[kCGImagePropertyDepth] as? Int {
+                    bitDepth = depth
+                }
+                isHDR = bitDepth > 8
 
                 // Orientation
                 if let orientationProperty = properties[kCGImagePropertyOrientation] as? UInt32 {
@@ -870,6 +874,7 @@ public struct ImageTool {
             size: CGSize(width: width ?? .zero, height: height ?? .zero),
             hasAlpha: hasAlpha,
             isHDR: isHDR,
+            bitDepth: bitDepth,
             orientation: orientation,
             framesCount: framesCount,
             frameRate: frameRate,

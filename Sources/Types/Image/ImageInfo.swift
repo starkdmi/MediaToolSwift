@@ -8,6 +8,7 @@ public struct ImageInfo {
         size: CGSize,
         hasAlpha: Bool,
         isHDR: Bool,
+        bitDepth: Int,
         orientation: CGImagePropertyOrientation? = nil,
         framesCount: Int,
         frameRate: Int? = nil,
@@ -17,6 +18,7 @@ public struct ImageInfo {
         self.size = size
         self.hasAlpha = hasAlpha
         self.isHDR = isHDR
+        self.bitDepth = bitDepth
         self.orientation = orientation
         self.framesCount = framesCount
         self.frameRate = frameRate
@@ -42,7 +44,7 @@ public struct ImageInfo {
     public let isHDR: Bool
 
     /// Bit depth | bits per component
-    // public let bitDepth: Int
+    public let bitDepth: Int
 
     /// Image orientation
     public var orientation: CGImagePropertyOrientation?
