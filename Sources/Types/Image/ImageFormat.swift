@@ -66,7 +66,7 @@ public enum ImageFormat: Hashable, Equatable {
     /// Bitmap image format
     case bmp
 
-    /// OpenEXR
+    /// OpenEXR (16-bit)
     case exr
 
     /// Icon image format, squared only with 6, 32, 48, 128, or 256 pixels wide
@@ -96,6 +96,11 @@ public enum ImageFormat: Hashable, Equatable {
 
     /// Registered custom  formats
     internal static var customFormats: [String: any CustomImageFormat] = [:]
+
+    /// Registered custom  formats
+    public static var registeredFormats: [String: any CustomImageFormat] {
+        customFormats
+    }
 
     /// Register custom image format
     public static func registerCustomFormat(_ format: any CustomImageFormat) {
