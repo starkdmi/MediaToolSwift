@@ -152,7 +152,7 @@ internal extension CIImage {
 
                 if imageSize.width > size.width || imageSize.height > size.height {
                     // Calculate size to fit in
-                    let fitSize = imageSize.fit(in: size)
+                    let fitSize = imageSize.fit(in: size) // .roundEven()
 
                     // Scale down
                     let scaleX = fitSize.width / imageSize.width
