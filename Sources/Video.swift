@@ -1702,7 +1702,7 @@ public struct VideoTool {
 
                             // Write an image
                             let frames = [ImageFrame(cgImage: image, ciImage: ciImage)]
-                            try ImageTool.saveImage(frames, at: url, settings: settings)
+                            try ImageTool.encode(frames, at: url, settings: settings)
 
                             // Add to array
                             let size = ciImage?.extent.size ?? image.size
