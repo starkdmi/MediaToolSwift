@@ -82,6 +82,11 @@ __Base__
 - Background remover (lift an object via [VNGenerateForegroundInstanceMaskRequest](https://developer.apple.com/videos/play/wwdc2023/10176/)) iOS 17+ or `VNGeneratePersonSegmentationRequest` iOS 15+)
 - BlurHash
 
+__Formats__
+```
+com.apple.icns, com.adobe.photoshop-image
+```
+
 __Panoramas, Portraits, Live Photos, Raw Images__
 - Live Photo = Heic image + QuickTime video, [LivePhoto.Swift](https://github.com/LimitPoint/LivePhoto), `UTType.livePhoto`
 - Panoramas = extra wide photo (?)
