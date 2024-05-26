@@ -124,7 +124,7 @@ public extension CGSize {
     }*/
 
     /// Round to nearest dividable by 2
-    internal func roundEven() -> CGSize {
+    func roundEven() -> CGSize {
         let width = self.width.rounded()
         let height = self.height.rounded()
 
