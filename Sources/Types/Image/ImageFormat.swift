@@ -12,6 +12,9 @@ public protocol CustomImageFormat {
     /// Corresponding `kUTType`,  should be unique per format
     var utType: CFString? { get }
 
+    // File extensions associated with format, should not conflict with built-in format extensions, empty array allowed
+    // var fileExtensions: [String] { get }
+
     /// Indicator of animation supported format
     var isAnimationSupported: Bool { get }
 
@@ -225,6 +228,14 @@ public enum ImageFormat: Hashable, Equatable {
 
     /// Init `ImageFormat` using file extension
     public init?(_ fileExtension: String) {
+        // Try initialize custom formats using file extension
+        /*for (identifier, format) in Self.customFormats {
+            if format.fileExtensions.contains(fileExtension) {
+                self = .custom(identifier)
+                return
+            }
+        }*/
+
         // Extension `.heif` isn't associated with HEIF image internally
         var filenameExtension = fileExtension
         if filenameExtension == "heif" {
