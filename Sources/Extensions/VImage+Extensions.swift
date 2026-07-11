@@ -490,20 +490,27 @@ internal extension vImage_Buffer {
         let pixelCount: Int = Int(self.width) * Int(self.height)
         let channelsPerPixel: Int = 4
 
-        let rows: Int32 = Int32(channelsPerPixel)
-        let columns: Int32 = Int32(pixelCount)
-
         var vectorA = [Float](repeating: 0, count: pixelCount * channelsPerPixel)
 
         // Convert pixels to float point
         vDSP_vfltu8(self.data, vDSP_Stride(1), &vectorA, vDSP_Stride(1), vDSP_Length(pixelCount * channelsPerPixel))
 
-        var vectorX = [Float](repeating: 1 / Float(pixelCount), count: pixelCount)
-
         var vectorY = [Float](repeating: 0, count: channelsPerPixel)
 
         // Calculate average
-        cblas_sgemv(CblasColMajor, CblasNoTrans, rows, columns, 1, &vectorA, rows, &vectorX, 1, 1, &vectorY, 1)
+        vectorA.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            for channel in 0 ..< channelsPerPixel {
+                var mean: Float = 0
+                vDSP_meanv(
+                    baseAddress.advanced(by: channel),
+                    vDSP_Stride(channelsPerPixel),
+                    &mean,
+                    vDSP_Length(pixelCount)
+                )
+                vectorY[channel] = mean
+            }
+        }
 
         // Construct the color
         /*let alpha = y[0].rounded()
