@@ -5,6 +5,8 @@
 * macOS 11.0+
 * iOS 13.0+
 * tvOS 13.0+
+* Mac Catalyst 13.1+
+* visionOS 1.0+
 
 ## Installation
 ### Swift Package Manager
@@ -250,6 +252,10 @@ task.cancel()
 Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
 
 Use those links for more info on [video](Files/VIDEO.md), [image](Files/IMAGE.md) and [audio](Files/AUDIO.md) features and operations.
+
+## Testing
+
+The required macOS suite runs only the deterministic smoke corpus. Large HDR, alpha, slow-motion, ProRes, and gain-map coverage runs in the scheduled extended suite. Those existing fixtures remain in Git for this 1.x stabilization branch: an LFS history rewrite would not reduce normal full-clone size while the published `1.2.0` tag is retained, and would add release risk. New large fixtures should not be added until a separate storage and history-migration decision is made. See [Tests/README.md](Tests/README.md) for fixture tiers and local commands.
 
 ## Flutter
 `MediaToolSwift` is available in [Flutter](https://github.com/flutter/flutter) via [media_tool_flutter](https://pub.dev/packages/media_tool_flutter) plugin.

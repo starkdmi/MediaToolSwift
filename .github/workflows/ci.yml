@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      extended_media:
+        description: Run the extended media suite
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  swift59:
+    name: Swift 5.9 compatibility
+    # Xcode 15.2 is only available on the macOS 14 hosted image. This lane
+    # needs a replacement runner when GitHub retires that image.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 15.2 (Swift 5.9)
+        run: sudo xcode-select -s /Applications/Xcode_15.2.app
+      - name: Build and test
+        run: swift test -Xswiftc -swift-version -Xswiftc 5
+
+  macos:
+    name: macOS required suite
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode 16.2 (Swift 6)
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Swift 6 strict-concurrency build and test
+        run: >-
+          swift test
+          -Xswiftc -swift-version -Xswiftc 6
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -warnings-as-errors
+
+      - name: API compatibility with 1.2.0
+        shell: bash
+        run: |
+          set -o pipefail
+          swift package diagnose-api-breaking-changes 1.2.0 --products MediaToolSwift 2>&1 | tee api-diff.log
+          ! grep -Fq "API breakage:" api-diff.log
+
+      - name: Whitespace check
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          else
+            git diff-tree --check --no-commit-id -r HEAD
+          fi
+
+      - name: Install SwiftLint
+        run: command -v swiftlint || brew install swiftlint
+
+      - name: SwiftLint
+        run: swiftlint lint
+
+      - name: Build DocC documentation
+        run: >-
+          swift package --allow-writing-to-directory "$RUNNER_TEMP/docc"
+          generate-documentation --target MediaToolSwift --disable-indexing
+          --output-path "$RUNNER_TEMP/docc"
+
+  platform-smoke:
+    name: ${{ matrix.platform }} build
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: iOS
+            triple: arm64-apple-ios13.0
+            sdk: iphoneos
+          - platform: tvOS
+            triple: arm64-apple-tvos13.0
+            sdk: appletvos
+          - platform: Mac Catalyst
+            triple: arm64-apple-ios13.1-macabi
+            sdk: macosx
+          - platform: visionOS
+            triple: arm64-apple-xros1.0
+            sdk: xros
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      - name: Build
+        shell: bash
+        run: |
+          sdk_path="$(xcrun --sdk "${{ matrix.sdk }}" --show-sdk-path)"
+          swift build --triple "${{ matrix.triple }}" \
+            -Xswiftc -sdk -Xswiftc "$sdk_path" \
+            -Xcc -isysroot -Xcc "$sdk_path" \
+            -Xswiftc -warnings-as-errors
+
+  cocoapods:
+    name: CocoaPods
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      - name: Install CocoaPods
+        run: command -v pod || gem install cocoapods -v 1.16.2 --no-document
+      - run: pod lib lint MediaToolSwift.podspec --allow-warnings
+
+  thread-sanitizer:
+    name: Thread Sanitizer cancellation stress
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      - run: >-
+          swift test --sanitize=thread
+          --filter RefactoringVerificationTests/testRepeated
+
+  extended-media:
+    name: scheduled extended media suite
+    if: github.event_name == 'schedule' || inputs.extended_media
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      - run: MEDIATOOLSWIFT_EXTENDED_MEDIA=1 swift test
