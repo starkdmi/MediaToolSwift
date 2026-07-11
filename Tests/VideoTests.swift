@@ -48,6 +48,23 @@ struct AudioData {
     let channels: Int?
 }
 
+private let extendedMediaTestsEnabled = ProcessInfo.processInfo.environment["MEDIATOOLSWIFT_EXTENDED_MEDIA"] == "1"
+private let smokeVideoFixtures: Set<String> = [
+    "chromecast.mp4",
+    "transparent_ball_hevc.mov",
+    "sunset_h264_portrait_480_848.mp4",
+    "oludeniz.MOV"
+]
+private let smokeVideoOutputs: Set<String> = [
+    "exported_chromecast.mp4",
+    "exported_transparent_ball_hevc.mov",
+    "exported_transparent_ball_hevc_2.mov",
+    "exported_sunset_h264_portrait_480_848.mp4",
+    "exported_oludeniz_default.mov",
+    "exported_oludeniz.mov",
+    "exported_oludeniz.mp4"
+]
+
 // Configurations used by tests
 var configurations: [ConfigList] {
     var videos = [
@@ -399,6 +416,43 @@ var configurations: [ConfigList] {
     // Prores
     #if !os(visionOS)
     videos.append(contentsOf: [
+        // This is kept separate from the portable HEVC alpha configurations
+        // because ProRes is unavailable on visionOS.
+        ConfigList(
+            filename: "transparent_ball_hevc.mov",
+            url: nil,
+            input: Parameters(
+                filename: "transparent_ball_hevc.mov",
+                filesize: 236_047,
+                resolution: CGSize(width: 1280.0, height: 720.0),
+                videoCodec: .hevcWithAlpha,
+                fileType: .mov,
+                bitrate: 462_000,
+                frameRate: 60,
+                duration: 4.0,
+                hasAlpha: true
+            ),
+            configs: [
+                // ProRes alpha output exercises the Apple-decoded alpha fixture.
+                Config(
+                    videoSettings: CompressionVideoSettings(
+                        codec: .proRes4444,
+                        preserveAlphaChannel: true
+                    ),
+                    output: Parameters(
+                        filename: "exported_transparent_ball_hevc_prores.mov",
+                        filesize: nil,
+                        resolution: CGSize(width: 1280.0, height: 720.0),
+                        videoCodec: .proRes4444,
+                        fileType: .mov,
+                        bitrate: nil,
+                        frameRate: 60,
+                        duration: 4.0,
+                        hasAlpha: true
+                    )
+                )
+            ]
+        ),
         ConfigList(
             filename: "transparent_ball_prores.mov",
             url: nil,
@@ -414,7 +468,9 @@ var configurations: [ConfigList] {
                 hasAlpha: true
             ),
             configs: [
-                // Prores output
+                // This FFmpeg-authored fixture advertises alpha, but Apple's
+                // decoder exposes opaque samples. Keep it for ProRes resize
+                // coverage; alpha parity is covered from the HEVC fixture.
                 Config(
                     videoSettings: CompressionVideoSettings(
                         codec: .proRes4444,
@@ -430,10 +486,11 @@ var configurations: [ConfigList] {
                         bitrate: nil,
                         frameRate: 60,
                         duration: 4.0,
-                        hasAlpha: true
+                        hasAlpha: false
                     )
                 ),
-                // HEVC output
+                // Keep codec coverage, but do not assert alpha metadata: the
+                // FFmpeg-authored source is opaque after Apple decoding.
                 Config(
                     videoSettings: CompressionVideoSettings(
                         codec: .hevcWithAlpha,
@@ -448,7 +505,7 @@ var configurations: [ConfigList] {
                         bitrate: nil,
                         frameRate: 60,
                         duration: 4.0,
-                        hasAlpha: true
+                        hasAlpha: nil
                     )
                 )
             ]
@@ -543,91 +600,93 @@ var configurations: [ConfigList] {
     ])
     #endif
 
-    // INFO: VP9 and AV1 are not supported yet
-    // Big Buck Bunny VP9 - https://test-videos.co.uk/bigbuckbunny/webm-vp9
-    // Big Buck Bunny AV1 - https://test-videos.co.uk/bigbuckbunny/webm-av1
+    // Network-only fixtures stay documented in this catalog but are excluded from
+    // the deterministic default suite. Extended tests can opt into them explicitly.
+    return videos.compactMap { video in
+        guard video.url == nil, extendedMediaTestsEnabled || smokeVideoFixtures.contains(video.filename) else {
+            return nil
+        }
 
-    // Jellyfish - https://test-videos.co.uk/jellyfish/mp4-h265
-    // Chromium test videos - https://github.com/chromium/chromium/tree/master/media/test/data
-    // WebM test videos - https://github.com/webmproject/libwebm/tree/main/testing/testdata
-    return []
-}
+        let selectedConfigs = extendedMediaTestsEnabled
+            ? video.configs
+            : video.configs.filter { smokeVideoOutputs.contains($0.output.filename) }
+        guard !selectedConfigs.isEmpty else { return nil }
 
-// Download file from url and save to local directory 
-func downloadFile(url: String, path: String) async throws {
-    let url: URL = URL(string: url)!
-    let (data, _) = try await URLSession.shared.data(from: url)
-    try data.write(to: URL(fileURLWithPath: path))
+        return ConfigList(
+            filename: video.filename,
+            url: video.url,
+            input: video.input,
+            configs: selectedConfigs
+        )
+    }
 }
 
 class MediaToolSwiftTests: XCTestCase {
 
-    static let testsDirectory = URL(fileURLWithPath: #file).deletingLastPathComponent()
+    static let testsDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     static let mediaDirectory = testsDirectory.appendingPathComponent("media")
-    static let tempDirectory = mediaDirectory.appendingPathComponent("temp")
 
-    static var setUpCalled = false
+    private var outputDirectory: URL?
 
-    override func setUp() {
-        guard !Self.setUpCalled else { return }
-
-        // Used to stop execution of fulfillment expectations whenever at least one of them fails
-        // XCTestObservationCenter.shared.addTestObserver(TestObserver())
-
-        super.setUp()
-
-        Task {
-            // Fetch all video files
-            for config in configurations {
-                if let url = config.url {
-                    let path: String = Self.mediaDirectory.appendingPathComponent(config.filename).path
-                    if !FileManager.default.fileExists(atPath: path) {
-                        try! await downloadFile(url: url, path: path)
-                    }
-                }
-            }
-        }
-
-        var isDirectory: ObjCBool = true
-        if !FileManager.default.fileExists(atPath: Self.tempDirectory.path, isDirectory: &isDirectory) {
-            try! FileManager.default.createDirectory(atPath: Self.tempDirectory.path, withIntermediateDirectories: false)
-        }
-
-        Self.setUpCalled = true
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MediaToolSwiftVideoTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        outputDirectory = directory
     }
 
-    override func tearDown() {
-        // Delete system AVAssetWriter temp files
-        do {
-            let files = try! FileManager.default.contentsOfDirectory(at: Self.tempDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
-            for file in files where !(
-                file.pathExtension.lowercased() == "mov"   ||
-                file.pathExtension.lowercased() == "mp4"   ||
-                file.pathExtension.lowercased() == "m4v"   ||
-                file.pathExtension.lowercased() == "jpg"   ||
-                file.pathExtension.lowercased() == "jpeg"  ||
-                file.pathExtension.lowercased() == "png"   ||
-                file.pathExtension.lowercased() == "bmp"   ||
-                file.pathExtension.lowercased() == "tiff"  ||
-                file.pathExtension.lowercased() == "ico"   ||
-                file.pathExtension.lowercased() == "gif"   ||
-                file.pathExtension.lowercased() == "heic"  ||
-                file.pathExtension.lowercased() == "heif"  ||
-                file.pathExtension.lowercased() == "heics" ||
-                file.pathExtension.lowercased() == "webp"  ||
-                file.pathExtension.lowercased() == "m4a"  ||
-                file.pathExtension.lowercased() == "mp3"  ||
-                file.pathExtension.lowercased() == "wav"  ||
-                file.pathExtension.lowercased() == "caf"  ||
-                file.pathExtension.lowercased() == "aiff"  ||
-                file.pathExtension.lowercased() == "aifc"  ||
-                file.hasDirectoryPath
-            ) {
-                try FileManager.default.removeItem(at: file)
-            }
-        } catch { }
+    override func tearDownWithError() throws {
+        if let outputDirectory {
+            try FileManager.default.removeItem(at: outputDirectory)
+        }
+        outputDirectory = nil
+        try super.tearDownWithError()
+    }
 
-        super.tearDown()
+    private func fixture(_ name: String, file: StaticString = #filePath, line: UInt = #line) throws -> URL {
+        let url = Self.mediaDirectory.appendingPathComponent(name)
+        return try XCTUnwrap(
+            FileManager.default.fileExists(atPath: url.path) ? url : nil,
+            "Required fixture is missing: \(name)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func extendedFixture(_ name: String, file: StaticString = #filePath, line: UInt = #line) throws -> URL {
+        guard extendedMediaTestsEnabled else {
+            throw XCTSkip("Set MEDIATOOLSWIFT_EXTENDED_MEDIA=1 to run extended media coverage")
+        }
+        return try fixture(name, file: file, line: line)
+    }
+
+    private func outputURL(_ name: String, file: StaticString = #filePath, line: UInt = #line) throws -> URL {
+        try XCTUnwrap(outputDirectory, "Test output directory was not created", file: file, line: line)
+            .appendingPathComponent(name)
+    }
+
+    private func makeOutputDirectory(named name: String, file: StaticString = #filePath, line: UInt = #line) throws -> URL {
+        let directory = try outputURL(name, file: file, line: line)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func requireExtendedFileMetadataSupport(for source: URL) throws {
+        #if os(macOS)
+        let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
+        let extendedAttributes = NSDictionary(dictionary: attributes)["NSFileExtendedAttributes"] as? [String: Any]
+        let requiredKeys = [
+            "com.apple.metadata:kMDItemWhereFroms",
+            "com.apple.assetsd.customLocation",
+            "com.apple.assetsd.originalFilename"
+        ]
+        guard let extendedAttributes, requiredKeys.allSatisfy({ extendedAttributes[$0] != nil }) else {
+            throw XCTSkip("The checked-in fixture has no supported extended file metadata on this filesystem")
+        }
+        #else
+        throw XCTSkip("Extended file metadata is validated on macOS only")
+        #endif
     }
 
     static func fulfill(_ expectation: XCTestExpectation) {
@@ -646,13 +705,13 @@ class MediaToolSwiftTests: XCTestCase {
     #endif
 
     #if os(macOS)
-    func testImageThumbnails() async {
+    func testImageThumbnails() async throws {
         let expectation = XCTestExpectation(description: "Test Video Image Thumbnails")
-        let source = Self.mediaDirectory.appendingPathComponent("chromecast.mp4")
+        let source = try fixture("chromecast.mp4")
         let asset = AVAsset(url: source)
-        
+
         var thumbnails: [VideoThumbnail] = []
-        try! VideoTool.thumbnailImages(for: asset, at: [4.1], size: CGSize(width: 256, height: 256)) { items in
+        try VideoTool.thumbnailImages(for: asset, at: [4.1], size: CGSize(width: 256, height: 256)) { items in
             thumbnails.append(contentsOf: items)
             Self.fulfill(expectation)
         }
@@ -664,21 +723,28 @@ class MediaToolSwiftTests: XCTestCase {
     #endif
 
     #if os(macOS)
-    func testFileThumbnails() async {
+    func testFileThumbnails() async throws {
         let expectation = XCTestExpectation(description: "Test Video File Thumbnails")
-        let thumbnailsDirectory = Self.tempDirectory.appendingPathComponent("thumbnails")
-        // Create directory if non exists
-        var isDirectory: ObjCBool = true
-        if !FileManager.default.fileExists(atPath: thumbnailsDirectory.path, isDirectory: &isDirectory) {
-            try! FileManager.default.createDirectory(atPath: thumbnailsDirectory.path, withIntermediateDirectories: false)
-        }
+        let thumbnailsDirectory = try makeOutputDirectory(named: "thumbnails")
 
-        let source = Self.mediaDirectory.appendingPathComponent("chromecast.mp4")
-        let destination = thumbnailsDirectory.appendingPathComponent("chromecast_thumb.jpg")
+        let source = try fixture("chromecast.mp4")
+        let destinations = [
+            thumbnailsDirectory.appendingPathComponent("chromecast_thumb_1.jpg"),
+            thumbnailsDirectory.appendingPathComponent("chromecast_thumb_2.jpg"),
+            thumbnailsDirectory.appendingPathComponent("chromecast_thumb_3.jpg")
+        ]
         let asset = AVAsset(url: source)
-        
+
         var error: Error?
-        VideoTool.thumbnailFiles(of: asset, at: [VideoThumbnailRequest(time: 1.0, url: destination), VideoThumbnailRequest(time: 4.1, url: destination), VideoThumbnailRequest(time: 7.5, url: destination)], settings: ImageSettings(format: .jpeg), completion: { result in
+        VideoTool.thumbnailFiles(
+            of: asset,
+            at: [
+                .init(time: 1.0, url: destinations[0]),
+                .init(time: 4.1, url: destinations[1]),
+                .init(time: 7.5, url: destinations[2])
+            ],
+            settings: ImageSettings(format: .jpeg)
+        ) { result in
             switch result {
             case .failure(let err):
                 error = err
@@ -686,29 +752,24 @@ class MediaToolSwiftTests: XCTestCase {
                 break
             }
             Self.fulfill(expectation)
-        })
+        }
 
         await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
 
-        XCTAssertNil(error, error!.localizedDescription)
-
-        if !FileManager.default.fileExists(atPath: destination.path) {
-            try? FileManager.default.removeItem(at: destination)
+        if let error {
+            throw error
+        }
+        for destination in destinations {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path), "Missing thumbnail: \(destination.lastPathComponent)")
         }
     }
     #endif
 
     #if os(macOS)
-    func testThumbnail() async {
-        let expectation = XCTestExpectation(description: "Test Video Thumbnails")
-        let thumbnailsDirectory = Self.tempDirectory.appendingPathComponent("thumbnails")
-        // Create directory if non exists
-        var isDirectory: ObjCBool = true
-        if !FileManager.default.fileExists(atPath: thumbnailsDirectory.path, isDirectory: &isDirectory) {
-            try! FileManager.default.createDirectory(atPath: thumbnailsDirectory.path, withIntermediateDirectories: false)
-        }
+    func testThumbnail() async throws {
+        let thumbnailsDirectory = try makeOutputDirectory(named: "thumbnails")
 
-        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV") // chromecast.mp4 transparent_ball_hevc.mov oludeniz.MOV
+        let source = try fixture("oludeniz.MOV")
         let asset = AVAsset(url: source)
 
         let formats: [ImageFormat: String] = [
@@ -724,11 +785,11 @@ class MediaToolSwiftTests: XCTestCase {
             .ico: ".ico"
         ]
 
+        var expectations: [XCTestExpectation] = []
         for (format, ext) in formats {
             let imageUrl = thumbnailsDirectory.appendingPathComponent("thumb\(ext)")
-            if FileManager.default.fileExists(atPath: imageUrl.path) {
-                try! FileManager.default.removeItem(atPath: imageUrl.path)
-            }
+            let expectation = XCTestExpectation(description: "Thumbnail \(imageUrl.lastPathComponent)")
+            expectations.append(expectation)
 
             let settings = ImageSettings(
                 format: format,
@@ -753,13 +814,13 @@ class MediaToolSwiftTests: XCTestCase {
                 case .success(_):
                     break
                 case .failure(let error):
-                    print(error)
+                    XCTFail("Thumbnail generation failed for \(imageUrl.lastPathComponent): \(error)")
                 }
                 Self.fulfill(expectation)
             })
         }
 
-        await fulfillment(of: [expectation], timeout: 30 + osAdditionalTimeout)
+        await fulfillment(of: expectations, timeout: 30 + osAdditionalTimeout)
 
         // Check files exists
         for (_, ext) in formats {
@@ -769,8 +830,8 @@ class MediaToolSwiftTests: XCTestCase {
 
         // Check the HDR data persist
         let heic10URL = thumbnailsDirectory.appendingPathComponent("thumb.10.heic")
-        let heicImageSource = CGImageSourceCreateWithURL(heic10URL as CFURL, nil)!
-        let heicCGImage = CGImageSourceCreateImageAtIndex(heicImageSource, 0, nil)!
+        let heicImageSource = try XCTUnwrap(CGImageSourceCreateWithURL(heic10URL as CFURL, nil))
+        let heicCGImage = try XCTUnwrap(CGImageSourceCreateImageAtIndex(heicImageSource, 0, nil))
         XCTAssertTrue(heicCGImage.bitsPerComponent > 8, "No HDR data found")
         let heicProperties = CGImageSourceCopyPropertiesAtIndex(heicImageSource, 0, nil) as? [CFString: Any]
         XCTAssertTrue(heicProperties?[kCGImagePropertyDepth] as? Int ?? 8 > 8, "No HDR data found (depth)")
@@ -787,7 +848,7 @@ class MediaToolSwiftTests: XCTestCase {
 
     #if !os(visionOS)
     /// Video overlay, apply CIFilters, and many more using custom CIImage processor
-    func testImageProcessing() async {
+    func testImageProcessing() async throws {
         #if os(macOS)
         typealias Font = NSFont
         typealias Color = NSColor
@@ -797,10 +858,12 @@ class MediaToolSwiftTests: XCTestCase {
         #endif
 
         let expectation = XCTestExpectation(description: "Image Processing Example")
-        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destination = Self.tempDirectory.appendingPathComponent("image_processor_oludeniz.MOV")
+        let source = try extendedFixture("oludeniz.MOV")
+        let overlayImageURL = try fixture("starkdev.png")
+        let destination = try outputURL("image_processor_oludeniz.MOV")
 
-        let duration = AVAsset(url: source).duration.seconds // source video duration, be carefull with cutting
+        let assetDuration = try await AVAsset(url: source).testDuration()
+        let duration = assetDuration.seconds // source video duration, be carefull with cutting
 
         let white = CGColor(red: 244/255, green: 244/255, blue: 244/255, alpha: 1.0)
         //let dark = CGColor(red: 43/255, green: 43/255, blue: 43/255, alpha: 1.0)
@@ -920,7 +983,7 @@ class MediaToolSwiftTests: XCTestCase {
 
                 // Text size
                 let textSize = storage.boundingRect(with: CGRect.infinite.size, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size
-    
+
                 // Position on image
                 #if os(macOS)
                 let spacing: CGFloat = 24 // space between characters
@@ -943,7 +1006,7 @@ class MediaToolSwiftTests: XCTestCase {
                     let char = attributedCharacters[idx]
                     let size = char.size()
                     let progress = timeFactorRange(Double(idx) * delay, 0.99 * duration)
-  
+
                     // Create an character image
                     #if os(macOS)
                     let characterImage = NSImage(size: size)
@@ -987,8 +1050,7 @@ class MediaToolSwiftTests: XCTestCase {
 
             // Image overlay
             if time >= 2.8 {
-                let imageUrl = Self.mediaDirectory.appendingPathComponent("starkdev.png")
-                var ciImageOverlay = CIImage(contentsOf: imageUrl)! // 512x512
+                var ciImageOverlay = CIImage(contentsOf: overlayImageURL)! // 512x512
                 // Resize
                 ciImageOverlay = ciImageOverlay.transformed(by: .init(scaleX: 0.25, y: 0.25))
                 // Adjust position
@@ -1041,7 +1103,7 @@ class MediaToolSwiftTests: XCTestCase {
                 edit: [
                     .crop(.init(size: CGSize(width: 1080, height: 1080), aligment: .center)),
                     // .crop(.init(size: CGSize(width: 1080, height: 1620), aligment: .center)),
-                    
+
                     // .process(.imageComposition(imageProcessor)),
                     .process(.image(imageProcessor)),
 
@@ -1096,26 +1158,34 @@ class MediaToolSwiftTests: XCTestCase {
             overwrite: true,
             callback: { state in
                 switch state {
-                case .completed, .cancelled:
+                case .completed:
                     dispose()
                     Self.fulfill(expectation)
                 case .failed(let error):
                     dispose()
                     XCTFail(error.localizedDescription)
+                    Self.fulfill(expectation)
+                case .cancelled:
+                    dispose()
+                    XCTFail("Image processing conversion was cancelled unexpectedly")
+                    Self.fulfill(expectation)
                 default:
                     break
-                }
+            }
         })
 
         await fulfillment(of: [expectation], timeout: 30 + osAdditionalTimeout)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
     }
     #endif
 
-    func testVideos() async {
+    func testVideos() async throws {
+        let testConfigurations = configurations
+        XCTAssertFalse(testConfigurations.isEmpty, "Default video smoke suite must contain checked-in fixtures")
         var expectations: [XCTestExpectation] = []
 
-        for file in configurations {
-            let source = Self.mediaDirectory.appendingPathComponent(file.filename)
+        for file in testConfigurations {
+            let source = try fixture(file.filename)
 
             #if targetEnvironment(simulator) && !os(visionOS)
             // ProRes is not available in simulators
@@ -1148,7 +1218,7 @@ class MediaToolSwiftTests: XCTestCase {
             #endif
 
             for config in file.configs {
-                let destination = Self.tempDirectory.appendingPathComponent(config.output.filename)
+                let destination = try outputURL(config.output.filename)
                 let expectation = XCTestExpectation(description: "Video processing")
 
                 #if targetEnvironment(simulator) && !os(visionOS)
@@ -1166,10 +1236,14 @@ class MediaToolSwiftTests: XCTestCase {
                     overwrite: true,
                     callback: { state in
                         switch state {
-                        case .completed, .cancelled:
+                        case .completed:
                             Self.fulfill(expectation)
                         case .failed(let error):
                             XCTFail("\(error.localizedDescription) while compressing \(file.filename)->\(config.output.filename)")
+                            Self.fulfill(expectation)
+                        case .cancelled:
+                            XCTFail("Conversion was cancelled unexpectedly while compressing \(file.filename)->\(config.output.filename)")
+                            Self.fulfill(expectation)
                         default:
                             break
                         }
@@ -1180,7 +1254,7 @@ class MediaToolSwiftTests: XCTestCase {
 
         await fulfillment(of: expectations, timeout: 30 + osAdditionalTimeout * Double(expectations.count))
 
-        for file in configurations {
+        for file in testConfigurations {
             #if targetEnvironment(simulator) && !os(visionOS)
             if file.input.videoCodec == .proRes4444 {
                 continue
@@ -1209,7 +1283,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
                 #endif
 
-                let destination = Self.tempDirectory.appendingPathComponent(config.output.filename)
+                let destination = try outputURL(config.output.filename)
 
                 // Init video asset
                 let asset = AVAsset(url: destination)
@@ -1217,8 +1291,11 @@ class MediaToolSwiftTests: XCTestCase {
                     XCTFail("No video track found in resulting file (\(config.output.filename))")
                     continue
                 }
-                let videoDesc = videoTrack.formatDescriptions.first as! CMFormatDescription
-
+                let videoFormatDescriptions = try await videoTrack.testFormatDescriptions()
+                let videoDesc = try XCTUnwrap(
+                    videoFormatDescriptions.first,
+                    "No video format description found in \(config.output.filename)"
+                )
                 // 1. Video codec
                 #if os(OSX)
                 let mediaSubType = CMFormatDescriptionGetMediaSubType(videoDesc)
@@ -1250,15 +1327,15 @@ class MediaToolSwiftTests: XCTestCase {
 
                 // 3. Resolution
                 if let resolution = config.output.resolution {
-                    let videoSize = videoTrack.naturalSizeWithOrientation
+                    let videoSize = try await videoTrack.testNaturalSizeWithOrientation()
                     XCTAssertTrue(
                         videoSize.almostEqual(to: resolution),
                         "Output resolution is incorrect (\(videoSize)) should be (\(resolution))"
                     )
                 }
 
-                // 4. Bitrate 
-                let estimatedDataRate = videoTrack.estimatedDataRate
+                // 4. Bitrate
+                let estimatedDataRate = try await videoTrack.testEstimatedDataRate()
                 if let bitrate = config.output.bitrate {
                     if bitrate >= 0 {
                         // should equal the value +- 7.5%
@@ -1274,7 +1351,8 @@ class MediaToolSwiftTests: XCTestCase {
                 }
 
                 // 5. Frame rate | FPS
-                let frameRate = videoTrack.nominalFrameRate.rounded()
+                let nominalFrameRate = try await videoTrack.testNominalFrameRate()
+                let frameRate = nominalFrameRate.rounded()
                 if config.output.frameRate == nil {
                     // should be less then input
                     XCTAssertLessThanOrEqual(frameRate, Float(file.input.frameRate ?? 0), "\(config.output.filename)")
@@ -1285,7 +1363,8 @@ class MediaToolSwiftTests: XCTestCase {
 
                 // 6. Duration
                 if let duration = config.output.duration {
-                    XCTAssert(abs(asset.duration.seconds - duration) < 0.1, "\(config.output.filename)")
+                    let actualDuration = (try await asset.testDuration()).seconds
+                    XCTAssert(abs(actualDuration - duration) < 0.1, "\(config.output.filename)")
                 }
 
                 // 7. Alpha channel presence
@@ -1297,10 +1376,11 @@ class MediaToolSwiftTests: XCTestCase {
         }
     }
 
-    func testMetadata() async {
+    func testMetadata() async throws {
         var expectations: [XCTestExpectation] = []
 
-        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
+        let source = try fixture("oludeniz.MOV")
+        try requireExtendedFileMetadataSupport(for: source)
 
         let metadataItem = AVMutableMetadataItem()
         metadataItem.key = AVMetadataKey.commonKeyTitle as NSString
@@ -1311,7 +1391,7 @@ class MediaToolSwiftTests: XCTestCase {
         let customMetadata: [AVMetadataItem] = [metadataItem]
 
         // Add custom metadata, check existing for correctness
-        let destinationOne = Self.tempDirectory.appendingPathComponent("exported_oludeniz_metadata.mov")
+        let destinationOne = try outputURL("exported_oludeniz_metadata.mov")
         let expectationOne = XCTestExpectation(description: "Compression & metadata")
         expectations.append(expectationOne)
         _ = await VideoTool.convert(
@@ -1322,7 +1402,7 @@ class MediaToolSwiftTests: XCTestCase {
             overwrite: true,
             callback: { state in
                 switch state {
-                case .completed, .cancelled:
+                case .completed:
                     Task {
                         let asset = AVAsset(url: destinationOne)
 
@@ -1335,7 +1415,8 @@ class MediaToolSwiftTests: XCTestCase {
                         XCTAssertEqual(metadata.count, 7)
                         for data in metadata {
                             let key = data.key as! String
-                            let value = data.value as! String
+                            let metadataValue = try await data.testValue()
+                            let value = metadataValue as! String
                             if key == "com.apple.quicktime.model" {
                                 XCTAssertEqual(value, "iPhone 13")
                             } else if key == "com.apple.quicktime.displayname" {
@@ -1344,39 +1425,55 @@ class MediaToolSwiftTests: XCTestCase {
                         }
 
                         // Check file extended attributes for existence and correctness
-                        let dictionary = try! FileManager.default.attributesOfItem(atPath: destinationOne.path)
-                        let attributes = NSDictionary(dictionary: dictionary)
-                        if let extendedAttributes = attributes["NSFileExtendedAttributes"] as? [String: Any] {
-                            // XCTAssertEqual(extendedAttributes.count, 4)
+                        do {
+                            let dictionary = try FileManager.default.attributesOfItem(atPath: destinationOne.path)
+                            let attributes = NSDictionary(dictionary: dictionary)
+                            let extendedAttributes = try XCTUnwrap(
+                                attributes["NSFileExtendedAttributes"] as? [String: Any],
+                                "Expected copied extended media attributes"
+                            )
+                            let whereFromData = try XCTUnwrap(
+                                extendedAttributes["com.apple.metadata:kMDItemWhereFroms"] as? Data,
+                                "Missing kMDItemWhereFroms extended attribute"
+                            )
+                            let whereFrom = try XCTUnwrap(
+                                try PropertyListSerialization.propertyList(from: whereFromData, options: [], format: nil) as? [String],
+                                "Could not decode kMDItemWhereFroms"
+                            )
+                            XCTAssertEqual(whereFrom.first, "Dmitry Starkov") // "Dmitry S"
+                            XCTAssertEqual(whereFrom.last, "iPhone X") // "iPhone 13"
 
-                            let whereFromData = extendedAttributes["com.apple.metadata:kMDItemWhereFroms"] as? Data
-                            XCTAssert(whereFromData != nil)
-                            let whereFrom = try! PropertyListSerialization.propertyList(
-                                from: whereFromData!, options: [], format: nil
-                            ) as? [String]
-                            XCTAssertEqual(whereFrom!.first, "Dmitry Starkov") // "Dmitry S"
-                            XCTAssertEqual(whereFrom!.last, "iPhone X") // "iPhone 13"
+                            let customLocationData = try XCTUnwrap(
+                                extendedAttributes["com.apple.assetsd.customLocation"] as? Data,
+                                "Missing customLocation extended attribute"
+                            )
+                            XCTAssertFalse(customLocationData.isEmpty)
 
-                            let customLocationData = extendedAttributes["com.apple.assetsd.customLocation"] as? Data
-                            XCTAssert(customLocationData != nil)
-
-                            let originalFilenameData = extendedAttributes["com.apple.assetsd.originalFilename"] as? Data
-                            XCTAssert(originalFilenameData != nil)
-                            let originalFilename = String(data: originalFilenameData!, encoding: .utf8)
+                            let originalFilenameData = try XCTUnwrap(
+                                extendedAttributes["com.apple.assetsd.originalFilename"] as? Data,
+                                "Missing originalFilename extended attribute"
+                            )
+                            let originalFilename = try XCTUnwrap(String(data: originalFilenameData, encoding: .utf8))
                             XCTAssertEqual(originalFilename, "IMG_3754.MOV")
+                        } catch {
+                            XCTFail("Could not validate copied extended metadata: \(error)")
                         }
 
                         Self.fulfill(expectationOne)
                     }
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
+                    Self.fulfill(expectationOne)
+                case .cancelled:
+                    XCTFail("Metadata conversion was cancelled unexpectedly")
+                    Self.fulfill(expectationOne)
                 default:
                     break
             }
         })
 
         // Test no metadata saved
-        let destinationTwo = Self.tempDirectory.appendingPathComponent("exported_oludeniz_no_metadata.mov")
+        let destinationTwo = try outputURL("exported_oludeniz_no_metadata.mov")
         let expectationTwo = XCTestExpectation(description: "Compression & no metadata")
         expectations.append(expectationTwo)
         _ = await VideoTool.convert(
@@ -1388,7 +1485,7 @@ class MediaToolSwiftTests: XCTestCase {
             overwrite: true,
             callback: { state in
                 switch state {
-                case .completed, .cancelled:
+                case .completed:
                     Task {
                         let asset = AVAsset(url: destinationTwo)
 
@@ -1401,22 +1498,29 @@ class MediaToolSwiftTests: XCTestCase {
                         XCTAssertEqual(metadata.count, 0)
 
                         // Check extended attributes obsence
-                        let dictionary = try! FileManager.default.attributesOfItem(atPath: destinationTwo.path)
-                        let attributes = NSDictionary(dictionary: dictionary)
-                        if let extendedAttributes = attributes["NSFileExtendedAttributes"] as? [String: Any] {
-                            // XCTAssertEqual(extendedAttributes.count, 1)
-                            let whereFromData = extendedAttributes["com.apple.metadata:kMDItemWhereFroms"] as? Data
-                            XCTAssertEqual(whereFromData, nil)
-                            let customLocationData = extendedAttributes["com.apple.assetsd.customLocation"] as? Data
-                            XCTAssertEqual(customLocationData, nil)
-                            let originalFilenameData = extendedAttributes["com.apple.assetsd.originalFilename"] as? Data
-                            XCTAssertEqual(originalFilenameData, nil)
+                        do {
+                            let dictionary = try FileManager.default.attributesOfItem(atPath: destinationTwo.path)
+                            let attributes = NSDictionary(dictionary: dictionary)
+                            if let extendedAttributes = attributes["NSFileExtendedAttributes"] as? [String: Any] {
+                                let whereFromData = extendedAttributes["com.apple.metadata:kMDItemWhereFroms"] as? Data
+                                XCTAssertNil(whereFromData)
+                                let customLocationData = extendedAttributes["com.apple.assetsd.customLocation"] as? Data
+                                XCTAssertNil(customLocationData)
+                                let originalFilenameData = extendedAttributes["com.apple.assetsd.originalFilename"] as? Data
+                                XCTAssertNil(originalFilenameData)
+                            }
+                        } catch {
+                            XCTFail("Could not validate stripped extended metadata: \(error)")
                         }
 
                         Self.fulfill(expectationTwo)
                     }
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
+                    Self.fulfill(expectationTwo)
+                case .cancelled:
+                    XCTFail("Metadata-stripping conversion was cancelled unexpectedly")
+                    Self.fulfill(expectationTwo)
                 default:
                     break
             }
@@ -1425,10 +1529,10 @@ class MediaToolSwiftTests: XCTestCase {
         await fulfillment(of: expectations, timeout: 20 + osAdditionalTimeout)
     }
 
-    func testCancellation() async {
-        let source = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
+    func testCancellation() async throws {
+        let source = try fixture("oludeniz.MOV")
 
-        let destination = Self.tempDirectory.appendingPathComponent("exported_oludeniz_cancel.mov")
+        let destination = try outputURL("exported_oludeniz_cancel.mov")
         let expectation = XCTestExpectation(description: "Compression & cancellation")
         var status: CompressionState?
         let task = await VideoTool.convert(
@@ -1444,58 +1548,63 @@ class MediaToolSwiftTests: XCTestCase {
             callback: { state in
                 status = state
                 switch state {
-                case .completed, .cancelled:
+                case .cancelled:
+                    Self.fulfill(expectation)
+                case .completed:
+                    XCTFail("Cancellation test completed before cancellation was observed")
                     Self.fulfill(expectation)
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
+                    Self.fulfill(expectation)
                 default:
                     break
                 }
         })
 
-        // Cancel
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.15) {
-            task.cancel()
-        }
+        // Cancel after the reader/writer session has started.
+        try await Task.sleep(nanoseconds: 150_000_000)
+        task.cancel()
 
         await fulfillment(of: [expectation], timeout: 20)
 
         // Check the state
         XCTAssertEqual(status, .cancelled)
 
-        // Check no files created 
+        // Check no files created
         let exists = FileManager.default.fileExists(atPath: destination.path)
         XCTAssertEqual(exists, false)
     }
 
-    func testFileOptions() async {
-        var expectations: [XCTestExpectation] = []
+    func testFileOptions() async throws {
+        let sourceOne = try fixture("oludeniz.MOV")
+        let destinationOne = try outputURL("exported_oludeniz_overwrite.mov")
+        try FileManager.default.copyItem(at: sourceOne, to: destinationOne)
 
-        // Copy file
-        let sourceOne = Self.mediaDirectory.appendingPathComponent("oludeniz.MOV")
-        let destinationOne = Self.tempDirectory.appendingPathComponent("exported_oludeniz_overwrite.mov")
-        try? FileManager.default.copyItem(at: sourceOne, to: destinationOne)
-        // Should fail if exists
-        let expectationOne = XCTestExpectation(description: "Compression & overwrite")
-        expectations.append(expectationOne)
+        let overwriteExpectation = XCTestExpectation(description: "Compression rejects an existing destination")
+        var overwriteError: CompressionError?
         _ = await VideoTool.convert(
             source: sourceOne,
             destination: destinationOne,
             overwrite: false,
             callback: { state in
-                if case .failed = state {
-                    // Should fail
-                    Self.fulfill(expectationOne)
+                switch state {
+                case .failed(let error):
+                    overwriteError = error as? CompressionError
+                    Self.fulfill(overwriteExpectation)
+                case .completed, .cancelled:
+                    XCTFail("Overwrite=false conversion reached an unexpected terminal state: \(state)")
+                    Self.fulfill(overwriteExpectation)
+                case .started:
+                    break
                 }
         })
+        await fulfillment(of: [overwriteExpectation], timeout: 10 + osAdditionalTimeout)
+        XCTAssertEqual(overwriteError, .destinationFileExists)
 
-        // Copy file
-        let sourceTwo = Self.tempDirectory.appendingPathComponent("oludeniz.MOV")
-        try? FileManager.default.copyItem(at: sourceOne, to: sourceTwo)
-        // Should delete file (on success)
-        let destinationTwo = Self.tempDirectory.appendingPathComponent("exported_oludeniz_delete.mov")
-        let expectationTwo = XCTestExpectation(description: "Compression & delete")
-        expectations.append(expectationTwo)
+        let sourceTwo = try outputURL("oludeniz.MOV")
+        try FileManager.default.copyItem(at: sourceOne, to: sourceTwo)
+        let destinationTwo = try outputURL("exported_oludeniz_delete.mov")
+        let deleteExpectation = XCTestExpectation(description: "Compression deletes source on success")
         _ = await VideoTool.convert(
             source: sourceTwo,
             destination: destinationTwo,
@@ -1504,27 +1613,26 @@ class MediaToolSwiftTests: XCTestCase {
             deleteSourceFile: true,
             callback: { state in
                 switch state {
-                case .completed, .cancelled:
-                    Task {
-                        // Check source deleted
-                        let exists = FileManager.default.fileExists(atPath: sourceTwo.path)
-                        XCTAssertEqual(exists, false)
-
-                        Self.fulfill(expectationTwo)
-                    }
+                case .completed:
+                    Self.fulfill(deleteExpectation)
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
-                default:
+                    Self.fulfill(deleteExpectation)
+                case .cancelled:
+                    XCTFail("Delete-source conversion was cancelled unexpectedly")
+                    Self.fulfill(deleteExpectation)
+                case .started:
                     break
                 }
         })
-
-        await fulfillment(of: expectations, timeout: 10 + osAdditionalTimeout)
+        await fulfillment(of: [deleteExpectation], timeout: 10 + osAdditionalTimeout)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceTwo.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destinationTwo.path))
     }
 
-    func testAudio() async {
+    func testAudio() async throws {
         // Default - uncompressed Linear PCM
-        await audio("oludeniz.MOV", uid: 0, settings: CompressionAudioSettings(
+        try await audio("oludeniz.MOV", uid: 0, settings: CompressionAudioSettings(
             codec: .default
         ), data: AudioData(
             format: kAudioFormatMPEG4AAC,
@@ -1534,7 +1642,7 @@ class MediaToolSwiftTests: XCTestCase {
         ))
 
         // AAC
-        await audio("oludeniz.MOV", uid: 1, settings: CompressionAudioSettings(
+        try await audio("oludeniz.MOV", uid: 1, settings: CompressionAudioSettings(
             codec: .aac
         ), data: AudioData(
             format: kAudioFormatMPEG4AAC,
@@ -1544,7 +1652,7 @@ class MediaToolSwiftTests: XCTestCase {
         ))
 
         // Opus
-        await audio("oludeniz.MOV", uid: 2, settings: CompressionAudioSettings(
+        try await audio("oludeniz.MOV", uid: 2, settings: CompressionAudioSettings(
             codec: .opus
         ), data: AudioData(
             format: kAudioFormatOpus,
@@ -1554,7 +1662,7 @@ class MediaToolSwiftTests: XCTestCase {
         ))
 
         // FLAC
-        await audio("oludeniz.MOV", uid: 3, settings: CompressionAudioSettings(
+        try await audio("oludeniz.MOV", uid: 3, settings: CompressionAudioSettings(
             codec: .flac
         ), data: AudioData(
             format: kAudioFormatFLAC,
@@ -1564,10 +1672,10 @@ class MediaToolSwiftTests: XCTestCase {
         ))
 
         // Skip audio
-        await audio("oludeniz.MOV", uid: 4, skipAudio: true)
+        try await audio("oludeniz.MOV", uid: 4, skipAudio: true)
 
         // Custom settings
-        await audio("oludeniz.MOV", uid: 5, settings: CompressionAudioSettings(
+        try await audio("oludeniz.MOV", uid: 5, settings: CompressionAudioSettings(
             codec: .opus,
             bitrate: .value(500_000),
             sampleRate: 24_000
@@ -1585,10 +1693,10 @@ class MediaToolSwiftTests: XCTestCase {
         skipAudio: Bool = false,
         settings: CompressionAudioSettings? = nil,
         data: AudioData? = nil
-    ) async {
-        let source = Self.mediaDirectory.appendingPathComponent(filename)
+    ) async throws {
+        let source = try fixture(filename)
 
-        let destination = Self.tempDirectory.appendingPathComponent("exported_\(filename)_\(uid)_audio.mov")
+        let destination = try outputURL("exported_\(filename)_\(uid)_audio.mov")
         let expectation = XCTestExpectation(description: "Compression & Audio")
         _ = await VideoTool.convert(
             source: source,
@@ -1599,10 +1707,14 @@ class MediaToolSwiftTests: XCTestCase {
             overwrite: true,
             callback: { state in
                 switch state {
-                case .completed, .cancelled:
+                case .completed:
                     Self.fulfill(expectation)
                 case .failed(let error):
                     XCTFail(error.localizedDescription)
+                    Self.fulfill(expectation)
+                case .cancelled:
+                    XCTFail("Audio conversion was cancelled unexpectedly")
+                    Self.fulfill(expectation)
                 default:
                     break
                 }
@@ -1619,7 +1731,11 @@ class MediaToolSwiftTests: XCTestCase {
         } else if skipAudio == false && audioTrack == nil {
             XCTFail("No audio track found, but required")
         } else {
-            let audioDescription = audioTrack!.formatDescriptions.first as! CMFormatDescription
+            let audioFormatDescriptions = try await audioTrack!.testFormatDescriptions()
+            let audioDescription = try XCTUnwrap(
+                audioFormatDescriptions.first,
+                "No audio format description found for \(filename)"
+            )
             let basicDescription = audioDescription.audioStreamBasicDescription!
 
             // Format
@@ -1658,6 +1774,7 @@ class MediaToolSwiftTests: XCTestCase {
             // ...
         }
     }*/
+
 }
 
 /*class TestObserver: NSObject, XCTestObservation {
@@ -1681,19 +1798,64 @@ extension CGSize {
     }
 }
 
-extension AVAssetTrack {
-    var naturalSizeWithOrientation: CGSize {
-       let transform = preferredTransform // fixedPreferredTransform
+private extension AVAsset {
+    func testDuration() async throws -> CMTime {
+        if #available(macOS 13, iOS 16, tvOS 16, visionOS 1, *) {
+            return try await load(.duration)
+        }
+        throw XCTSkip("AVFoundation async loading requires macOS 13, iOS 16, or tvOS 16")
+    }
+}
 
-       if (transform.a == 0 && transform.b == 1.0 && transform.c == -1.0 && transform.d == 0) ||
-          (transform.a == 0 && transform.b == -1.0 && transform.c == 1.0 && transform.d == 0) {
-           // Portrait
-           return CGSize(width: naturalSize.height, height: naturalSize.width)
-       } else {
-           // Landscape
-           return naturalSize
-       }
-   }
+private extension AVAssetTrack {
+    func testFormatDescriptions() async throws -> [CMFormatDescription] {
+        if #available(macOS 13, iOS 16, tvOS 16, visionOS 1, *) {
+            return try await load(.formatDescriptions)
+        }
+        throw XCTSkip("AVFoundation async loading requires macOS 13, iOS 16, or tvOS 16")
+    }
+
+    func testEstimatedDataRate() async throws -> Float {
+        if #available(macOS 13, iOS 16, tvOS 16, visionOS 1, *) {
+            return try await load(.estimatedDataRate)
+        }
+        throw XCTSkip("AVFoundation async loading requires macOS 13, iOS 16, or tvOS 16")
+    }
+
+    func testNominalFrameRate() async throws -> Float {
+        if #available(macOS 13, iOS 16, tvOS 16, visionOS 1, *) {
+            return try await load(.nominalFrameRate)
+        }
+        throw XCTSkip("AVFoundation async loading requires macOS 13, iOS 16, or tvOS 16")
+    }
+
+    func testNaturalSizeWithOrientation() async throws -> CGSize {
+        let transform: CGAffineTransform
+        let naturalSize: CGSize
+
+        if #available(macOS 13, iOS 16, tvOS 16, visionOS 1, *) {
+            transform = try await load(.preferredTransform)
+            naturalSize = try await load(.naturalSize)
+        } else {
+            throw XCTSkip("AVFoundation async loading requires macOS 13, iOS 16, or tvOS 16")
+        }
+
+        if (transform.a == 0 && transform.b == 1.0 && transform.c == -1.0 && transform.d == 0) ||
+            (transform.a == 0 && transform.b == -1.0 && transform.c == 1.0 && transform.d == 0) {
+            return CGSize(width: naturalSize.height, height: naturalSize.width)
+        }
+        return naturalSize
+    }
+
+}
+
+private extension AVMetadataItem {
+    func testValue() async throws -> Any? {
+        if #available(macOS 13, iOS 16, tvOS 16, visionOS 1, *) {
+            return try await load(.value)
+        }
+        throw XCTSkip("AVFoundation async loading requires macOS 13, iOS 16, or tvOS 16")
+    }
 }
 
 let kPERIOD: Double = 0.3
@@ -1705,10 +1867,10 @@ public enum Easing: Int {
     // Additional curves can be found here:
     // - https://github.com/manuelCarlos/Easing/blob/main/Sources/Easing/Easing.swift
     // - https://github.com/AugustRush/Stellar/blob/master/Sources/TimingFunction.swift
-    
+
     // Linear
     case linear
-    
+
     // Sine
     case sineIn
     case sineOut
@@ -1718,47 +1880,47 @@ public enum Easing: Int {
     case exponentialIn
     case exponentialOut
     case exponentialInOut
-    
+
     // Back
     case backIn
     case backOut
     case backInOut
-    
+
     // Bounce
     case bounceIn
     case bounceOut
     case bounceInOut
-    
+
     // Elastic
     case elasticIn
     case elasticOut
     case elasticInOut
-    
+
     public func apply(t: Double) -> Double {
-        
+
         switch self {
-            
+
         // **** Linear ****
         case .linear:
             return t
-            
+
         // **** Sine ****
         case .sineIn:
             return -1.0 * cos(t * (Double.pi/2)) + 1.0
-            
+
         case .sineOut:
             return sin(t * (Double.pi/2))
-            
+
         case .sineInOut:
             return -0.5 * (cos(Double.pi*t) - 1.0)
-        
+
         // **** Exponential ****
         case .exponentialIn:
             return (t==0.0) ? 0.0 : pow(2.0, 10.0 * (t/1.0 - 1.0)) - 1.0 * 0.001;
-            
+
         case .exponentialOut:
             return (t==1.0) ? 1.0 : (-pow(2.0, -10.0 * t/1.0) + 1.0);
-            
+
         case .exponentialInOut:
             var t = t
             t /= 0.5;
@@ -1769,18 +1931,18 @@ public enum Easing: Int {
                 t = 0.5 * (-pow(2.0, -10.0 * (t - 1.0) ) + 2.0);
             }
             return t;
-        
+
         // **** Back ****
         case .backIn:
             let overshoot = 1.70158
             return t * t * ((overshoot + 1.0) * t - overshoot);
-            
+
         case .backOut:
             let overshoot = 1.70158
             var t = t
             t = t - 1.0;
             return t * t * ((overshoot + 1.0) * t + overshoot) + 1.0;
-            
+
         case .backInOut:
             let overshoot = 1.70158 * 1.525
             var t = t
@@ -1792,7 +1954,7 @@ public enum Easing: Int {
                 t = t - 2.0;
                 return (t * t * ((overshoot + 1.0) * t + overshoot)) / 2.0 + 1.0;
             }
-            
+
         // **** Bounce ****
         case .bounceIn:
             var newT = t
@@ -1800,14 +1962,14 @@ public enum Easing: Int {
                 newT = 1.0 - bounceTime(t: 1.0 - t)
             }
             return newT;
-            
+
         case .bounceOut:
             var newT = t;
             if(t != 0.0 && t != 1.0) {
                 newT = bounceTime(t: t)
             }
             return newT;
-            
+
         case .bounceInOut:
             let newT: Double
             if( t == 0.0 || t == 1.0) {
@@ -1820,9 +1982,9 @@ public enum Easing: Int {
             } else {
                 newT = bounceTime(t: t * 2.0 - 1.0) * 0.5 + 0.5
             }
-            
+
             return newT;
-            
+
         // **** Elastic ****
         case .elasticIn:
             var newT = 0.0
@@ -1836,7 +1998,7 @@ public enum Easing: Int {
                 newT = -pow(2, 10 * t) * sin( (t-s) * M_PI_X_2 / kPERIOD);
             }
             return newT;
-            
+
         case .elasticOut:
             var newT = 0.0
             if (t == 0.0 || t == 1.0) {
@@ -1846,10 +2008,10 @@ public enum Easing: Int {
                 newT = pow(2.0, -10.0 * t) * sin( (t-s) * M_PI_X_2 / kPERIOD) + 1
             }
             return newT
-            
+
         case .elasticInOut:
             var newT = 0.0;
-            
+
             if( t == 0.0 || t == 1.0 ) {
                 newT = t;
             }
@@ -1857,7 +2019,7 @@ public enum Easing: Int {
                 var t = t
                 t = t * 2.0;
                 let s = kPERIOD / 4;
-                
+
                 t = t - 1.0;
                 if( t < 0 ) {
                     newT = -0.5 * pow(2, 10.0 * t) * sin((t - s) * M_PI_X_2 / kPERIOD);
@@ -1869,13 +2031,13 @@ public enum Easing: Int {
             return newT;
         }
     }
-    
+
     // Helpers
-    
+
     func bounceTime(t: Double) -> Double {
-        
+
         var t = t
-        
+
         if (t < 1.0 / 2.75) {
             return 7.5625 * t * t
         }
@@ -1887,11 +2049,11 @@ public enum Easing: Int {
             t -= 2.25 / 2.75
             return 7.5625 * t * t + 0.9375
         }
-        
+
         t -= 2.625 / 2.75
         return 7.5625 * t * t + 0.984375
     }
-    
+
     func interpolate(from: CGFloat, to: CGFloat, with progress: CGFloat) -> CGFloat {
         return from + (to - from) * self.apply(t: progress)
     }
@@ -1909,7 +2071,7 @@ public enum Easing: Int {
 
         return CGColor(colorSpace: from.colorSpace ?? CGColorSpaceCreateDeviceRGB(), components: interpolatedComponents) ?? from
     }
-    
+
     static func `default`(from: CGFloat, to: CGFloat, with progress: CGFloat) -> CGFloat {
         Self.linear.interpolate(from: from, to: to, with: progress)
     }

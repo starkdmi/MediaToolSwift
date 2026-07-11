@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "MediaToolSwift",
     platforms: [
-        .macOS(.v11), .iOS(.v13), .tvOS(.v13), .macCatalyst(.v13), .visionOS(.v1)
+        .macOS(.v11), .iOS(.v13), .tvOS(.v13), .macCatalyst("13.1"), .visionOS(.v1)
     ],
     products: [
         .library(name: "MediaToolSwift", targets: ["MediaToolSwift"])
@@ -52,7 +52,8 @@ let package = Package(
             dependencies: ["MediaToolSwift"],
             path: "Tests",
             exclude: [
-                "media"
+                "media",
+                "README.md"
             ]
         )
     ]
