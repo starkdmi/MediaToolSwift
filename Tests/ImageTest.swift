@@ -385,6 +385,27 @@ class MediaToolImageTests: XCTestCase {
         return destination
     }
 
+    func testOpenEXRCompatibility() throws {
+        let openEXRIdentifier = "com.ilm.openexr-image"
+
+        XCTAssertTrue(ImageFormat.allCases.contains(.exr))
+        XCTAssertEqual(ImageFormat.exr.utType as String?, openEXRIdentifier)
+        XCTAssertEqual(ImageFormat(openEXRIdentifier as CFString), .exr)
+        XCTAssertEqual(ImageFormat("exr"), .exr)
+
+        let destinationTypes = CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []
+        guard destinationTypes.contains(openEXRIdentifier) else {
+            throw XCTSkip("ImageIO does not provide OpenEXR encoding on this platform")
+        }
+
+        let source = try fixture("starkdev.png")
+        let destination = try outputURL("compatibility.exr")
+        _ = try Self.encodeFixture(source: source, destination: destination, format: .exr)
+
+        let imageSource = try XCTUnwrap(CGImageSourceCreateWithURL(destination as CFURL, nil))
+        XCTAssertEqual(CGImageSourceGetType(imageSource) as String?, openEXRIdentifier)
+    }
+
     func testHDR() async throws {
         let source = try fixture("oludeniz.heic")
         let destination = try outputURL("converted_oludeniz.heic")

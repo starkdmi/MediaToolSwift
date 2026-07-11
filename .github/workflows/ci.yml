@@ -53,7 +53,16 @@ jobs:
         run: |
           set -o pipefail
           swift package diagnose-api-breaking-changes 1.2.0 --products MediaToolSwift 2>&1 | tee api-diff.log
-          ! grep -Fq "API breakage:" api-diff.log
+          # OpenEXR was added publicly on main after 1.2.0. Preserve that API
+          # while continuing to reject every other difference from the tag.
+          unexpected_breakages="$(
+            grep -F "API breakage:" api-diff.log |
+              grep -Fv "ImageFormat.exr has been added as a new enum case" || true
+          )"
+          if [[ -n "$unexpected_breakages" ]]; then
+            echo "$unexpected_breakages"
+            exit 1
+          fi
 
       - name: Whitespace check
         shell: bash

@@ -116,6 +116,9 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
     /// Bitmap image format
     case bmp
 
+    /// OpenEXR image format
+    case exr
+
     /// Icon image format, squared only with 6, 32, 48, 128, or 256 pixels wide
     case ico
 
@@ -128,11 +131,11 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
     /// Immutable formats built into ImageIO on supported platforms.
     #if os(macOS)
     private static let builtInFormats: [ImageFormat] = [
-        .heif, .heif10, .heic, .heics, .png, .jpeg, .jpeg2000, .gif, .tiff, .bmp, .ico, .pdf
+        .heif, .heif10, .heic, .heics, .png, .jpeg, .jpeg2000, .gif, .tiff, .bmp, .exr, .ico, .pdf
     ]
     #else
     private static let builtInFormats: [ImageFormat] = [
-        .heif, .heif10, .heic, .heics, .png, .jpeg, .gif, .tiff, .bmp, .ico, .pdf
+        .heif, .heif10, .heic, .heics, .png, .jpeg, .gif, .tiff, .bmp, .exr, .ico, .pdf
     ]
     #endif
 
@@ -178,6 +181,7 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
         case (.gif, .gif): return true
         case (.tiff, .tiff): return true
         case (.bmp, .bmp): return true
+        case (.exr, .exr): return true
         case (.ico, .ico): return true
         case (.pdf, .pdf): return true
         case (.custom(let lhsFormatId), .custom(let rhsFormatId)):
@@ -252,6 +256,8 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
                 return kUTTypeBMP
                 #endif
             }
+        case .exr:
+            return "com.ilm.openexr-image" as CFString
         case .ico:
             if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.ico.identifier as CFString
