@@ -651,7 +651,6 @@ public struct ImageTool {
     /// Decode image frames
     /// - Parameters:
     ///   - source: Input image URL
-    ///   - destination: Output image URL, used to detect image format when other methods fails
     ///   - settings: Image format options
     ///   - skipMetadata: Whether copy or not source image metadata to destination image file
     /// - Returns: Image object containing frames and required for future processing image info
@@ -1291,7 +1290,7 @@ public struct ImageTool {
         case .jpeg2000:
             fallthrough
         #endif
-        case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic, .heics, .exr, .pdf:
+        case .jpeg, .gif, .bmp, .ico, .png, .tiff, .heic, .heics, .pdf:
             guard let utType = format.utType, let destination = CGImageDestinationCreateWithURL(url as CFURL, utType, frames.count, nil) else {
                 // debugPrint(CGImageDestinationCopyTypeIdentifiers()) // supported output image formats when using `CGImageDestination` methods
                 throw CompressionError.failedToCreateImageFile
@@ -1334,8 +1333,9 @@ public struct ImageTool {
             // Apply orientation and remove EXIF/TIFF orientation related keys from metadata
             #if os(macOS)
             let orientInPlace = format == .jpeg2000
+            let destinationOrientation = orientInPlace ? nil : orientation?.rawValue
             #else
-            let orientInPlace = false
+            let destinationOrientation = orientation?.rawValue
             #endif
 
             // Metadata
@@ -1352,7 +1352,7 @@ public struct ImageTool {
 
                 // TIFF
                 if var tiff = metadata[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
-                    tiff[kCGImagePropertyTIFFOrientation] = orientInPlace ? nil : orientation?.rawValue // override orientation
+                    tiff[kCGImagePropertyTIFFOrientation] = destinationOrientation // override orientation
                     imageOptions[kCGImagePropertyTIFFDictionary] = tiff
                 }
 
@@ -1373,8 +1373,8 @@ public struct ImageTool {
             }
 
             // Orientation
-            if let orientation = orientation {
-                imageOptions[kCGImagePropertyOrientation] = orientInPlace ? nil : orientation.rawValue
+            if let destinationOrientation {
+                imageOptions[kCGImagePropertyOrientation] = destinationOrientation
             }
 
             // Set all frame properties
@@ -1488,13 +1488,11 @@ public struct ImageTool {
                 #if os(macOS)
                 // Color space fallback for JP2
                 let colorSpace = format == .jpeg2000 ? CGColorSpace(name: CGColorSpace.sRGB) : image.colorSpace
-                #else
-                let colorSpace = image.colorSpace
-                #endif
                 // Orient
                 if orientInPlace, let oriented = image.orient(orientation, colorSpace: colorSpace) {
                     image = oriented
                 }
+                #endif
 
                 CGImageDestinationAddImage(destination, image, properties as CFDictionary?)
                 success += 1

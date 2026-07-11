@@ -1,8 +1,55 @@
 import Foundation
 import AVFoundation
-#if os(iOS) || os(tvOS) || os(visionOS)
+#if (os(iOS) && !targetEnvironment(macCatalyst)) || os(tvOS) || os(visionOS)
 import MobileCoreServices
 #endif
+
+#if targetEnvironment(macCatalyst)
+private enum CatalystLegacyImageUTType {
+    static let png = "public.png" as CFString
+    static let jpeg = "public.jpeg" as CFString
+    static let gif = "com.compuserve.gif" as CFString
+    static let tiff = "public.tiff" as CFString
+    static let bmp = "com.microsoft.bmp" as CFString
+    static let ico = "com.microsoft.ico" as CFString
+    static let pdf = "com.adobe.pdf" as CFString
+}
+#endif
+
+private final class ImageFormatRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var formats: [String: any CustomImageFormat] = [:]
+    private var identifiers: [String] = []
+
+    func register(_ format: any CustomImageFormat) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let identifier = format.identifier
+        if formats[identifier] == nil {
+            identifiers.append(identifier)
+        }
+        formats[identifier] = format
+    }
+
+    func formatsSnapshot() -> [String: any CustomImageFormat] {
+        lock.lock()
+        defer { lock.unlock() }
+        return formats
+    }
+
+    func identifiersSnapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return identifiers
+    }
+
+    func format(for identifier: String) -> (any CustomImageFormat)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return formats[identifier]
+    }
+}
 
 /// Custom image encoder
 public protocol CustomImageFormat {
@@ -35,7 +82,7 @@ public protocol CustomImageFormat {
 }
 
 /// Image formats, only formats with encoding/writing support are included
-public enum ImageFormat: Hashable, Equatable {
+public enum ImageFormat: Hashable, Equatable, Sendable {
     /// HEIC (HEIF with HEVC compression) image format
     case heif
 
@@ -69,9 +116,6 @@ public enum ImageFormat: Hashable, Equatable {
     /// Bitmap image format
     case bmp
 
-    /// OpenEXR (16-bit)
-    case exr
-
     /// Icon image format, squared only with 6, 32, 48, 128, or 256 pixels wide
     case ico
 
@@ -81,35 +125,42 @@ public enum ImageFormat: Hashable, Equatable {
     /// Custom image format, should be a registered format
     case custom(String)
 
-    /// Predefined formats
+    /// Immutable formats built into ImageIO on supported platforms.
     #if os(macOS)
-    internal static var allFormats: [ImageFormat] = [
-        .heif, .heif10, .heic, .heics, .png, .jpeg, .jpeg2000, .gif, .tiff, .bmp, .exr, .ico, .pdf
+    private static let builtInFormats: [ImageFormat] = [
+        .heif, .heif10, .heic, .heics, .png, .jpeg, .jpeg2000, .gif, .tiff, .bmp, .ico, .pdf
     ]
     #else
-    internal static var allFormats: [ImageFormat] = [
-        .heif, .heif10, .heic, .heics, .png, .jpeg, .gif, .tiff, .bmp, .exr, .ico, .pdf
+    private static let builtInFormats: [ImageFormat] = [
+        .heif, .heif10, .heic, .heics, .png, .jpeg, .gif, .tiff, .bmp, .ico, .pdf
     ]
     #endif
 
+    private static let registry = ImageFormatRegistry()
+
+    internal static var allFormats: [ImageFormat] {
+        builtInFormats + registry.identifiersSnapshot().map { .custom($0) }
+    }
+
     /// Available output image formats
     public static var allCases: [ImageFormat] {
-        return allFormats
+        allFormats
+    }
+
+    /// Registered custom formats. The dictionary is a snapshot so callers cannot
+    /// mutate the registry without synchronization.
+    internal static var customFormats: [String: any CustomImageFormat] {
+        registry.formatsSnapshot()
     }
 
     /// Registered custom  formats
-    internal static var customFormats: [String: any CustomImageFormat] = [:]
-
-    /// Registered custom  formats
     public static var registeredFormats: [String: any CustomImageFormat] {
-        customFormats
+        registry.formatsSnapshot()
     }
 
     /// Register custom image format
     public static func registerCustomFormat(_ format: any CustomImageFormat) {
-        let identifier = format.identifier
-        Self.customFormats[identifier] = format
-        Self.allFormats.append(.custom(identifier))
+        registry.register(format)
     }
 
     /// Equatable conformance
@@ -127,7 +178,6 @@ public enum ImageFormat: Hashable, Equatable {
         case (.gif, .gif): return true
         case (.tiff, .tiff): return true
         case (.bmp, .bmp): return true
-        case (.exr, .exr): return true
         case (.ico, .ico): return true
         case (.pdf, .pdf): return true
         case (.custom(let lhsFormatId), .custom(let rhsFormatId)):
@@ -152,13 +202,21 @@ public enum ImageFormat: Hashable, Equatable {
             if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.png.identifier as CFString
             } else {
+                #if targetEnvironment(macCatalyst)
+                return CatalystLegacyImageUTType.png
+                #else
                 return kUTTypePNG
+                #endif
             }
         case .jpeg:
             if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.jpeg.identifier as CFString
             } else {
+                #if targetEnvironment(macCatalyst)
+                return CatalystLegacyImageUTType.jpeg
+                #else
                 return kUTTypeJPEG
+                #endif
             }
         #if os(macOS)
         case .jpeg2000:
@@ -168,36 +226,54 @@ public enum ImageFormat: Hashable, Equatable {
             if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.gif.identifier as CFString
             } else {
+                #if targetEnvironment(macCatalyst)
+                return CatalystLegacyImageUTType.gif
+                #else
                 return kUTTypeGIF
+                #endif
             }
         case .tiff:
             if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.tiff.identifier as CFString
             } else {
+                #if targetEnvironment(macCatalyst)
+                return CatalystLegacyImageUTType.tiff
+                #else
                 return kUTTypeTIFF
+                #endif
             }
         case .bmp:
             if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.bmp.identifier as CFString
             } else {
+                #if targetEnvironment(macCatalyst)
+                return CatalystLegacyImageUTType.bmp
+                #else
                 return kUTTypeBMP
+                #endif
             }
-        case .exr:
-            return "com.ilm.openexr-image" as CFString
         case .ico:
             if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.ico.identifier as CFString
             } else {
+                #if targetEnvironment(macCatalyst)
+                return CatalystLegacyImageUTType.ico
+                #else
                 return kUTTypeICO
+                #endif
             }
         case .pdf:
             if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
                 return UTType.pdf.identifier as CFString
             } else {
+                #if targetEnvironment(macCatalyst)
+                return CatalystLegacyImageUTType.pdf
+                #else
                 return kUTTypePDF
+                #endif
             }
         case .custom(let identifier):
-            return Self.customFormats[identifier]?.utType
+            return Self.registry.format(for: identifier)?.utType
         }
     }
 
@@ -280,7 +356,7 @@ public enum ImageFormat: Hashable, Equatable {
 
     /// Indicator of animation supported format
     internal var isAnimationSupported: Bool {
-        if case .custom(let identifier) = self, let format = Self.customFormats[identifier] {
+        if case .custom(let identifier) = self, let format = Self.registry.format(for: identifier) {
             return format.isAnimationSupported
         }
 
@@ -289,7 +365,7 @@ public enum ImageFormat: Hashable, Equatable {
 
     /// Format works in old color format and low quality
     internal var isLowQuality: Bool {
-        if case .custom(let identifier) = self, let format = Self.customFormats[identifier] {
+        if case .custom(let identifier) = self, let format = Self.registry.format(for: identifier) {
             return format.isLowQuality
         }
 

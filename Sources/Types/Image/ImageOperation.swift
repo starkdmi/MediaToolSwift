@@ -123,7 +123,7 @@ internal extension Set where Element == ImageOperation {
                 return .rotate(angle, fill: fill.scaled(by: scale))
             case .flip, .mirror:
                 return operation // no scaling needed
-            case .imageProcessing(let processor):
+            case .imageProcessing:
                 return nil // drop custom processor when scaling
                 /*// Wrap processor to scale before and after
                 return .imageProcessing({ ciImage, cgImage, orientation, index in

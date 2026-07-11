@@ -25,6 +25,30 @@ public struct ImageInfo {
         self.duration = duration
     }
 
+    /// Compatibility initializer for clients built against MediaToolSwift 1.2.
+    public init(
+        format: ImageFormat?,
+        size: CGSize,
+        hasAlpha: Bool,
+        isHDR: Bool,
+        orientation: CGImagePropertyOrientation? = nil,
+        framesCount: Int,
+        frameRate: Int? = nil,
+        duration: Double? = nil
+    ) {
+        self.init(
+            format: format,
+            size: size,
+            hasAlpha: hasAlpha,
+            isHDR: isHDR,
+            bitDepth: isHDR ? 10 : 8,
+            orientation: orientation,
+            framesCount: framesCount,
+            frameRate: frameRate,
+            duration: duration
+        )
+    }
+
     /// Image format, default to source image format
     public let format: ImageFormat?
 
