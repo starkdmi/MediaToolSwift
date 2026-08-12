@@ -196,7 +196,7 @@ private func allImageConfigs() -> [ImageInput] {
             ImageConfig(
                 filename: "converted_starfield_animation.gif",
                 settings: ImageSettings(format: .gif, frameRate: 16),
-                result: ImageInfo(format: .gif, size: CGSize(width: 256, height: 144), hasAlpha: true, isHDR: false, bitDepth: 8, framesCount: 76, frameRate: 17, duration: 4.56) // frameRate is 16.67
+                result: ImageInfo(format: .gif, size: CGSize(width: 256, height: 144), hasAlpha: true, isHDR: false, bitDepth: 8, framesCount: 76, frameRate: 16, duration: 4.8)
             ),
         ]
     ),

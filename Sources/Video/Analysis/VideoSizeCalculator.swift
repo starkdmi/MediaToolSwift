@@ -38,6 +38,20 @@ internal struct VideoSizeCalculator {
         operations: Set<VideoOperation>,
         orientation: VideoOrientation
     ) throws -> Result {
+        guard sourceSize.width.isFinite,
+              sourceSize.height.isFinite,
+              sourceSize.width > 0,
+              sourceSize.height > 0 else {
+            throw CompressionError.invalidVideoSize
+        }
+
+        for operation in operations {
+            if case .rotate(let rotation) = operation,
+               !rotation.radians.isFinite {
+                throw CompressionError.invalidVideoSize
+            }
+        }
+
         // Extract crop rectangle from operations
         var cropRect: CGRect?
         for operation in operations {
@@ -49,12 +63,16 @@ internal struct VideoSizeCalculator {
                 }
 
                 // Validate crop bounds
-                guard rect.size.width >= 0,
-                      rect.size.height >= 0,
+                guard rect.origin.x.isFinite,
+                      rect.origin.y.isFinite,
+                      rect.size.width.isFinite,
+                      rect.size.height.isFinite,
+                      rect.size.width > 0,
+                      rect.size.height > 0,
                       rect.minX >= 0,
                       rect.minY >= 0,
-                      rect.width <= sourceSize.width,
-                      rect.height <= sourceSize.height else {
+                      rect.maxX <= sourceSize.width,
+                      rect.maxY <= sourceSize.height else {
                     throw CompressionError.croppingOutOfBounds
                 }
 
@@ -68,8 +86,14 @@ internal struct VideoSizeCalculator {
         var resolvedSizeOption = settings
         var needsResize = false
 
-        switch settings.value(for: sourceSize) {
+        switch try settings.value(for: sourceSize) {
         case .fit(let size):
+            guard size.width.isFinite,
+                  size.height.isFinite,
+                  size.width > 0,
+                  size.height > 0 else {
+                throw CompressionError.invalidVideoSize
+            }
             if targetSize.width > size.width || targetSize.height > size.height {
                 // Calculate box to fit
                 let fittedSize = targetSize.fit(in: size)
@@ -81,6 +105,12 @@ internal struct VideoSizeCalculator {
             }
 
         case .scale(let size):
+            guard size.width.isFinite,
+                  size.height.isFinite,
+                  size.width > 0,
+                  size.height > 0 else {
+                throw CompressionError.invalidVideoSize
+            }
             if targetSize != size {
                 targetSize = size
                 needsResize = true

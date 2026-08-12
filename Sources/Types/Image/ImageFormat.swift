@@ -6,36 +6,69 @@ import MobileCoreServices
 
 #if targetEnvironment(macCatalyst)
 private enum CatalystLegacyImageUTType {
-    static let png = "public.png" as CFString
-    static let jpeg = "public.jpeg" as CFString
-    static let gif = "com.compuserve.gif" as CFString
-    static let tiff = "public.tiff" as CFString
-    static let bmp = "com.microsoft.bmp" as CFString
-    static let ico = "com.microsoft.ico" as CFString
-    static let pdf = "com.adobe.pdf" as CFString
+    static let png = "public.png"
+    static let jpeg = "public.jpeg"
+    static let gif = "com.compuserve.gif"
+    static let tiff = "public.tiff"
+    static let bmp = "com.microsoft.bmp"
+    static let ico = "com.microsoft.ico"
+    static let pdf = "com.adobe.pdf"
 }
 #endif
 
 private final class ImageFormatRegistry: @unchecked Sendable {
+    private final class RegisteredFormat {
+        private var format: any CustomImageFormat
+        let writeLock = NSRecursiveLock()
+
+        init(_ format: any CustomImageFormat) {
+            self.format = format
+        }
+
+        func replace(with format: any CustomImageFormat) {
+            writeLock.lock()
+            self.format = format
+            writeLock.unlock()
+        }
+
+        func snapshot() -> any CustomImageFormat {
+            writeLock.lock()
+            let format = self.format
+            writeLock.unlock()
+            return format
+        }
+
+        func write<T>(_ body: (any CustomImageFormat) throws -> T) rethrows -> T {
+            writeLock.lock()
+            defer { writeLock.unlock() }
+            return try body(format)
+        }
+    }
+
     private let lock = NSLock()
-    private var formats: [String: any CustomImageFormat] = [:]
+    private var formats: [String: RegisteredFormat] = [:]
     private var identifiers: [String] = []
 
     func register(_ format: any CustomImageFormat) {
-        lock.lock()
-        defer { lock.unlock() }
-
+        // Invoke caller code before entering the registry lock so a computed
+        // identifier may safely query the registry.
         let identifier = format.identifier
-        if formats[identifier] == nil {
+        lock.lock()
+        if let registered = formats[identifier] {
+            lock.unlock()
+            registered.replace(with: format)
+        } else {
             identifiers.append(identifier)
+            formats[identifier] = RegisteredFormat(format)
+            lock.unlock()
         }
-        formats[identifier] = format
     }
 
     func formatsSnapshot() -> [String: any CustomImageFormat] {
         lock.lock()
-        defer { lock.unlock() }
-        return formats
+        let registrations = formats
+        lock.unlock()
+        return registrations.mapValues { $0.snapshot() }
     }
 
     func identifiersSnapshot() -> [String] {
@@ -46,8 +79,21 @@ private final class ImageFormatRegistry: @unchecked Sendable {
 
     func format(for identifier: String) -> (any CustomImageFormat)? {
         lock.lock()
-        defer { lock.unlock() }
-        return formats[identifier]
+        let registered = formats[identifier]
+        lock.unlock()
+        return registered?.snapshot()
+    }
+
+    func write<T>(
+        with identifier: String,
+        _ body: (any CustomImageFormat) throws -> T
+    ) rethrows -> T? {
+        lock.lock()
+        let registered = formats[identifier]
+        lock.unlock()
+        guard let registered else { return nil }
+
+        return try registered.write(body)
     }
 }
 
@@ -156,7 +202,11 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
         registry.formatsSnapshot()
     }
 
-    /// Registered custom  formats
+    /// Registered custom formats.
+    ///
+    /// The registry serializes its own encoder and property access. Callers
+    /// that directly use an instance from this snapshot remain responsible for
+    /// synchronizing that custom implementation's mutable state.
     public static var registeredFormats: [String: any CustomImageFormat] {
         registry.formatsSnapshot()
     }
@@ -164,6 +214,16 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
     /// Register custom image format
     public static func registerCustomFormat(_ format: any CustomImageFormat) {
         registry.register(format)
+    }
+
+    /// Runs custom encoder code behind a per-registration lock. The global
+    /// registry lock is released first so encoder code may safely query or
+    /// register formats without deadlocking unrelated conversions.
+    internal static func writeCustomFormat<T>(
+        identifier: String,
+        _ body: (any CustomImageFormat) throws -> T
+    ) rethrows -> T? {
+        try registry.write(with: identifier, body)
     }
 
     /// Equatable conformance
@@ -192,7 +252,15 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
 
     /// Hashable conformance
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(utType)
+        if case .custom(let identifier) = self {
+            // Equality for custom formats is identifier-based. Do not consult
+            // a replaceable custom implementation while hashing: its UTI can
+            // change after registration and would violate Hashable stability.
+            hasher.combine("custom")
+            hasher.combine(identifier)
+        } else {
+            hasher.combine(utType)
+        }
     }
 
     /// Corresponding `kUTType`
@@ -207,7 +275,7 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
                 return UTType.png.identifier as CFString
             } else {
                 #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.png
+                return CatalystLegacyImageUTType.png as CFString
                 #else
                 return kUTTypePNG
                 #endif
@@ -217,7 +285,7 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
                 return UTType.jpeg.identifier as CFString
             } else {
                 #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.jpeg
+                return CatalystLegacyImageUTType.jpeg as CFString
                 #else
                 return kUTTypeJPEG
                 #endif
@@ -231,7 +299,7 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
                 return UTType.gif.identifier as CFString
             } else {
                 #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.gif
+                return CatalystLegacyImageUTType.gif as CFString
                 #else
                 return kUTTypeGIF
                 #endif
@@ -241,7 +309,7 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
                 return UTType.tiff.identifier as CFString
             } else {
                 #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.tiff
+                return CatalystLegacyImageUTType.tiff as CFString
                 #else
                 return kUTTypeTIFF
                 #endif
@@ -251,7 +319,7 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
                 return UTType.bmp.identifier as CFString
             } else {
                 #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.bmp
+                return CatalystLegacyImageUTType.bmp as CFString
                 #else
                 return kUTTypeBMP
                 #endif
@@ -263,7 +331,7 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
                 return UTType.ico.identifier as CFString
             } else {
                 #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.ico
+                return CatalystLegacyImageUTType.ico as CFString
                 #else
                 return kUTTypeICO
                 #endif
@@ -273,13 +341,16 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
                 return UTType.pdf.identifier as CFString
             } else {
                 #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.pdf
+                return CatalystLegacyImageUTType.pdf as CFString
                 #else
                 return kUTTypePDF
                 #endif
             }
         case .custom(let identifier):
-            return Self.registry.format(for: identifier)?.utType
+            let value: CFString?? = Self.registry.write(with: identifier) { format in
+                format.utType
+            }
+            return value ?? nil
         }
     }
 
@@ -310,6 +381,15 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
 
     /// Init `ImageFormat` using file extension
     public init?(_ fileExtension: String) {
+        // UniformTypeIdentifiers currently returns a dynamic UTI for the
+        // OpenEXR filename extension even though ImageIO uses the stable
+        // `com.ilm.openexr-image` identifier. Preserve the released `.exr`
+        // source-path and destination-path behavior explicitly.
+        if fileExtension.lowercased() == "exr" {
+            self = .exr
+            return
+        }
+
         // Try initialize custom formats using file extension
         /*for (identifier, format) in Self.customFormats {
             if format.fileExtensions.contains(fileExtension) {
@@ -362,8 +442,10 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
 
     /// Indicator of animation supported format
     internal var isAnimationSupported: Bool {
-        if case .custom(let identifier) = self, let format = Self.registry.format(for: identifier) {
-            return format.isAnimationSupported
+        if case .custom(let identifier) = self {
+            return Self.registry.write(with: identifier) { format in
+                format.isAnimationSupported
+            } ?? false
         }
 
         return self == .gif || self == .heics || self == .png || self == .pdf
@@ -371,8 +453,10 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
 
     /// Format works in old color format and low quality
     internal var isLowQuality: Bool {
-        if case .custom(let identifier) = self, let format = Self.registry.format(for: identifier) {
-            return format.isLowQuality
+        if case .custom(let identifier) = self {
+            return Self.registry.write(with: identifier) { format in
+                format.isLowQuality
+            } ?? false
         }
 
         #if os(macOS)

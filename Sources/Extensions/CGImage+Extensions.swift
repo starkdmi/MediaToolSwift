@@ -7,6 +7,8 @@ import Accelerate.vImage
 public extension CGImage {
     /// Rotate `CGImage` with crop or fill options
     func rotating(by value: Rotate, using fill: RotationFill = .crop, orientation: CGImagePropertyOrientation? = nil) -> CGImage? {
+        guard value.radians.isFinite else { return nil }
+
         // Warning: -angle is used for correct rotation
         let invertAngle = orientation?.mirrored != true // not mirrored
         let angle = invertAngle ? -value.radians : value.radians
@@ -79,7 +81,9 @@ public extension CGImage {
 
     /// Resize `CGImage` to fit, with aspect ration preserving
     func resizing(to size: CGSize) -> CGImage? {
+        guard size.hasFinitePositiveDimensions else { return nil }
         let size = self.size.fit(in: size)
+        guard size.hasFinitePositiveDimensions else { return nil }
 
         guard let context = CGContext.make(self, width: Int(size.width), height: Int(size.height)) else {
             return nil
@@ -92,6 +96,7 @@ public extension CGImage {
 
     /// Scale `CGImage` to fill
     func scaling(to size: CGSize) -> CGImage? {
+        guard size.hasFinitePositiveDimensions else { return nil }
         guard let context = CGContext.make(self, width: Int(size.width), height: Int(size.height)) else {
             return nil
         }

@@ -14,6 +14,20 @@ public enum ImageSize: Equatable {
     /// Cropping size and alignment, `fit` primarly used in video thumbnails
     case crop(fit: CGSize? = nil, options: Crop)
 
+    /// Whether requested dimensions can safely reach integer-backed image
+    /// processing APIs.
+    internal var hasValidGeometry: Bool {
+        switch self {
+        case .original:
+            return true
+        case .fit(let size):
+            return size.hasFinitePositiveDimensions
+        case .crop(let fit, let options):
+            return (fit?.hasFinitePositiveDimensions ?? true) &&
+                options.hasValidGeometry
+        }
+    }
+
     /// Create scaled ImageSize, all dimensions are multiplied by scale factor
     internal func scaled(by scale: CGFloat) -> ImageSize {
         guard scale != 1.0 else { return self }

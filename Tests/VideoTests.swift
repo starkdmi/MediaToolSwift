@@ -11,6 +11,9 @@ import Accelerate.vImage
 import UniformTypeIdentifiers
 import QuartzCore
 #if os(macOS)
+import CoreLocation
+#endif
+#if os(macOS)
 import ImageIO
 import AppKit
 #else
@@ -575,25 +578,6 @@ var configurations: [ConfigList] {
                         duration: 7.6,
                         hasAlpha: false
                     )
-                ),
-                Config(
-                    videoSettings: CompressionVideoSettings(
-                        codec: .h264,
-                        bitrate: .value(2_000_000),
-                        size: .fit(CGSize(width: 720.0, height: 720.0)),
-                        frameRate: 24
-                    ),
-                    output: Parameters(
-                        filename: "exported_oludeniz.mp4",
-                        filesize: 2_050_000,
-                        resolution: CGSize(width: 404.0, height: 720.0), // floor applied to value of 405 by encoder
-                        videoCodec: .h264,
-                        fileType: .mp4,
-                        bitrate: 2_000_000,
-                        frameRate: 24,
-                        duration: 7.6,
-                        hasAlpha: false
-                    )
                 )
             ]
         )
@@ -672,20 +656,24 @@ class MediaToolSwiftTests: XCTestCase {
         return directory
     }
 
-    private func requireExtendedFileMetadataSupport(for source: URL) throws {
+    private func addExtendedFileMetadata(to source: URL) throws {
         #if os(macOS)
-        let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
-        let extendedAttributes = NSDictionary(dictionary: attributes)["NSFileExtendedAttributes"] as? [String: Any]
-        let requiredKeys = [
-            "com.apple.metadata:kMDItemWhereFroms",
-            "com.apple.assetsd.customLocation",
-            "com.apple.assetsd.originalFilename"
-        ]
-        guard let extendedAttributes, requiredKeys.allSatisfy({ extendedAttributes[$0] != nil }) else {
-            throw XCTSkip("The checked-in fixture has no supported extended file metadata on this filesystem")
-        }
+        let whereFroms = try PropertyListSerialization.data(
+            fromPropertyList: ["Dmitry Starkov", "iPhone X"],
+            format: .binary,
+            options: 0
+        )
+        let location = CLLocationCoordinate2D(latitude: 48.8584, longitude: 2.2945)
+        let locationData = withUnsafeBytes(of: location) { Data($0) }
+        try FileManager.default.setAttributes([
+            FileAttributeKey("NSFileExtendedAttributes"): [
+                "com.apple.metadata:kMDItemWhereFroms": whereFroms,
+                "com.apple.assetsd.customLocation": locationData,
+                "com.apple.assetsd.originalFilename": Data("IMG_3754.MOV".utf8)
+            ]
+        ], ofItemAtPath: source.path)
         #else
-        throw XCTSkip("Extended file metadata is validated on macOS only")
+        throw XCTSkip("Extended file metadata is a macOS-only test")
         #endif
     }
 
@@ -710,15 +698,15 @@ class MediaToolSwiftTests: XCTestCase {
         let source = try fixture("chromecast.mp4")
         let asset = AVAsset(url: source)
 
-        var thumbnails: [VideoThumbnail] = []
+        let thumbnails = LockedValue<[VideoThumbnail]>([])
         try VideoTool.thumbnailImages(for: asset, at: [4.1], size: CGSize(width: 256, height: 256)) { items in
-            thumbnails.append(contentsOf: items)
+            thumbnails.withValue { $0.append(contentsOf: items) }
             Self.fulfill(expectation)
         }
 
         await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
 
-        XCTAssertTrue(!thumbnails.isEmpty, "Empty thumbnails array")
+        XCTAssertFalse(thumbnails.read().isEmpty, "Empty thumbnails array")
     }
     #endif
 
@@ -735,7 +723,7 @@ class MediaToolSwiftTests: XCTestCase {
         ]
         let asset = AVAsset(url: source)
 
-        var error: Error?
+        let resultError = LockedValue<Error?>(nil)
         VideoTool.thumbnailFiles(
             of: asset,
             at: [
@@ -747,7 +735,7 @@ class MediaToolSwiftTests: XCTestCase {
         ) { result in
             switch result {
             case .failure(let err):
-                error = err
+                resultError.set(err)
             case .success(_):
                 break
             }
@@ -756,7 +744,7 @@ class MediaToolSwiftTests: XCTestCase {
 
         await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
 
-        if let error {
+        if let error = resultError.read() {
             throw error
         }
         for destination in destinations {
@@ -873,7 +861,7 @@ class MediaToolSwiftTests: XCTestCase {
         let yellow = CGColor(red: 250/255, green: 197/255, blue: 22/255, alpha: 1.0)
         //let red = CGColor(red: 250/255, green: 75/255, blue: 22/255, alpha: 1.0)
 
-        let imageProcessor = { (_ image: CIImage, _ context: CIContext, _ time: Double) -> CIImage in
+        let imageProcessor: @Sendable (CIImage, CIContext, Double) -> CIImage = { image, context, time in
             /* Parameters:
              - Image: An CIImage to modify
              - Context: CIContext for reuse
@@ -1084,7 +1072,7 @@ class MediaToolSwiftTests: XCTestCase {
         }
 
         // var tempPixelBuffer: CVPixelBuffer?
-        func dispose() {
+        @Sendable func dispose() {
             // tempPixelBuffer = nil
         }
         _ = await VideoTool.convert(
@@ -1220,6 +1208,8 @@ class MediaToolSwiftTests: XCTestCase {
             for config in file.configs {
                 let destination = try outputURL(config.output.filename)
                 let expectation = XCTestExpectation(description: "Video processing")
+                let inputFilename = file.filename
+                let outputFilename = config.output.filename
 
                 #if targetEnvironment(simulator) && !os(visionOS)
                 if config.videoSettings.codec == .proRes4444 {
@@ -1239,10 +1229,10 @@ class MediaToolSwiftTests: XCTestCase {
                         case .completed:
                             Self.fulfill(expectation)
                         case .failed(let error):
-                            XCTFail("\(error.localizedDescription) while compressing \(file.filename)->\(config.output.filename)")
+                            XCTFail("\(error.localizedDescription) while compressing \(inputFilename)->\(outputFilename)")
                             Self.fulfill(expectation)
                         case .cancelled:
-                            XCTFail("Conversion was cancelled unexpectedly while compressing \(file.filename)->\(config.output.filename)")
+                            XCTFail("Conversion was cancelled unexpectedly while compressing \(inputFilename)->\(outputFilename)")
                             Self.fulfill(expectation)
                         default:
                             break
@@ -1380,7 +1370,6 @@ class MediaToolSwiftTests: XCTestCase {
         var expectations: [XCTestExpectation] = []
 
         let source = try fixture("oludeniz.MOV")
-        try requireExtendedFileMetadataSupport(for: source)
 
         let metadataItem = AVMutableMetadataItem()
         metadataItem.key = AVMetadataKey.commonKeyTitle as NSString
@@ -1424,41 +1413,6 @@ class MediaToolSwiftTests: XCTestCase {
                             }
                         }
 
-                        // Check file extended attributes for existence and correctness
-                        do {
-                            let dictionary = try FileManager.default.attributesOfItem(atPath: destinationOne.path)
-                            let attributes = NSDictionary(dictionary: dictionary)
-                            let extendedAttributes = try XCTUnwrap(
-                                attributes["NSFileExtendedAttributes"] as? [String: Any],
-                                "Expected copied extended media attributes"
-                            )
-                            let whereFromData = try XCTUnwrap(
-                                extendedAttributes["com.apple.metadata:kMDItemWhereFroms"] as? Data,
-                                "Missing kMDItemWhereFroms extended attribute"
-                            )
-                            let whereFrom = try XCTUnwrap(
-                                try PropertyListSerialization.propertyList(from: whereFromData, options: [], format: nil) as? [String],
-                                "Could not decode kMDItemWhereFroms"
-                            )
-                            XCTAssertEqual(whereFrom.first, "Dmitry Starkov") // "Dmitry S"
-                            XCTAssertEqual(whereFrom.last, "iPhone X") // "iPhone 13"
-
-                            let customLocationData = try XCTUnwrap(
-                                extendedAttributes["com.apple.assetsd.customLocation"] as? Data,
-                                "Missing customLocation extended attribute"
-                            )
-                            XCTAssertFalse(customLocationData.isEmpty)
-
-                            let originalFilenameData = try XCTUnwrap(
-                                extendedAttributes["com.apple.assetsd.originalFilename"] as? Data,
-                                "Missing originalFilename extended attribute"
-                            )
-                            let originalFilename = try XCTUnwrap(String(data: originalFilenameData, encoding: .utf8))
-                            XCTAssertEqual(originalFilename, "IMG_3754.MOV")
-                        } catch {
-                            XCTFail("Could not validate copied extended metadata: \(error)")
-                        }
-
                         Self.fulfill(expectationOne)
                     }
                 case .failed(let error):
@@ -1497,22 +1451,6 @@ class MediaToolSwiftTests: XCTestCase {
                         let metadata = await asset.getMetadata()
                         XCTAssertEqual(metadata.count, 0)
 
-                        // Check extended attributes obsence
-                        do {
-                            let dictionary = try FileManager.default.attributesOfItem(atPath: destinationTwo.path)
-                            let attributes = NSDictionary(dictionary: dictionary)
-                            if let extendedAttributes = attributes["NSFileExtendedAttributes"] as? [String: Any] {
-                                let whereFromData = extendedAttributes["com.apple.metadata:kMDItemWhereFroms"] as? Data
-                                XCTAssertNil(whereFromData)
-                                let customLocationData = extendedAttributes["com.apple.assetsd.customLocation"] as? Data
-                                XCTAssertNil(customLocationData)
-                                let originalFilenameData = extendedAttributes["com.apple.assetsd.originalFilename"] as? Data
-                                XCTAssertNil(originalFilenameData)
-                            }
-                        } catch {
-                            XCTFail("Could not validate stripped extended metadata: \(error)")
-                        }
-
                         Self.fulfill(expectationTwo)
                     }
                 case .failed(let error):
@@ -1529,24 +1467,99 @@ class MediaToolSwiftTests: XCTestCase {
         await fulfillment(of: expectations, timeout: 20 + osAdditionalTimeout)
     }
 
+    func testExtendedFileMetadata() async throws {
+        let source = try outputURL("oludeniz_extended_source.MOV")
+        try FileManager.default.copyItem(at: fixture("oludeniz.MOV"), to: source)
+        try addExtendedFileMetadata(to: source)
+
+        let copiedDestination = try outputURL("exported_oludeniz_extended_metadata.mov")
+        let copiedTerminal = expectation(description: "Extended metadata copied")
+        let copiedState = LockedValue<CompressionState?>(nil)
+        _ = await VideoTool.convert(
+            source: source,
+            destination: copiedDestination,
+            skipAudio: true,
+            copyExtendedFileMetadata: true,
+            overwrite: true
+        ) { state in
+            guard state != .started else { return }
+            copiedState.set(state)
+            copiedTerminal.fulfill()
+        }
+        await fulfillment(of: [copiedTerminal], timeout: 20 + osAdditionalTimeout)
+        guard case .completed = copiedState.read() else {
+            return XCTFail("Extended-metadata conversion failed: \(String(describing: copiedState.read()))")
+        }
+
+        let copiedAttributes = try FileManager.default.attributesOfItem(atPath: copiedDestination.path)
+        let copiedExtendedAttributes = try XCTUnwrap(
+            NSDictionary(dictionary: copiedAttributes)["NSFileExtendedAttributes"] as? [String: Any],
+            "Expected copied extended media attributes"
+        )
+        let whereFromData = try XCTUnwrap(
+            copiedExtendedAttributes["com.apple.metadata:kMDItemWhereFroms"] as? Data,
+            "Missing kMDItemWhereFroms extended attribute"
+        )
+        let whereFrom = try XCTUnwrap(
+            try PropertyListSerialization.propertyList(from: whereFromData, options: [], format: nil) as? [String],
+            "Could not decode kMDItemWhereFroms"
+        )
+        XCTAssertEqual(whereFrom.first, "Dmitry Starkov")
+        XCTAssertEqual(whereFrom.last, "iPhone X")
+        XCTAssertFalse(try XCTUnwrap(
+            copiedExtendedAttributes["com.apple.assetsd.customLocation"] as? Data,
+            "Missing customLocation extended attribute"
+        ).isEmpty)
+        let originalFilenameData = try XCTUnwrap(
+            copiedExtendedAttributes["com.apple.assetsd.originalFilename"] as? Data,
+            "Missing originalFilename extended attribute"
+        )
+        XCTAssertEqual(String(data: originalFilenameData, encoding: .utf8), "IMG_3754.MOV")
+
+        let strippedDestination = try outputURL("exported_oludeniz_stripped_extended_metadata.mov")
+        let strippedTerminal = expectation(description: "Extended metadata stripped")
+        let strippedState = LockedValue<CompressionState?>(nil)
+        _ = await VideoTool.convert(
+            source: source,
+            destination: strippedDestination,
+            skipAudio: true,
+            copyExtendedFileMetadata: false,
+            overwrite: true
+        ) { state in
+            guard state != .started else { return }
+            strippedState.set(state)
+            strippedTerminal.fulfill()
+        }
+        await fulfillment(of: [strippedTerminal], timeout: 20 + osAdditionalTimeout)
+        guard case .completed = strippedState.read() else {
+            return XCTFail("Metadata-stripping conversion failed: \(String(describing: strippedState.read()))")
+        }
+
+        let strippedAttributes = try FileManager.default.attributesOfItem(atPath: strippedDestination.path)
+        let strippedExtendedAttributes = NSDictionary(dictionary: strippedAttributes)["NSFileExtendedAttributes"] as? [String: Any]
+        XCTAssertNil(strippedExtendedAttributes?["com.apple.metadata:kMDItemWhereFroms"])
+        XCTAssertNil(strippedExtendedAttributes?["com.apple.assetsd.customLocation"])
+        XCTAssertNil(strippedExtendedAttributes?["com.apple.assetsd.originalFilename"])
+    }
+
     func testCancellation() async throws {
         let source = try fixture("oludeniz.MOV")
 
         let destination = try outputURL("exported_oludeniz_cancel.mov")
         let expectation = XCTestExpectation(description: "Compression & cancellation")
-        var status: CompressionState?
+        let status = LockedValue<CompressionState?>(nil)
         let task = await VideoTool.convert(
             source: source,
             destination: destination,
             videoSettings: CompressionVideoSettings(
-                codec: .h264,
+                codec: .hevc,
                 bitrate: .encoder
             ),
             skipAudio: true,
             overwrite: true,
             deleteSourceFile: false,
             callback: { state in
-                status = state
+                status.set(state)
                 switch state {
                 case .cancelled:
                     Self.fulfill(expectation)
@@ -1561,14 +1574,15 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
 
-        // Cancel after the reader/writer session has started.
-        try await Task.sleep(nanoseconds: 150_000_000)
+        // Cancel immediately after the public task becomes controllable. The
+        // fixture is intentionally short enough that a fixed delay can race a
+        // valid completion on fast machines.
         task.cancel()
 
         await fulfillment(of: [expectation], timeout: 20)
 
         // Check the state
-        XCTAssertEqual(status, .cancelled)
+        XCTAssertEqual(status.read(), .cancelled)
 
         // Check no files created
         let exists = FileManager.default.fileExists(atPath: destination.path)
@@ -1581,7 +1595,7 @@ class MediaToolSwiftTests: XCTestCase {
         try FileManager.default.copyItem(at: sourceOne, to: destinationOne)
 
         let overwriteExpectation = XCTestExpectation(description: "Compression rejects an existing destination")
-        var overwriteError: CompressionError?
+        let overwriteError = LockedValue<CompressionError?>(nil)
         _ = await VideoTool.convert(
             source: sourceOne,
             destination: destinationOne,
@@ -1589,7 +1603,7 @@ class MediaToolSwiftTests: XCTestCase {
             callback: { state in
                 switch state {
                 case .failed(let error):
-                    overwriteError = error as? CompressionError
+                    overwriteError.set(error as? CompressionError)
                     Self.fulfill(overwriteExpectation)
                 case .completed, .cancelled:
                     XCTFail("Overwrite=false conversion reached an unexpected terminal state: \(state)")
@@ -1599,7 +1613,7 @@ class MediaToolSwiftTests: XCTestCase {
                 }
         })
         await fulfillment(of: [overwriteExpectation], timeout: 10 + osAdditionalTimeout)
-        XCTAssertEqual(overwriteError, .destinationFileExists)
+        XCTAssertEqual(overwriteError.read(), .destinationFileExists)
 
         let sourceTwo = try outputURL("oludeniz.MOV")
         try FileManager.default.copyItem(at: sourceOne, to: sourceTwo)

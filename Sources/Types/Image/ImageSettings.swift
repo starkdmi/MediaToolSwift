@@ -65,4 +65,10 @@ public struct ImageSettings {
     /// Image framework used for loading, editing and saving
     /// Not always taken into account
     public var preferredFramework: ImageFramework
+
+    /// Whether public geometry values are safe for the integer-backed image
+    /// processing implementations.
+    internal var hasValidGeometry: Bool {
+        size.hasValidGeometry && edit.hasValidGeometry
+    }
 }

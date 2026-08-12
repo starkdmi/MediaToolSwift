@@ -20,7 +20,9 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
     private var writingInitialized = false
     private var writingTotal: Int64
     private var configuredWritingProgress: Progress?
+    private var acceptsWritingUpdates = true
     private let fileURL: URL
+    private let observedOutputURL: URL
     private var observer: FileSizeObserver?
 
     private let startedTime: Date
@@ -37,6 +39,7 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
         estimatedFileLengthInKB: Double,
         frameRate: Float?,
         destination: URL,
+        observedOutput: URL,
         queue progressQueue: DispatchQueue,
         config: FileObserverConfig
     ) {
@@ -48,6 +51,7 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
         self.task = task
         startedTime = Date()
         fileURL = destination
+        observedOutputURL = observedOutput
 
         startTime = timeRange.start.seconds
         duration = timeRange.duration.seconds
@@ -59,10 +63,18 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
 
         let minimumSteps: Int64 = 100
         let scaleFactor = 0.5
-        let totalSteps = max(Int64(ceil(duration * scaleFactor)), minimumSteps)
+        let scaledSteps = duration.isFinite ? max(ceil(duration * scaleFactor), 0) : 0
+        let maximumConvertibleInt64 = Double(Int64.max).nextDown
+        let boundedSteps = min(scaledSteps, maximumConvertibleInt64)
+        let totalSteps = max(Int64(boundedSteps), minimumSteps)
         total = Double(totalSteps)
         self.totalSteps = totalSteps
-        writingTotal = Int64(estimatedFileLengthInKB * 1024)
+        let estimatedBytes = estimatedFileLengthInKB * 1024
+        if estimatedBytes.isFinite, estimatedBytes > 0 {
+            writingTotal = Int64(min(estimatedBytes, maximumConvertibleInt64))
+        } else {
+            writingTotal = 0
+        }
 
         switch estimatedFileLengthInKB {
         case 0 ... 10_000:
@@ -82,9 +94,9 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
         }
 
         queue.async { [self] in
-            self.configureEncodingProgress()
+            _ = self.configuredEncodingProgress()
             if self.useWritingProgress,
-               FileManager.default.fileExists(atPath: destination.path) {
+               FileManager.default.fileExists(atPath: observedOutput.path) {
                 self.initializeWriting()
             }
         }
@@ -104,30 +116,32 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
     /// Finish encoding progress.
     internal func complete() {
         queue.async { [self] in
-            self.configureEncodingProgress()
-            if self.progress.completedUnitCount != self.progress.totalUnitCount {
-                self.progress.completedUnitCount = self.progress.totalUnitCount
+            let progress = self.configuredEncodingProgress()
+            if progress.completedUnitCount != progress.totalUnitCount {
+                progress.completedUnitCount = progress.totalUnitCount
             }
-            self.progress.estimatedTimeRemaining = nil
+            progress.estimatedTimeRemaining = nil
         }
     }
 
     /// Finish writing/saving progress.
     internal func completeWriting() {
         queue.async { [self] in
+            acceptsWritingUpdates = false
             self.stopObservingWriting()
+            let writingProgress = self.writingProgress
             if self.useWritingProgress {
-                self.configureWritingProgress()
-                if self.writingProgress.totalUnitCount != self.writingProgress.completedUnitCount {
-                    self.writingProgress.totalUnitCount = self.writingProgress.completedUnitCount
+                self.configureWritingProgress(writingProgress)
+                if writingProgress.totalUnitCount != writingProgress.completedUnitCount {
+                    writingProgress.totalUnitCount = writingProgress.completedUnitCount
                 }
-                self.writingProgress.estimatedTimeRemaining = nil
+                writingProgress.estimatedTimeRemaining = nil
                 #if os(macOS)
-                self.writingProgress.unpublish()
+                writingProgress.unpublish()
                 #endif
             } else {
-                self.writingProgress.completedUnitCount = 1
-                self.writingProgress.totalUnitCount = 1
+                writingProgress.completedUnitCount = 1
+                writingProgress.totalUnitCount = 1
             }
         }
     }
@@ -135,23 +149,27 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
     /// Clear writing progress after cancellation or failure.
     internal func cancelWriting() {
         queue.async { [self] in
+            acceptsWritingUpdates = false
             self.stopObservingWriting()
+            let writingProgress = self.writingProgress
             if self.useWritingProgress {
-                self.configureWritingProgress()
-                self.writingProgress.estimatedTimeRemaining = nil
-                self.writingProgress.totalUnitCount = -1
-                self.writingProgress.completedUnitCount = 0
+                self.configureWritingProgress(writingProgress)
+                writingProgress.estimatedTimeRemaining = nil
+                writingProgress.totalUnitCount = -1
+                writingProgress.completedUnitCount = 0
             }
             #if os(macOS)
-            self.writingProgress.unpublish()
+            writingProgress.unpublish()
             #endif
         }
     }
 
     private func updateEncoding(percentage: Double) {
-        configureEncodingProgress()
-        var completedUnitCount = Int64(percentage * total)
-        completedUnitCount = min(completedUnitCount, progress.totalUnitCount)
+        let progress = configuredEncodingProgress()
+        let boundedPercentage = min(max(percentage, 0), 1)
+        let completedUnitCount = boundedPercentage == 1
+            ? totalSteps
+            : Int64(boundedPercentage * total)
 
         guard completedUnitCount > progress.completedUnitCount else { return }
         progress.completedUnitCount = completedUnitCount
@@ -168,14 +186,15 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
         }
     }
 
-    private func configureEncodingProgress() {
+    private func configuredEncodingProgress() -> Progress {
+        let progress = self.progress
         if progress.totalUnitCount != totalSteps {
             progress.totalUnitCount = totalSteps
         }
+        return progress
     }
 
-    private func configureWritingProgress() {
-        let writingProgress = self.writingProgress
+    private func configureWritingProgress(_ writingProgress: Progress) {
         guard configuredWritingProgress !== writingProgress else { return }
 
         #if os(macOS)
@@ -194,20 +213,25 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
     }
 
     private func initializeWriting() {
-        configureWritingProgress()
+        guard acceptsWritingUpdates else { return }
+        let writingProgress = self.writingProgress
+        configureWritingProgress(writingProgress)
         guard !writingInitialized else { return }
         writingInitialized = true
 
         let observerQueue = DispatchQueue(label: "MediaToolSwift.video.file-size")
-        observer = FileSizeObserver(url: fileURL, queue: observerQueue) { [weak self] fileSize in
+        observer = FileSizeObserver(url: observedOutputURL, queue: observerQueue) { [weak self] fileSize in
             self?.queue.async { [weak self] in
-                self?.updateWriting(fileSize: Int64(fileSize))
+                guard let self, self.acceptsWritingUpdates else { return }
+                self.updateWriting(fileSize: Int64(fileSize))
             }
         }
     }
 
     private func updateWriting(fileSize: Int64) {
-        configureWritingProgress()
+        guard acceptsWritingUpdates else { return }
+        let writingProgress = self.writingProgress
+        configureWritingProgress(writingProgress)
         guard fileSize < writingProgress.totalUnitCount else {
             writingProgress.totalUnitCount = fileSize + 1
             writingProgress.completedUnitCount = fileSize

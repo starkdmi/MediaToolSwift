@@ -2,6 +2,15 @@ import AVFoundation
 
 /// Extensions on `CGPoint`
 internal extension CGPoint {
+    /// Whether both coordinates can safely be converted to integer pixel
+    /// offsets by the image processing backends.
+    var hasFinitePixelCoordinates: Bool {
+        let integerLimit = CGFloat(Int.max)
+        return x.isFinite && y.isFinite &&
+            x > -integerLimit && x < integerLimit &&
+            y > -integerLimit && y < integerLimit
+    }
+
     /// Rotate point relative to another point
     func rotate(by angle: CGFloat, around center: CGPoint) -> CGPoint {
         let translatedPoint = CGPoint(x: self.x - center.x, y: self.y - center.y)

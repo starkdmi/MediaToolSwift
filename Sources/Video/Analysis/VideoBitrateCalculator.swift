@@ -10,6 +10,11 @@ internal struct VideoBitrateCalculator {
         /// Target bitrate in bits per second (nil = use encoder default)
         internal let targetBitrate: Int?
 
+        /// Bitrate supplied to AVAssetWriter. This differs from
+        /// `targetBitrate` when a request is capped to the source bitrate for
+        /// parity with the legacy pipeline.
+        internal let encoderBitrate: Int?
+
         /// Whether bitrate changed from source
         internal let bitrateChanged: Bool
 
@@ -43,7 +48,16 @@ internal struct VideoBitrateCalculator {
         isHDR: Bool,
         frameRate: Float,
         duration: Double
-    ) -> Result {
+    ) throws -> Result {
+        guard sourceBitrate.isFinite,
+              sourceBitrate >= 0,
+              Double(sourceBitrate) < Double(Int.max),
+              duration.isFinite,
+              duration >= 0 else {
+            throw CompressionError.invalidVideoBitrate
+        }
+        let sourceBitrateValue = Int(sourceBitrate.rounded())
+
         // Check if codec supports bitrate setting
         let supportsBitrate = codec == .h264 || codec == .hevc || codec == .hevcWithAlpha
 
@@ -51,6 +65,7 @@ internal struct VideoBitrateCalculator {
             // ProRes and JPEG don't use bitrate
             return Result(
                 targetBitrate: nil,
+                encoderBitrate: nil,
                 bitrateChanged: false,
                 isEstimatedFileSizeAccurate: false,
                 estimatedFileSizeKB: estimateFileSize(bitrate: Double(sourceBitrate), duration: duration)
@@ -58,6 +73,7 @@ internal struct VideoBitrateCalculator {
         }
 
         var targetBitrate: Int?
+        var encoderBitrate: Int?
         var bitrateChanged = false
         let isEstimatedFileSizeAccurate: Bool
 
@@ -69,11 +85,12 @@ internal struct VideoBitrateCalculator {
             // For the same codec and resolution, use source bitrate as maximum
             if !codecChanged,
                targetSize.width <= sourceSize.width,
-               targetSize.height <= sourceSize.height {
-                if value >= Int(sourceBitrate) {
+               targetSize.height <= sourceSize.height,
+               sourceBitrateValue > 0 {
+                if value >= sourceBitrateValue {
                     // Use source bitrate when higher value targeted
                     // Original behavior: apply sourceBitrate but leave targetBitrate as nil
-                    return (Int(sourceBitrate), false)
+                    return (sourceBitrateValue, false)
                 } else {
                     // Require re-encoding to lower bitrate
                     bitrateChanged = true
@@ -85,7 +102,9 @@ internal struct VideoBitrateCalculator {
 
         switch bitrateOption {
         case .value(let value):
+            guard value > 0 else { throw CompressionError.invalidVideoBitrate }
             let result = setBitrate(value)
+            encoderBitrate = result.apply
             if result.setTarget {
                 targetBitrate = result.apply
             }
@@ -94,57 +113,73 @@ internal struct VideoBitrateCalculator {
             isEstimatedFileSizeAccurate = value >= 8_000_000
 
         case .dynamic(let handler):
-            let value = handler(Int(sourceBitrate))
+            let value = handler(sourceBitrateValue)
+            guard value > 0 else { throw CompressionError.invalidVideoBitrate }
             let result = setBitrate(value)
+            encoderBitrate = result.apply
             if result.setTarget {
                 targetBitrate = result.apply
             }
             isEstimatedFileSizeAccurate = value >= 8_000_000
 
         case .filesize(let filesize):
+            guard filesize.isFinite, filesize > 0, duration > 0 else {
+                throw CompressionError.invalidVideoBitrate
+            }
             // Convert MB to bits and divide by duration
             var rate = filesize * Double(8_000_000) / duration
 
             // Limit based on source bitrate for H.264
             if codecChanged, codec == .h264 {
-                if rate >= Double(sourceBitrate) {
-                    rate = Double(sourceBitrate)
+                if sourceBitrateValue > 0, rate >= Double(sourceBitrateValue) {
+                    rate = Double(sourceBitrateValue)
                 }
             }
 
+            guard rate.isFinite, rate > 0, rate < Double(Int.max) else {
+                throw CompressionError.invalidVideoBitrate
+            }
             let result = setBitrate(Int(rate.rounded()))
+            encoderBitrate = result.apply
             if result.setTarget {
                 targetBitrate = result.apply
             }
             isEstimatedFileSizeAccurate = true
 
         case .auto:
-            let bitrate = calculateAutoBitrate(
+            let bitrate = try calculateAutoBitrate(
                 targetSize: targetSize,
                 codec: codec,
                 isHDR: isHDR,
                 frameRate: frameRate
             )
             let result = setBitrate(bitrate)
+            encoderBitrate = result.apply
             if result.setTarget {
                 targetBitrate = result.apply
             }
             isEstimatedFileSizeAccurate = true
 
         case .source:
-            targetBitrate = Int(sourceBitrate)
+            guard sourceBitrateValue > 0 else {
+                throw CompressionError.invalidVideoBitrate
+            }
+            targetBitrate = sourceBitrateValue
+            encoderBitrate = sourceBitrateValue
             isEstimatedFileSizeAccurate = true
 
         case .encoder:
             targetBitrate = nil
+            encoderBitrate = nil
             isEstimatedFileSizeAccurate = false
         }
 
-        let rate = Double(targetBitrate ?? Int(sourceBitrate))
+        let rate = Double(encoderBitrate ?? sourceBitrateValue)
         let estimatedSize = estimateFileSize(bitrate: rate, duration: duration)
 
         return Result(
             targetBitrate: targetBitrate,
+            encoderBitrate: encoderBitrate,
             bitrateChanged: bitrateChanged,
             isEstimatedFileSizeAccurate: isEstimatedFileSizeAccurate,
             estimatedFileSizeKB: estimatedSize
@@ -157,7 +192,7 @@ internal struct VideoBitrateCalculator {
         codec: AVVideoCodecType,
         isHDR: Bool,
         frameRate: Float
-    ) -> Int {
+    ) throws -> Int {
         var codecMultiplier: Float = 1.0
         if codec == .hevc || codec == .hevcWithAlpha {
             codecMultiplier = 0.5
@@ -166,9 +201,20 @@ internal struct VideoBitrateCalculator {
         }
 
         let bitsPerPixelMultiplier: Float = isHDR ? 1.25 : 1.0
-        let totalPixels = Float(targetSize.width * targetSize.height)
-        let rate = (totalPixels * bitsPerPixelMultiplier * codecMultiplier * frameRate) / 8
+        guard targetSize.width.isFinite,
+              targetSize.height.isFinite,
+              targetSize.width > 0,
+              targetSize.height > 0,
+              frameRate.isFinite,
+              frameRate > 0 else {
+            throw CompressionError.invalidVideoBitrate
+        }
+        let totalPixels = Double(targetSize.width * targetSize.height)
+        let rate = totalPixels * Double(bitsPerPixelMultiplier * codecMultiplier * frameRate) / 8
 
+        guard rate.isFinite, rate > 0, rate < Double(Int.max) else {
+            throw CompressionError.invalidVideoBitrate
+        }
         return Int(rate.rounded())
     }
 

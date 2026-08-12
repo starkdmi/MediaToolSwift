@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -51,18 +52,37 @@ jobs:
       - name: API compatibility with 1.2.0
         shell: bash
         run: |
-          set -o pipefail
+          set -uo pipefail
+          set +e
           swift package diagnose-api-breaking-changes 1.2.0 --products MediaToolSwift 2>&1 | tee api-diff.log
-          # OpenEXR was added publicly on main after 1.2.0. Preserve that API
-          # while continuing to reject every other difference from the tag.
+          diagnose_status="${PIPESTATUS[0]}"
+          set -e
+
+          # SwiftPM exits nonzero when it finds a source-breaking API change.
+          # Treat other failures (for example, a failed build) as gate failures.
+          if [[ "$diagnose_status" -ne 0 ]] && ! grep -Fq "API breakage:" api-diff.log; then
+            exit "$diagnose_status"
+          fi
+
+          # OpenEXR and multi-sample processing were added publicly on main
+          # after 1.2.0. Preserve those APIs while rejecting every other
+          # difference from the tag.
           unexpected_breakages="$(
             grep -F "API breakage:" api-diff.log |
-              grep -Fv "ImageFormat.exr has been added as a new enum case" || true
+              grep -Fv "ImageFormat.exr has been added as a new enum case" |
+              grep -Fv "VideoFrameProcessor.sampleBufferToMany has been added as a new enum case" || true
           )"
           if [[ -n "$unexpected_breakages" ]]; then
             echo "$unexpected_breakages"
             exit 1
           fi
+
+      - name: API compatibility with pull-request base
+        if: github.event_name == 'pull_request'
+        run: >-
+          swift package diagnose-api-breaking-changes
+          "${{ github.event.pull_request.base.sha }}"
+          --products MediaToolSwift
 
       - name: Whitespace check
         shell: bash
@@ -77,7 +97,7 @@ jobs:
         run: command -v swiftlint || brew install swiftlint
 
       - name: SwiftLint
-        run: swiftlint lint
+        run: swiftlint lint --no-cache
 
       - name: Build DocC documentation
         run: >-
@@ -115,6 +135,8 @@ jobs:
           swift build --triple "${{ matrix.triple }}" \
             -Xswiftc -sdk -Xswiftc "$sdk_path" \
             -Xcc -isysroot -Xcc "$sdk_path" \
+            -Xswiftc -swift-version -Xswiftc 6 \
+            -Xswiftc -strict-concurrency=complete \
             -Xswiftc -warnings-as-errors
 
   cocoapods:
@@ -123,19 +145,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      - name: Validate release tag and podspec version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          spec_version="$(ruby -e 'text = File.read("MediaToolSwift.podspec"); abort unless text =~ /spec\.version\s*=\s*"([^"]+)"/; puts Regexp.last_match(1)')"
+          test "$GITHUB_REF_NAME" = "$spec_version"
+          grep -Fq ':tag => "#{spec.version}"' MediaToolSwift.podspec
       - name: Install CocoaPods
         run: command -v pod || gem install cocoapods -v 1.16.2 --no-document
-      - run: pod lib lint MediaToolSwift.podspec --allow-warnings
+      - name: Lint checkout
+        if: github.ref_type != 'tag'
+        run: pod lib lint MediaToolSwift.podspec --allow-warnings
+      - name: Lint tagged source artifact
+        if: github.ref_type == 'tag'
+        run: pod spec lint MediaToolSwift.podspec --allow-warnings
 
   thread-sanitizer:
     name: Thread Sanitizer cancellation stress
     runs-on: macos-15
+    env:
+      TSAN_OPTIONS: suppressions=${{ github.workspace }}/.github/tsan-suppressions.txt
     steps:
       - uses: actions/checkout@v4
       - run: sudo xcode-select -s /Applications/Xcode_16.2.app
       - run: >-
           swift test --sanitize=thread
-          --filter RefactoringVerificationTests/testRepeated
+          --filter 'RefactoringVerificationTests/.*Cancellation'
 
   extended-media:
     name: scheduled extended media suite

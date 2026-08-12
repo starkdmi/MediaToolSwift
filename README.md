@@ -13,7 +13,7 @@
 To install library with Swift Package Manager, add the following code to your __Package.swift__ file:
 ```
 dependencies: [
-    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.2.0"))
+    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.3.0"))
 ]
 ```
 
@@ -22,6 +22,15 @@ To install library with CocoaPods, add the following line to your __Podfile__ fi
 ```
 pod 'MediaToolSwift'
 ```
+
+### Swift 6 concurrency
+
+The 1.x callback, dynamic-setting, and frame/image processor signatures remain
+source-compatible with earlier releases and may run on MediaToolSwift-managed
+queues. Protect mutable captures and explicitly hop to the required actor before
+touching actor-isolated state. `@preconcurrency import MediaToolSwift` is
+available as a migration aid for older clients, but does not make unsynchronized
+captures safe.
 
 ## VideoTool
 __Video compressor focused on:__
@@ -35,6 +44,13 @@ __Video compressor focused on:__
 - Progress and cancellation
 
 __[Features](Files/VIDEO.md)__
+
+Transcoding preserves static HDR color tags, but codec-private dynamic HDR and
+Dolby Vision metadata may not survive an AVFoundation re-encode. Use passthrough
+settings when exact dynamic-metadata preservation is required. Explicit color
+space or transfer-function changes are rejected because MediaToolSwift does not
+currently perform the required pixel-value conversion.
+
 | Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Frame Processing[\*](Files/VIDEO.md#frame-processing) | FPS | Thumbnail | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | ✔️ | ✔️ | ✔️ | ⭐️ | ⭐️ | ✔️ | ✔️ | ✔️ | ✔️ |

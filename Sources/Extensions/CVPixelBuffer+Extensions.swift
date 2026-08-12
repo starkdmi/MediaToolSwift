@@ -145,17 +145,12 @@ internal extension CVPixelBuffer {
         targetSize: CGSize,
         cropRect: CGRect?,
         transform: CGAffineTransform?,
-        pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor,
+        pixelBufferPool: CVPixelBufferPool,
         colorInfo: VideoColorInformation?,
         context: CIContext?
     ) -> CVPixelBuffer? {
         autoreleasepool {
             let timeInSeconds = presentationTimeStamp.seconds
-
-            // Validate pixel buffer pool
-            guard let pixelBufferPool = pixelBufferAdaptor.pixelBufferPool else {
-                return nil
-            }
 
             // Get source pixel buffer
             guard let sourcePixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {

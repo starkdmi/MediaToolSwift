@@ -1,0 +1,4 @@
+# AVFoundation's Swift concurrency back-deployment thunk races in Apple's
+# AVAsynchronousKeyValueLoading implementation. Keep the suppression scoped to
+# that framework shim so package-owned cancellation races still fail the gate.
+race:AVAsynchronousKeyValueLoading

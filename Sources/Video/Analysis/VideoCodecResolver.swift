@@ -40,6 +40,43 @@ internal struct VideoCodecResolver {
 
     internal init() {}
 
+    /// Rejects output choices that cannot preserve a high-bit-depth source.
+    /// The pipeline has no SDR tone-mapping stage, so accepting an 8-bit codec
+    /// or profile would either fail late or produce video that remains tagged
+    /// and reported as HDR after its signal was quantized.
+    internal static func validateHighBitDepthCompatibility(
+        codec: AVVideoCodecType,
+        profile: CompressionVideoProfile?
+    ) throws {
+        switch codec {
+        case .h264, .jpeg:
+            throw CompressionError.invalidVideoCodec
+        case .hevc:
+            switch profile {
+            case .hevcMain, .h264Baseline, .h264Main, .h264High:
+                throw CompressionError.invalidVideoCodec
+            case .value(let value):
+                let allowedProfiles = [
+                    CompressionVideoProfile.hevcMain10.rawValue,
+                    CompressionVideoProfile.hevcMain42210.rawValue
+                ]
+                guard allowedProfiles.contains(value) else {
+                    throw CompressionError.invalidVideoCodec
+                }
+            case .hevcMain10, .hevcMain42210, .none:
+                break
+            }
+        case .hevcWithAlpha:
+            throw CompressionError.invalidVideoCodec
+        #if !os(visionOS)
+        case .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy, .proRes4444:
+            break
+        #endif
+        default:
+            throw CompressionError.invalidVideoCodec
+        }
+    }
+
     /// Resolve the output codec
     /// - Parameters:
     ///   - requestedCodec: User-requested codec (nil to use source)
@@ -53,12 +90,14 @@ internal struct VideoCodecResolver {
         requestedCodec: AVVideoCodecType?,
         sourceCodec: AVVideoCodecType,
         sourceHasAlpha: Bool,
-        isHDR: Bool,
         preserveAlphaRequested: Bool
     ) throws -> Resolution {
         var outputCodec: AVVideoCodecType
 
         if let requested = requestedCodec {
+            guard Self.supportedCodecs.contains(requested) else {
+                throw CompressionError.invalidVideoCodec
+            }
             outputCodec = requested
         } else {
             // Verify source codec is valid for output
@@ -68,11 +107,7 @@ internal struct VideoCodecResolver {
             outputCodec = sourceCodec
         }
 
-        // HDR videos can't have an alpha channel
         var preserveAlpha = preserveAlphaRequested
-        if preserveAlpha, isHDR {
-            preserveAlpha = false
-        }
 
         var hasAlpha = false
 

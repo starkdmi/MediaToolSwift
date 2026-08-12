@@ -3,18 +3,25 @@ import Foundation
 private final class CompressionTaskCancellationRelay: @unchecked Sendable {
     weak var task: CompressionTask?
 
-    func cancel() {
-        task?.cancel()
+    func cancel(progressID: UUID) {
+        task?.cancel(fromProgressWithID: progressID)
     }
 }
 
+internal enum CompressionTaskFailureClaim {
+    case failure
+    case cancellation
+    case unavailable
+}
+
 /// Cancellable compression operation
-public class CompressionTask: NSObject, ProgressReporting {
+public final class CompressionTask: NSObject, ProgressReporting, @unchecked Sendable {
     private let lock = NSLock()
     private var _isCancelled = false
     private var hasTerminalOutcome = false
     private var cancellationHandlers: [UUID: @Sendable () -> Void] = [:]
     private let cancellationRelay = CompressionTaskCancellationRelay()
+    private var progressCancellationID = UUID()
     private var _progress: Progress
     private var _writingProgress: Progress
 
@@ -27,11 +34,19 @@ public class CompressionTask: NSObject, ProgressReporting {
 
     /// Cancel the compression process
     public func cancel() {
+        cancel(fromProgressWithID: nil)
+    }
+
+    fileprivate func cancel(fromProgressWithID progressID: UUID?) {
         let handlers: [@Sendable () -> Void]
         let progress: Progress
         let writingProgress: Progress
 
         lock.lock()
+        if let progressID, progressID != progressCancellationID {
+            lock.unlock()
+            return
+        }
         guard !_isCancelled, !hasTerminalOutcome else {
             lock.unlock()
             return
@@ -43,9 +58,12 @@ public class CompressionTask: NSObject, ProgressReporting {
         cancellationHandlers.removeAll()
         lock.unlock()
 
+        // Propagate to active reader/writer sessions before invoking public
+        // `Progress` cancellation handlers, which callers may replace with
+        // arbitrary or blocking work.
+        handlers.forEach { $0() }
         cancel(progress)
         cancel(writingProgress)
-        handlers.forEach { $0() }
     }
 
     /// Register work that should be notified when cancellation is requested.
@@ -92,13 +110,30 @@ public class CompressionTask: NSObject, ProgressReporting {
         return true
     }
 
-    /// Prevents a later cancellation from changing an already delivered
-    /// terminal outcome.
-    internal func markTerminalOutcome() {
+    /// Atomically resolves a failure racing with cancellation. Once
+    /// cancellation has changed the public task state, the conversion must
+    /// report `.cancelled` rather than allowing a later failure to win.
+    internal func claimFailureTerminalOutcome() -> CompressionTaskFailureClaim {
         lock.lock()
+        defer { lock.unlock() }
+
+        guard !hasTerminalOutcome else { return .unavailable }
         hasTerminalOutcome = true
         cancellationHandlers.removeAll()
-        lock.unlock()
+        return _isCancelled ? .cancellation : .failure
+    }
+
+    /// Claims a cancellation terminal event, including cancellation initiated
+    /// by AVFoundation rather than through the public task.
+    internal func claimCancellationTerminalOutcome() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !hasTerminalOutcome else { return false }
+        _isCancelled = true
+        hasTerminalOutcome = true
+        cancellationHandlers.removeAll()
+        return true
     }
 
     /// Processing progress
@@ -109,21 +144,18 @@ public class CompressionTask: NSObject, ProgressReporting {
             return _progress
         }
         set {
-            installCancellationHandler(on: newValue)
+            let cancellationID = UUID()
 
             let taskWasCancelled: Bool
             lock.lock()
             _progress = newValue
+            progressCancellationID = cancellationID
             taskWasCancelled = _isCancelled
             lock.unlock()
 
-            // A caller may cancel a replacement progress while its handler is
-            // being installed. Checking after publication closes that race,
-            // while the handler above covers every cancellation that follows it.
+            repairCurrentProgressCancellationHandler()
             if taskWasCancelled {
                 cancel(newValue)
-            } else if newValue.isCancelled {
-                cancel()
             }
         }
     }
@@ -167,14 +199,44 @@ public class CompressionTask: NSObject, ProgressReporting {
         _progress = Progress(totalUnitCount: -1)
         super.init()
         cancellationRelay.task = self
-        installCancellationHandler(on: _progress)
+        installCancellationHandler(on: _progress, cancellationID: progressCancellationID)
     }
 
-    private func installCancellationHandler(on progress: Progress) {
+    private func installCancellationHandler(on progress: Progress, cancellationID: UUID) {
         progress.isCancellable = true
         let relay = cancellationRelay
         progress.cancellationHandler = {
-            relay.cancel()
+            relay.cancel(progressID: cancellationID)
+        }
+    }
+
+    private func repairCurrentProgressCancellationHandler() {
+        while true {
+            let progress: Progress
+            let cancellationID: UUID
+            let taskWasCancelled: Bool
+            lock.lock()
+            progress = _progress
+            cancellationID = progressCancellationID
+            taskWasCancelled = _isCancelled
+            lock.unlock()
+
+            // Foundation mutations may synchronously invoke KVO/subclass code,
+            // so never hold an internal lock here. Stale handlers are harmless:
+            // their generation is rejected by `cancel(fromProgressWithID:)`.
+            installCancellationHandler(on: progress, cancellationID: cancellationID)
+
+            lock.lock()
+            let isStable = _progress === progress && progressCancellationID == cancellationID
+            lock.unlock()
+            guard isStable else { continue }
+
+            if taskWasCancelled {
+                cancel(progress)
+            } else if progress.isCancelled {
+                cancel(fromProgressWithID: cancellationID)
+            }
+            return
         }
     }
 

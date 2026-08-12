@@ -44,7 +44,11 @@ extension VideoTool {
             callback: callback
         )
 
-        await session.prepareAndStart()
+        await withTaskCancellationHandler {
+            await session.prepareAndStart()
+        } onCancel: {
+            task.cancel()
+        }
         return task
     }
 }
@@ -54,6 +58,7 @@ extension VideoTool {
 /// accessed after preparation completes.
 private final class VideoConversionSession: @unchecked Sendable {
     private let stateQueue = DispatchQueue(label: "MediaToolSwift.video.conversion.session")
+    private let processingQueue: DispatchQueue
 
     private let task: CompressionTask
     private let source: URL
@@ -70,7 +75,7 @@ private final class VideoConversionSession: @unchecked Sendable {
     private let overwrite: Bool
     private let deleteSourceFile: Bool
     private let progressQueue: DispatchQueue
-    private let callback: (CompressionState) -> Void
+    private let callbackDelivery: LegacyCallbackDelivery<CompressionState>
 
     private var configuration: PreparedVideoConversion?
     private var pumps: [VideoTrackPump] = []
@@ -79,7 +84,6 @@ private final class VideoConversionSession: @unchecked Sendable {
     private var isFinishing = false
     private var isTerminal = false
     private var retainedSession: VideoConversionSession?
-    private var destinationExistedAtStart = false
 
     init(
         task: CompressionTask,
@@ -99,6 +103,8 @@ private final class VideoConversionSession: @unchecked Sendable {
         progressQueue: DispatchQueue,
         callback: @escaping (CompressionState) -> Void
     ) {
+        let processingQueue = DispatchQueue(label: "MediaToolSwift.video.frame-processing")
+        self.processingQueue = processingQueue
         self.task = task
         self.source = source
         self.destination = destination
@@ -114,13 +120,16 @@ private final class VideoConversionSession: @unchecked Sendable {
         self.overwrite = overwrite
         self.deleteSourceFile = deleteSourceFile
         self.progressQueue = progressQueue
-        self.callback = callback
+        callbackDelivery = LegacyCallbackDelivery(
+            label: "MediaToolSwift.video.callback",
+            queue: processingQueue,
+            callback: callback
+        )
     }
 
     func prepareAndStart() async {
         stateQueue.sync {
             retainedSession = self
-            destinationExistedAtStart = FileManager.default.fileExists(atPath: destination.path)
             cancellationHandlerID = task.registerCancellationHandler { [weak self] in
                 self?.requestCancellation()
             }
@@ -139,7 +148,7 @@ private final class VideoConversionSession: @unchecked Sendable {
                 return
             }
 
-            stateQueue.sync {
+            stateQueue.async { [self] in
                 installAndStartOnQueue(prepared)
             }
         } catch {
@@ -152,18 +161,24 @@ private final class VideoConversionSession: @unchecked Sendable {
     }
 
     private func prepareConfiguration() async throws -> PreparedVideoConversion {
+        guard !task.isCancelled, !Task.isCancelled else {
+            throw CancellationError()
+        }
         guard FileManager.default.fileExists(atPath: source.path) else {
             throw CompressionError.sourceFileNotFound
         }
+        let sourceFileIdentity = deleteSourceFile
+            ? SourceFileIdentity(at: source)
+            : nil
 
-        guard source.standardizedFileURL != destination.standardizedFileURL else {
+        guard !fileURLsReferToSameItem(source, destination) else {
             throw CompressionError.cannotOverWrite
         }
 
-        let destinationExisted = FileManager.default.fileExists(atPath: destination.path)
-        guard !destinationExisted || overwrite else {
-            throw CompressionError.destinationFileExists
-        }
+        let outputTransaction = try FileOutputTransaction(
+            destination: destination,
+            overwrite: overwrite
+        )
 
         guard destination.pathExtension.lowercased() == fileType.rawValue else {
             throw CompressionError.invalidFileType
@@ -171,7 +186,17 @@ private final class VideoConversionSession: @unchecked Sendable {
 
         let asset = AVAsset(url: source)
         let reader = try AVAssetReader(asset: asset)
-        let writer = try AVAssetWriter(outputURL: destination, fileType: fileType.value)
+        let writer: AVAssetWriter
+        do {
+            writer = try AVAssetWriter(
+                outputURL: outputTransaction.outputURL,
+                fileType: fileType.value
+            )
+            outputTransaction.captureOutputIdentityIfPresent()
+        } catch {
+            outputTransaction.discard()
+            throw error
+        }
         writer.directoryForTemporaryFiles = cacheDirectory
 
         let video = try await VideoTool.initializeVideo(asset: asset, videoSettings: videoSettings)
@@ -207,7 +232,8 @@ private final class VideoConversionSession: @unchecked Sendable {
             video: video,
             audio: audio,
             metadata: metadata,
-            destinationExisted: destinationExisted
+            outputTransaction: outputTransaction,
+            sourceFileIdentity: sourceFileIdentity
         )
     }
 
@@ -228,16 +254,6 @@ private final class VideoConversionSession: @unchecked Sendable {
         }
         prepared.writer.metadata = prepared.metadata.metadata
 
-        if prepared.destinationExisted {
-            do {
-                try FileManager.default.removeItem(at: destination)
-                prepared.replacedExistingDestination = true
-            } catch {
-                failOnQueue(error)
-                return
-            }
-        }
-
         if let timeRange = prepared.video.range {
             prepared.reader.timeRange = timeRange
         }
@@ -247,12 +263,12 @@ private final class VideoConversionSession: @unchecked Sendable {
             return
         }
 
-        guard prepared.writer.startWriting() else {
+        let didStartWriting = prepared.writer.startWriting()
+        prepared.outputTransaction.captureOutputIdentityIfPresent()
+        guard didStartWriting else {
             failOnQueue(prepared.writer.error ?? CompressionError.failedToWriteVideo)
             return
         }
-        prepared.didStartWriting = true
-
         prepared.writer.startSession(atSourceTime: prepared.video.range?.start ?? .zero)
 
         progress = CompressionVideoProgress(
@@ -261,11 +277,20 @@ private final class VideoConversionSession: @unchecked Sendable {
             estimatedFileLengthInKB: prepared.video.estimatedFileLength ?? 0,
             frameRate: prepared.video.nominalFrameRate,
             destination: destination,
+            observedOutput: prepared.outputTransaction.outputURL,
             queue: progressQueue,
             config: optimizeForNetworkUse || !prepared.video.isEstimatedFileSizeAccurate ? .disabled : .matching
         )
 
-        callback(.started)
+        callbackDelivery.enqueue(.started) { [weak self] in
+            self?.stateQueue.async { [weak self] in
+                self?.startPumpsAfterStartedOnQueue()
+            }
+        }
+    }
+
+    private func startPumpsAfterStartedOnQueue() {
+        guard !isTerminal, !isFinishing, let prepared = configuration else { return }
         guard !task.isCancelled else {
             cancelOnQueue()
             return
@@ -276,7 +301,8 @@ private final class VideoConversionSession: @unchecked Sendable {
                 kind: .video,
                 input: prepared.video.videoInput,
                 output: prepared.video.videoOutput,
-                sampleHandler: prepared.video.sampleHandler
+                sampleHandler: prepared.video.sampleHandler,
+                readsAsynchronously: isVideoCompositionOutput(prepared.video.videoOutput)
             )
         ]
 
@@ -372,7 +398,7 @@ private final class VideoConversionSession: @unchecked Sendable {
         }
 
         let pump = pumps[index]
-        guard !pump.isFinished else { return }
+        guard !pump.isFinished, !pump.isProcessing else { return }
 
         var processedSamples = 0
         while pump.input.isReadyForMoreMediaData, processedSamples < 8 {
@@ -388,19 +414,47 @@ private final class VideoConversionSession: @unchecked Sendable {
                 continue
             }
 
+            if pump.readsAsynchronously {
+                pump.isProcessing = true
+                let work = VideoSampleReadWork(output: pump.output)
+                processingQueue.async { [weak self, work] in
+                    let result = work.run()
+                    self?.stateQueue.async { [weak self, result] in
+                        self?.finishReadOnQueue(result, at: index)
+                    }
+                }
+                return
+            }
+
             guard let sample = pump.output.copyNextSampleBuffer() else {
                 if prepared.reader.status == .failed {
                     failOnQueue(prepared.reader.error ?? pump.readError)
                     return
                 }
 
+                guard markInputFinishedOnQueue(pump, writer: prepared.writer) else { return }
                 pump.isFinished = true
-                pump.input.markAsFinished()
                 finishEncodingIfPossibleOnQueue()
                 return
             }
 
-            let samples = pump.sampleHandler?(sample) ?? [sample]
+            if let sampleHandler = pump.sampleHandler {
+                pump.isProcessing = true
+                let work = VideoSampleProcessingWork(
+                    sample: sample,
+                    pixelBufferPool: prepared.video.videoInputAdaptor?.pixelBufferPool,
+                    handler: sampleHandler
+                )
+                processingQueue.async { [weak self, work] in
+                    let result = work.run()
+                    self?.stateQueue.async { [weak self, result] in
+                        self?.finishProcessingOnQueue(result, at: index)
+                    }
+                }
+                return
+            }
+
+            let samples = [sample]
             if samples.isEmpty {
                 if prepared.writer.status == .failed {
                     failOnQueue(prepared.writer.error ?? pump.writeError)
@@ -426,6 +480,128 @@ private final class VideoConversionSession: @unchecked Sendable {
             stateQueue.async { [weak self] in
                 self?.pumpOnQueue(at: index)
             }
+        }
+    }
+
+    private func finishReadOnQueue(_ result: VideoSampleReadResult, at index: Int) {
+        guard !isTerminal,
+              !isFinishing,
+              let prepared = configuration,
+              pumps.indices.contains(index) else {
+            return
+        }
+        let pump = pumps[index]
+        pump.isProcessing = false
+        guard !task.isCancelled else {
+            cancelOnQueue()
+            return
+        }
+
+        guard let sample = result.sample else {
+            if prepared.reader.status == .failed {
+                failOnQueue(prepared.reader.error ?? pump.readError)
+            } else {
+                guard markInputFinishedOnQueue(pump, writer: prepared.writer) else { return }
+                pump.isFinished = true
+                finishEncodingIfPossibleOnQueue()
+            }
+            return
+        }
+
+        if let sampleHandler = pump.sampleHandler {
+            pump.isProcessing = true
+            let work = VideoSampleProcessingWork(
+                sample: sample,
+                pixelBufferPool: prepared.video.videoInputAdaptor?.pixelBufferPool,
+                handler: sampleHandler
+            )
+            processingQueue.async { [weak self, work] in
+                let result = work.run()
+                self?.stateQueue.async { [weak self, result] in
+                    self?.finishProcessingOnQueue(result, at: index)
+                }
+            }
+        } else {
+            guard append(sample, to: pump, writer: prepared.writer) else { return }
+            updateProgress(for: sample, track: pump.kind)
+            stateQueue.async { [weak self] in
+                self?.pumpOnQueue(at: index)
+            }
+        }
+    }
+
+    private func isVideoCompositionOutput(_ output: AVAssetReaderOutput) -> Bool {
+        #if os(visionOS)
+        return false
+        #else
+        return output is AVAssetReaderVideoCompositionOutput
+        #endif
+    }
+
+    private func markInputFinishedOnQueue(
+        _ pump: VideoTrackPump,
+        writer: AVAssetWriter
+    ) -> Bool {
+        guard writer.status == .writing else {
+            failOnQueue(writer.error ?? pump.writeError)
+            return false
+        }
+
+        do {
+            #if canImport(ObjCExceptionCatcher)
+            try ObjCExceptionCatcher.catchException {
+                pump.input.markAsFinished()
+            }
+            #else
+            pump.input.markAsFinished()
+            #endif
+            return true
+        } catch {
+            failOnQueue(error)
+            return false
+        }
+    }
+
+    private func finishProcessingOnQueue(
+        _ result: VideoSampleProcessingResult,
+        at index: Int
+    ) {
+        guard !isTerminal,
+              !isFinishing,
+              let prepared = configuration,
+              pumps.indices.contains(index) else {
+            return
+        }
+        let pump = pumps[index]
+        pump.isProcessing = false
+        guard !task.isCancelled else {
+            cancelOnQueue()
+            return
+        }
+
+        switch result.output {
+        case .dropped:
+            if prepared.writer.status == .failed {
+                failOnQueue(prepared.writer.error ?? pump.writeError)
+                return
+            }
+        case .sampleBuffers(let samples):
+            guard let first = samples.first else { break }
+            guard append(first, to: pump, writer: prepared.writer) else { return }
+            if samples.count > 1 {
+                pump.appendPendingSamples(samples.dropFirst())
+            }
+        case .pixelBuffer(let pixelBuffer, let presentationTime):
+            guard let adaptor = prepared.video.videoInputAdaptor,
+                  adaptor.append(pixelBuffer, withPresentationTime: presentationTime) else {
+                failOnQueue(prepared.writer.error ?? pump.writeError)
+                return
+            }
+        }
+        updateProgress(for: result.sourceSample, track: pump.kind)
+
+        stateQueue.async { [weak self] in
+            self?.pumpOnQueue(at: index)
         }
     }
 
@@ -479,7 +655,7 @@ private final class VideoConversionSession: @unchecked Sendable {
         progress?.completeWriting()
         let data = FileExtendedAttributes.setExtendedMetadata(
             source: source,
-            destination: destination,
+            destination: prepared.outputTransaction.outputURL,
             copy: copyExtendedFileMetadata,
             fileType: fileType
         )
@@ -490,8 +666,15 @@ private final class VideoConversionSession: @unchecked Sendable {
             return
         }
 
+        do {
+            try prepared.outputTransaction.commit()
+        } catch {
+            failOnQueue(error, taskOutcomeAlreadyClaimed: true)
+            return
+        }
+
         let videoInfo = VideoInfo(
-            url: prepared.writer.outputURL,
+            url: destination,
             resolution: prepared.video.size.oriented(prepared.video.orientation),
             frameRate: prepared.video.frameRate ?? Int(prepared.video.nominalFrameRate.rounded()),
             totalFrames: Int(prepared.video.totalFrames),
@@ -506,9 +689,7 @@ private final class VideoConversionSession: @unchecked Sendable {
             extendedInfo: extendedInfo
         )
 
-        if deleteSourceFile {
-            try? FileManager.default.removeItem(at: source)
-        }
+        prepared.sourceFileIdentity?.deleteIfUnchanged()
         completeTerminalOnQueue(.completed(videoInfo))
     }
 
@@ -520,26 +701,49 @@ private final class VideoConversionSession: @unchecked Sendable {
 
     private func cancelOnQueue() {
         guard !isTerminal else { return }
+        guard task.claimCancellationTerminalOutcome() else { return }
         if let prepared = configuration {
-            prepared.reader.cancelReading()
-            prepared.writer.cancelWriting()
-            pumps.forEach { $0.input.markAsFinished() }
+            if prepared.reader.status == .reading {
+                prepared.reader.cancelReading()
+            }
+            if prepared.writer.status == .writing {
+                prepared.writer.cancelWriting()
+            }
         }
         progress?.cancelWriting()
         removePartialOutputOnQueue()
         completeTerminalOnQueue(.cancelled)
     }
 
-    private func failOnQueue(_ error: Error) {
+    private func failOnQueue(
+        _ error: Error,
+        taskOutcomeAlreadyClaimed: Bool = false
+    ) {
         guard !isTerminal else { return }
+        let terminalState: CompressionState
+        if taskOutcomeAlreadyClaimed {
+            terminalState = .failed(error)
+        } else {
+            switch task.claimFailureTerminalOutcome() {
+            case .failure:
+                terminalState = .failed(error)
+            case .cancellation:
+                terminalState = .cancelled
+            case .unavailable:
+                return
+            }
+        }
         if let prepared = configuration {
-            prepared.reader.cancelReading()
-            prepared.writer.cancelWriting()
-            pumps.forEach { $0.input.markAsFinished() }
+            if prepared.reader.status == .reading {
+                prepared.reader.cancelReading()
+            }
+            if prepared.writer.status == .writing {
+                prepared.writer.cancelWriting()
+            }
         }
         progress?.cancelWriting()
         removePartialOutputOnQueue()
-        completeTerminalOnQueue(.failed(error))
+        completeTerminalOnQueue(terminalState)
     }
 
     private func finishPreparation(with error: Error) {
@@ -550,32 +754,23 @@ private final class VideoConversionSession: @unchecked Sendable {
     }
 
     private func removePartialOutputOnQueue() {
-        guard let prepared = configuration else {
-            // A writer may have created an empty file while asynchronous setup
-            // was still in progress. It is safe to remove only a path that did
-            // not exist when this conversion began.
-            guard !destinationExistedAtStart else { return }
-            try? FileManager.default.removeItem(at: destination)
-            return
-        }
-
-        guard !prepared.destinationExisted || prepared.replacedExistingDestination || prepared.didStartWriting else {
-            return
-        }
-        try? FileManager.default.removeItem(at: destination)
+        configuration?.outputTransaction.discard()
     }
 
     private func completeTerminalOnQueue(_ state: CompressionState) {
         guard !isTerminal else { return }
         isTerminal = true
-        task.markTerminalOutcome()
         task.removeCancellationHandler(cancellationHandlerID)
         cancellationHandlerID = nil
-        callback(state)
+
+        // Release AVFoundation state and the destination reservation before
+        // entering caller code. A terminal callback is allowed to block or
+        // immediately start another conversion for the same destination.
         pumps.removeAll()
         configuration = nil
         progress = nil
         retainedSession = nil
+        callbackDelivery.enqueue(state)
     }
 
     private func terminalStateReached() -> Bool {
@@ -592,9 +787,8 @@ private final class PreparedVideoConversion: @unchecked Sendable {
     var video: VideoVariables
     var audio: AudioVariables
     var metadata: MetadataVariables
-    let destinationExisted: Bool
-    var replacedExistingDestination = false
-    var didStartWriting = false
+    let outputTransaction: FileOutputTransaction
+    let sourceFileIdentity: SourceFileIdentity?
 
     init(
         asset: AVAsset,
@@ -603,7 +797,8 @@ private final class PreparedVideoConversion: @unchecked Sendable {
         video: VideoVariables,
         audio: AudioVariables,
         metadata: MetadataVariables,
-        destinationExisted: Bool
+        outputTransaction: FileOutputTransaction,
+        sourceFileIdentity: SourceFileIdentity?
     ) {
         self.asset = asset
         self.reader = reader
@@ -611,7 +806,8 @@ private final class PreparedVideoConversion: @unchecked Sendable {
         self.video = video
         self.audio = audio
         self.metadata = metadata
-        self.destinationExisted = destinationExisted
+        self.outputTransaction = outputTransaction
+        self.sourceFileIdentity = sourceFileIdentity
     }
 }
 
@@ -633,20 +829,24 @@ private final class VideoTrackPump {
     let kind: VideoTrackKind
     let input: AVAssetWriterInput
     let output: AVAssetReaderOutput
-    let sampleHandler: ((CMSampleBuffer) -> [CMSampleBuffer])?
+    let sampleHandler: ((CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput)?
+    let readsAsynchronously: Bool
     var isFinished = false
+    var isProcessing = false
     private var pendingSamples: [CMSampleBuffer] = []
 
     init(
         kind: VideoTrackKind,
         input: AVAssetWriterInput,
         output: AVAssetReaderOutput,
-        sampleHandler: ((CMSampleBuffer) -> [CMSampleBuffer])? = nil
+        sampleHandler: ((CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput)? = nil,
+        readsAsynchronously: Bool = false
     ) {
         self.kind = kind
         self.input = input
         self.output = output
         self.sampleHandler = sampleHandler
+        self.readsAsynchronously = readsAsynchronously
     }
 
     var readError: CompressionError {
@@ -678,5 +878,58 @@ private final class VideoTrackPump {
 
     func appendPendingSamples(_ samples: ArraySlice<CMSampleBuffer>) {
         pendingSamples.append(contentsOf: samples)
+    }
+}
+
+private final class VideoSampleProcessingWork: @unchecked Sendable {
+    private let sample: CMSampleBuffer
+    private let pixelBufferPool: CVPixelBufferPool?
+    private let handler: (CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput
+
+    init(
+        sample: CMSampleBuffer,
+        pixelBufferPool: CVPixelBufferPool?,
+        handler: @escaping (CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput
+    ) {
+        self.sample = sample
+        self.pixelBufferPool = pixelBufferPool
+        self.handler = handler
+    }
+
+    func run() -> VideoSampleProcessingResult {
+        VideoSampleProcessingResult(
+            sourceSample: sample,
+            output: handler(sample, pixelBufferPool)
+        )
+    }
+}
+
+private final class VideoSampleReadWork: @unchecked Sendable {
+    private let output: AVAssetReaderOutput
+
+    init(output: AVAssetReaderOutput) {
+        self.output = output
+    }
+
+    func run() -> VideoSampleReadResult {
+        VideoSampleReadResult(sample: output.copyNextSampleBuffer())
+    }
+}
+
+private final class VideoSampleReadResult: @unchecked Sendable {
+    let sample: CMSampleBuffer?
+
+    init(sample: CMSampleBuffer?) {
+        self.sample = sample
+    }
+}
+
+private final class VideoSampleProcessingResult: @unchecked Sendable {
+    let sourceSample: CMSampleBuffer
+    let output: VideoSampleProcessingOutput
+
+    init(sourceSample: CMSampleBuffer, output: VideoSampleProcessingOutput) {
+        self.sourceSample = sourceSample
+        self.output = output
     }
 }

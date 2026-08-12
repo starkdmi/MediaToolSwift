@@ -1,5 +1,6 @@
 import Foundation
 import CoreImage
+import ImageIO
 
 /// Image frame of a static or animated image
 public struct ImageFrame: Equatable, Hashable {
@@ -184,16 +185,74 @@ public struct ImageFrame: Equatable, Hashable {
 
         return frame
     }
+
+    /// Reads animation-wide repetition metadata. ImageIO exposes this on the
+    /// source properties for GIF, HEICS, APNG, and WebP; it is commonly absent
+    /// from every individual frame dictionary.
+    internal static func sequenceLoopCount(from imageSource: CGImageSource) -> Int? {
+        guard let properties = CGImageSourceCopyProperties(imageSource, nil)
+            as? [CFString: Any] else {
+            return nil
+        }
+
+        func loopCount(dictionaryKey: CFString, valueKey: CFString) -> Int? {
+            guard let dictionary = properties[dictionaryKey] as? [CFString: Any] else {
+                return nil
+            }
+            let value: Int?
+            if let integer = dictionary[valueKey] as? Int {
+                value = integer
+            } else if let number = dictionary[valueKey] as? NSNumber {
+                value = number.intValue
+            } else {
+                value = nil
+            }
+            guard let value, value >= 0 else { return nil }
+            return value
+        }
+
+        if let value = loopCount(
+            dictionaryKey: kCGImagePropertyGIFDictionary,
+            valueKey: kCGImagePropertyGIFLoopCount
+        ) {
+            return value
+        }
+        if let value = loopCount(
+            dictionaryKey: kCGImagePropertyHEICSDictionary,
+            valueKey: kCGImagePropertyHEICSLoopCount
+        ) {
+            return value
+        }
+        if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *),
+           let value = loopCount(
+               dictionaryKey: kCGImagePropertyWebPDictionary,
+               valueKey: kCGImagePropertyWebPLoopCount
+           ) {
+            return value
+        }
+        return loopCount(
+            dictionaryKey: kCGImagePropertyPNGDictionary,
+            valueKey: kCGImagePropertyAPNGLoopCount
+        )
+    }
 }
 
 internal extension Array where Element == ImageFrame {
     /// Calculate animated image sequence duration
-    var duration: Double? {
+    func validatedDuration() throws -> Double? {
         guard self.count > 1 else { return nil }
 
         var duration = 0.0
         for frame in self {
-            duration += frame.unclampedDelayTime ?? frame.delayTime ?? 0.0
+            let delay = frame.unclampedDelayTime ?? frame.delayTime ?? 0.0
+            guard delay.isFinite, delay >= 0 else {
+                throw CompressionError.failedToReadImage
+            }
+
+            duration += delay
+            guard duration.isFinite else {
+                throw CompressionError.failedToReadImage
+            }
         }
 
         return duration > 0.0 ? duration : nil
@@ -201,46 +260,124 @@ internal extension Array where Element == ImageFrame {
 
     /// Adjust animated image sequence frame rate
     /// The algorithm from the Video.swift is used
-    func withAdjustedFrameRate(frameRate: Int, duration: Double) -> (frames: [ImageFrame]?, frameRate: Int) {
+    func withAdjustedFrameRate(
+        frameRate: Int,
+        duration: Double,
+        primaryIndex: Int
+    ) throws -> (frames: [ImageFrame]?, frameRate: Int, primaryIndex: Int) {
+        guard frameRate > 0,
+              duration.isFinite,
+              duration > 0,
+              indices.contains(primaryIndex) else {
+            return (nil, 0, 0)
+        }
+
         let nominalFrameRate = Double(self.count) / duration
-        let nominalFrameRateRounded = Int(nominalFrameRate.rounded())
+        let roundedNominalFrameRate = nominalFrameRate.rounded()
+        guard roundedNominalFrameRate.isFinite,
+              roundedNominalFrameRate >= 0,
+              roundedNominalFrameRate < Double(Int.max) else {
+            throw CompressionError.failedToReadImage
+        }
+        let nominalFrameRateRounded = Int(roundedNominalFrameRate)
 
         if frameRate < nominalFrameRateRounded {
             let scaleFactor = Double(frameRate) / nominalFrameRate
+            guard scaleFactor.isFinite, scaleFactor > 0 else {
+                throw CompressionError.failedToReadImage
+            }
             // Find frames which will be written
-            let targetFrames = Int(round(Double(self.count) * scaleFactor))
+            // Never round up past the caller's requested frame budget. The
+            // legacy pipeline effectively truncated this value, and doing so
+            // also avoids producing a sequence faster than requested.
+            let requestedFrameBudget = (duration * Double(frameRate)).rounded(.down)
+            guard requestedFrameBudget.isFinite, requestedFrameBudget >= 0 else {
+                throw CompressionError.failedToReadImage
+            }
+            let boundedFrameBudget = Swift.min(requestedFrameBudget, Double(self.count))
+            let targetFrames = Swift.max(Int(boundedFrameBudget), 1)
             var frames: Set<Int> = []
             frames.reserveCapacity(targetFrames)
-            // Add first frame index (starting from one)
-            frames.insert(1)
+            frames.insert(0)
             // Find other desired frame indexes
-            for index in 1 ..< targetFrames {
-                frames.insert(Int(ceil(Double(self.count) * Double(index) / Double(targetFrames - 1))))
+            if targetFrames > 1 {
+                for index in 1 ..< targetFrames {
+                    frames.insert(
+                        Int(round(Double(self.count - 1) * Double(index) / Double(targetFrames - 1)))
+                    )
+                }
+            }
+
+            // HEIF sequences may designate any frame as primary. Always keep
+            // that frame, while preserving the requested output count.
+            frames.insert(primaryIndex)
+            while frames.count > targetFrames {
+                guard let removable = frames
+                    .filter({ $0 != primaryIndex })
+                    .max(by: {
+                        abs($0 - primaryIndex) < abs($1 - primaryIndex)
+                    }) else {
+                    break
+                }
+                frames.remove(removable)
+            }
+
+            let retainedIndexes = frames.sorted()
+            // Repetition is sequence metadata. The caller normalizes it onto
+            // one frame before reduction, but that source frame is not
+            // necessarily retained when a nonzero HEICS primary frame must
+            // win a very small frame budget. Carry the value independently
+            // and put it back on the reduced sequence below.
+            let sequenceLoopCount = compactMap(\.loopCount).first
+            let frameDelays = try map { frame -> Double in
+                let delay = frame.unclampedDelayTime ?? frame.delayTime ?? 0.0
+                guard delay.isFinite, delay >= 0 else {
+                    throw CompressionError.failedToReadImage
+                }
+                return delay
             }
 
             var newImages: [ImageFrame] = []
-            for index in 0 ..< self.count {
-                guard frames.contains(index) else {
-                    // Drop the frame
-                    continue
-                }
+            newImages.reserveCapacity(retainedIndexes.count)
+            for (retainedPosition, index) in retainedIndexes.enumerated() {
+                // A retained frame remains visible until the next retained
+                // frame on the original cyclic timeline. Accumulate every
+                // dropped frame's interval instead of scaling only this
+                // frame's delay: the latter corrupts variable-rate animation
+                // duration and becomes especially visible when a nonzero
+                // HEICS primary frame is retained and emitted first.
+                let nextIndex = retainedIndexes[(retainedPosition + 1) % retainedIndexes.count]
+                var newDelay = 0.0
+                var delayIndex = index
+                repeat {
+                    newDelay += frameDelays[delayIndex]
+                    guard newDelay.isFinite else {
+                        throw CompressionError.failedToReadImage
+                    }
+                    delayIndex = (delayIndex + 1) % count
+                } while delayIndex != nextIndex
 
-                // Increase frame delay
                 var frame = self[index]
-                let delay = frame.unclampedDelayTime ?? frame.delayTime ?? 0.0
-                let newDelay = delay * (1.0 / scaleFactor)
                 frame.unclampedDelayTime = newDelay
-                frame.delayTime = Swift.min(0.1, round(newDelay * 10.0) / 10.0)
+                frame.delayTime = Swift.max(0.1, round(newDelay * 10.0) / 10.0)
 
                 // Add the frame
                 newImages.append(frame)
             }
 
+            if let sequenceLoopCount, !newImages.isEmpty {
+                for index in newImages.indices {
+                    newImages[index].loopCount = nil
+                }
+                newImages[0].loopCount = sequenceLoopCount
+            }
+
             // Return the frames array
-            return (newImages, frameRate)
+            let remappedPrimaryIndex = retainedIndexes.firstIndex(of: primaryIndex) ?? 0
+            return (newImages, frameRate, remappedPrimaryIndex)
         } else {
             // Frames weren't changed
-            return (nil, nominalFrameRateRounded)
+            return (nil, nominalFrameRateRounded, primaryIndex)
         }
     }
 }

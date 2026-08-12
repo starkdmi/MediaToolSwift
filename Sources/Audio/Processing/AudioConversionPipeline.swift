@@ -27,6 +27,73 @@ internal struct AudioConversionRequest {
     let callback: (CompressionState) -> Void
 }
 
+private struct AudioProgressSnapshot {
+    var total: Int64 = 100
+    var completed: Int64 = 0
+    var startedAt: Date?
+    var isTerminal = false
+    var completedSuccessfully = false
+}
+
+/// Coalesces progress snapshots without retaining the AV conversion session on
+/// a caller-provided queue. A suspended queue may retain this lightweight owner
+/// and the public task, but never a reader, writer, callback, or source asset.
+private final class AudioProgressDelivery: @unchecked Sendable {
+    private let lock = NSLock()
+    private let task: CompressionTask
+    private let queue: DispatchQueue
+    private var snapshot = AudioProgressSnapshot()
+    private var isScheduled = false
+
+    init(task: CompressionTask, targetQueue: DispatchQueue) {
+        self.task = task
+        queue = DispatchQueue(
+            label: "MediaToolSwift.audio.progress",
+            target: targetQueue
+        )
+    }
+
+    func enqueue(_ snapshot: AudioProgressSnapshot) {
+        lock.lock()
+        self.snapshot = snapshot
+        guard !isScheduled else {
+            lock.unlock()
+            return
+        }
+        isScheduled = true
+        lock.unlock()
+
+        queue.async { [self] in
+            deliverLatest()
+        }
+    }
+
+    private func deliverLatest() {
+        lock.lock()
+        let snapshot = self.snapshot
+        isScheduled = false
+        lock.unlock()
+
+        let progress = task.progress
+        if progress.totalUnitCount != snapshot.total {
+            progress.totalUnitCount = snapshot.total
+        }
+        if snapshot.completed > progress.completedUnitCount {
+            progress.completedUnitCount = snapshot.completed
+        }
+
+        if snapshot.isTerminal {
+            if snapshot.completedSuccessfully {
+                progress.completedUnitCount = snapshot.total
+            }
+            progress.estimatedTimeRemaining = nil
+        } else if let startedAt = snapshot.startedAt,
+                  let remaining = progress.estimateRemainingTime(startedAt: startedAt, offset: 0.05) {
+            progress.estimatedTimeRemaining = remaining
+        }
+    }
+}
+
 /// All AVFoundation state for one audio conversion.
 ///
 /// `AVAssetReader`, `AVAssetWriter`, their inputs/outputs, and terminal state are
@@ -51,21 +118,15 @@ internal final class AudioConversionSession: @unchecked Sendable {
         let timeRange: CMTimeRange?
         let codec: CompressionAudioCodec
         let bitrate: Int?
-        let destinationExisted: Bool
-    }
-
-    private struct ProgressState {
-        var total: Int64 = 100
-        var completed: Int64 = 0
-        var startedAt: Date?
-        var isTerminal = false
-        var completedSuccessfully = false
+        let outputTransaction: FileOutputTransaction
+        let sourceFileIdentity: SourceFileIdentity?
     }
 
     private let request: AudioConversionRequest
     private let task: CompressionTask
     private let queue = DispatchQueue(label: "MediaToolSwift.audio.conversion")
-    private let progressLock = NSLock()
+    private let progressDelivery: AudioProgressDelivery
+    private let callbackDelivery: LegacyCallbackDelivery<CompressionState>
 
     // These values are installed before `queue` first receives work, then owned by
     // that queue for the rest of the conversion.
@@ -81,19 +142,26 @@ internal final class AudioConversionSession: @unchecked Sendable {
     private var timeRange: CMTimeRange?
     private var codec: CompressionAudioCodec = .default
     private var bitrate: Int?
-    private var destinationExisted = false
-    private var replacedExistingDestination = false
-    private var didAttemptWriting = false
+    private var outputTransaction: FileOutputTransaction?
+    private var sourceFileIdentity: SourceFileIdentity?
     private var isFinishing = false
     private var didFinish = false
     private var cancellationHandlerID: UUID?
     private var retainedUntilTerminal: AudioConversionSession?
 
-    private var progressState = ProgressState()
+    private var progressState = AudioProgressSnapshot()
 
     init(request: AudioConversionRequest, task: CompressionTask) {
         self.request = request
         self.task = task
+        progressDelivery = AudioProgressDelivery(
+            task: task,
+            targetQueue: request.progressQueue
+        )
+        callbackDelivery = LegacyCallbackDelivery(
+            label: "MediaToolSwift.audio.callback",
+            callback: request.callback
+        )
     }
 
     /// Performs async asset loading before handing the configured AV objects to the
@@ -101,12 +169,6 @@ internal final class AudioConversionSession: @unchecked Sendable {
     /// so no other thread can access the pre-start state.
     func prepareAndStart() async {
         do {
-            // Record whether the caller already owns a destination before any
-            // validation can fail. Terminal cleanup uses this to avoid deleting
-            // that existing file on an early error.
-            queue.sync {
-                destinationExisted = FileManager.default.fileExists(atPath: request.destination.path)
-            }
             preparedState = try await makePreparedState()
             queue.async { [self] in
                 retainedUntilTerminal = self
@@ -129,24 +191,29 @@ internal final class AudioConversionSession: @unchecked Sendable {
     }
 
     private func makePreparedState() async throws -> PreparedState {
+        guard !task.isCancelled, !Task.isCancelled else {
+            throw CancellationError()
+        }
         guard FileManager.default.fileExists(atPath: request.source.path) else {
             throw CompressionError.sourceFileNotFound
         }
+        let sourceFileIdentity = request.deleteSourceFile
+            ? SourceFileIdentity(at: request.source)
+            : nil
 
         guard request.destination.pathExtension.lowercased() == request.fileType.rawValue else {
             throw CompressionError.invalidFileType
         }
 
-        let destinationExisted = FileManager.default.fileExists(atPath: request.destination.path)
-        guard !destinationExisted || request.overwrite else {
-            throw CompressionError.destinationFileExists
-        }
-
         // AVAssetWriter cannot safely replace its own source. More importantly, do
         // not remove the caller's source file while preparing an overwrite.
-        guard request.source.standardizedFileURL != request.destination.standardizedFileURL else {
+        guard !fileURLsReferToSameItem(request.source, request.destination) else {
             throw CompressionError.cannotOverWrite
         }
+        let outputTransaction = try FileOutputTransaction(
+            destination: request.destination,
+            overwrite: request.overwrite
+        )
 
         let asset = AVAsset(url: request.source)
         guard let track = await asset.getFirstTrack(withMediaType: .audio) else {
@@ -156,6 +223,10 @@ internal final class AudioConversionSession: @unchecked Sendable {
             track: track,
             settings: request.settings
         )
+        guard !task.isCancelled, !Task.isCancelled else {
+            outputTransaction.discard()
+            throw CancellationError()
+        }
         guard !variables.skipAudio,
               let input = variables.audioInput,
               let output = variables.audioOutput else {
@@ -169,7 +240,17 @@ internal final class AudioConversionSession: @unchecked Sendable {
         }
 
         let reader = try AVAssetReader(asset: asset)
-        let writer = try AVAssetWriter(outputURL: request.destination, fileType: request.fileType.value)
+        let writer: AVAssetWriter
+        do {
+            writer = try AVAssetWriter(
+                outputURL: outputTransaction.outputURL,
+                fileType: request.fileType.value
+            )
+            outputTransaction.captureOutputIdentityIfPresent()
+        } catch {
+            outputTransaction.discard()
+            throw error
+        }
         writer.directoryForTemporaryFiles = request.cacheDirectory
 
         let metadata = await makeMetadata(asset: asset)
@@ -183,7 +264,8 @@ internal final class AudioConversionSession: @unchecked Sendable {
             timeRange: timeRange,
             codec: variables.codec ?? .default,
             bitrate: variables.bitrate,
-            destinationExisted: destinationExisted
+            outputTransaction: outputTransaction,
+            sourceFileIdentity: sourceFileIdentity
         )
     }
 
@@ -231,7 +313,8 @@ internal final class AudioConversionSession: @unchecked Sendable {
         timeRange = preparedState.timeRange
         codec = preparedState.codec
         bitrate = preparedState.bitrate
-        destinationExisted = preparedState.destinationExisted
+        outputTransaction = preparedState.outputTransaction
+        sourceFileIdentity = preparedState.sourceFileIdentity
         self.preparedState = nil
 
         cancellationHandlerID = task.registerCancellationHandler { [weak self] in
@@ -265,16 +348,6 @@ internal final class AudioConversionSession: @unchecked Sendable {
             writer.metadata = metadata
         }
 
-        if destinationExisted {
-            do {
-                try FileManager.default.removeItem(at: request.destination)
-                replacedExistingDestination = true
-            } catch {
-                finishOnQueue(.failed(CompressionError.cannotOverWrite))
-                return
-            }
-        }
-
         if let timeRange {
             reader.timeRange = timeRange
         }
@@ -284,16 +357,28 @@ internal final class AudioConversionSession: @unchecked Sendable {
             return
         }
 
-        didAttemptWriting = true
-        guard writer.startWriting() else {
+        let didStartWriting = writer.startWriting()
+        outputTransaction?.captureOutputIdentityIfPresent()
+        guard didStartWriting else {
             finishOnQueue(.failed(writer.error ?? CompressionError.failedToWriteAudio))
             return
         }
 
         writer.startSession(atSourceTime: timeRange?.start ?? .zero)
         configureProgressOnQueue()
-        request.callback(.started)
+        callbackDelivery.enqueue(.started) { [weak self] in
+            self?.queue.async { [weak self] in
+                self?.startPumpingAfterStartedOnQueue()
+            }
+        }
+    }
 
+    private func startPumpingAfterStartedOnQueue() {
+        guard !didFinish, !isFinishing, let input else { return }
+        guard !task.isCancelled else {
+            cancelOnQueue()
+            return
+        }
         input.requestMediaDataWhenReady(on: queue) { [weak self] in
             self?.drainSamplesOnQueue()
         }
@@ -340,7 +425,7 @@ internal final class AudioConversionSession: @unchecked Sendable {
                 } else if reader.status == .cancelled {
                     cancelOnQueue()
                 } else {
-                    input.markAsFinished()
+                    guard markInputFinishedOnQueue(input, writer: writer) else { return }
                     finishWritingOnQueue()
                 }
                 return
@@ -367,7 +452,9 @@ internal final class AudioConversionSession: @unchecked Sendable {
     private func finishWritingOnQueue() {
         guard !didFinish, !isFinishing, let reader, let writer else { return }
         isFinishing = true
-        reader.cancelReading()
+        if reader.status == .reading {
+            reader.cancelReading()
+        }
         writer.finishWriting { [weak self] in
             self?.queue.async { [weak self] in
                 self?.completeWritingOnQueue()
@@ -384,7 +471,8 @@ internal final class AudioConversionSession: @unchecked Sendable {
         }
 
         guard writer.status == .completed,
-              FileManager.default.fileExists(atPath: request.destination.path) else {
+              let outputTransaction,
+              FileManager.default.fileExists(atPath: outputTransaction.outputURL.path) else {
             finishOnQueue(.failed(writer.error ?? CompressionError.failedToWriteAudio))
             return
         }
@@ -393,7 +481,7 @@ internal final class AudioConversionSession: @unchecked Sendable {
         if request.copyExtendedFileMetadata {
             let data = FileExtendedAttributes.copyExtendedMetadata(
                 from: request.source.path,
-                to: request.destination.path,
+                to: outputTransaction.outputURL.path,
                 customAttributes: [:]
             )
             extendedInfo = FileExtendedAttributes.extractExtendedFileInfo(from: data)
@@ -404,17 +492,22 @@ internal final class AudioConversionSession: @unchecked Sendable {
             return
         }
 
-        if request.deleteSourceFile {
-            try? FileManager.default.removeItem(at: request.source)
+        do {
+            try outputTransaction.commit()
+        } catch {
+            finishOnQueue(.failed(error), taskOutcomeAlreadyClaimed: true)
+            return
         }
 
+        sourceFileIdentity?.deleteIfUnchanged()
+
         finishOnQueue(.completed(AudioInfo(
-            url: writer.outputURL,
+            url: request.destination,
             duration: duration.seconds,
             codec: codec,
             bitrate: bitrate,
             extendedInfo: extendedInfo
-        )))
+        )), taskOutcomeAlreadyClaimed: true)
     }
 
     private func enqueueCancellation() {
@@ -429,11 +522,15 @@ internal final class AudioConversionSession: @unchecked Sendable {
         // `markAsFinished()` is only valid after the writer enters `.writing`.
         // Immediate cancellation can arrive while the session is still being
         // configured, before `startWriting()` has succeeded.
-        if writer?.status == .writing {
-            input?.markAsFinished()
+        if !isFinishing, let input, let writer, writer.status == .writing {
+            _ = markInputFinishedOnQueue(input, writer: writer)
         }
-        reader?.cancelReading()
-        writer?.cancelWriting()
+        if reader?.status == .reading {
+            reader?.cancelReading()
+        }
+        if writer?.status == .writing {
+            writer?.cancelWriting()
+        }
         finishOnQueue(.cancelled)
     }
 
@@ -443,23 +540,55 @@ internal final class AudioConversionSession: @unchecked Sendable {
         finishOnQueue(event)
     }
 
-    private func finishOnQueue(_ event: TerminalEvent) {
+    private func finishOnQueue(
+        _ requestedEvent: TerminalEvent,
+        taskOutcomeAlreadyClaimed: Bool = false
+    ) {
         guard !didFinish else { return }
+        let event: TerminalEvent
+        if taskOutcomeAlreadyClaimed {
+            event = requestedEvent
+        } else {
+            switch requestedEvent {
+            case .completed:
+                guard task.claimSuccessfulTerminalOutcome() else {
+                    cancelOnQueue()
+                    return
+                }
+                event = requestedEvent
+            case .cancelled:
+                guard task.claimCancellationTerminalOutcome() else { return }
+                event = .cancelled
+            case .failed(let error):
+                switch task.claimFailureTerminalOutcome() {
+                case .failure:
+                    event = .failed(error)
+                case .cancellation:
+                    event = .cancelled
+                case .unavailable:
+                    return
+                }
+            }
+        }
+
         didFinish = true
-        task.markTerminalOutcome()
         task.removeCancellationHandler(cancellationHandlerID)
 
         switch event {
         case .completed:
             setTerminalProgressOnQueue(completedSuccessfully: true)
         case .cancelled, .failed:
-            reader?.cancelReading()
-            writer?.cancelWriting()
+            if reader?.status == .reading {
+                reader?.cancelReading()
+            }
+            if writer?.status == .writing {
+                writer?.cancelWriting()
+            }
             removePartialOutputOnQueue()
             setTerminalProgressOnQueue(completedSuccessfully: false)
         }
 
-        request.callback({
+        let callbackState: CompressionState = {
             switch event {
             case .completed(let info):
                 return .completed(info)
@@ -468,52 +597,80 @@ internal final class AudioConversionSession: @unchecked Sendable {
             case .failed(let error):
                 return .failed(error)
             }
-        }())
+        }()
 
+        // Drop the conversion's AV state and destination reservation before
+        // entering caller code. Terminal callbacks may block or immediately
+        // start a follow-up conversion for the same destination.
+        reader = nil
+        writer = nil
+        input = nil
+        output = nil
+        outputTransaction = nil
+        sourceFileIdentity = nil
+        preparedState = nil
         retainedUntilTerminal = nil
+        callbackDelivery.enqueue(callbackState)
+    }
+
+    private func markInputFinishedOnQueue(
+        _ input: AVAssetWriterInput,
+        writer: AVAssetWriter
+    ) -> Bool {
+        guard writer.status == .writing else {
+            finishOnQueue(.failed(writer.error ?? CompressionError.failedToWriteAudio))
+            return false
+        }
+
+        do {
+            #if canImport(ObjCExceptionCatcher)
+            try ObjCExceptionCatcher.catchException {
+                input.markAsFinished()
+            }
+            #else
+            input.markAsFinished()
+            #endif
+            return true
+        } catch {
+            finishOnQueue(.failed(error))
+            return false
+        }
     }
 
     private func removePartialOutputOnQueue() {
-        // Preserve an existing destination until this session has successfully
-        // replaced it. A failed reader/input configuration must never delete a
-        // caller's pre-existing file.
-        guard !destinationExisted || replacedExistingDestination || didAttemptWriting else {
-            return
-        }
-        try? FileManager.default.removeItem(at: request.destination)
+        outputTransaction?.discard()
     }
 
     private func configureProgressOnQueue() {
         let seconds = duration.seconds
         let finiteSeconds = seconds.isFinite ? max(seconds, 0) : 0
-        let total = max(Int64(ceil(finiteSeconds * 0.05)), 100)
+        let maximumConvertibleValue = Double(Int64.max).nextDown
+        let scaledSeconds = ceil(finiteSeconds * 0.05)
+        let boundedTotal = min(scaledSeconds, maximumConvertibleValue)
+        let total = max(Int64(boundedTotal), 100)
 
-        progressLock.lock()
         progressState.total = total
         progressState.completed = 0
         progressState.startedAt = Date()
         progressState.isTerminal = false
         progressState.completedSuccessfully = false
-        progressLock.unlock()
 
         enqueueProgressDelivery()
     }
 
     private func recordProgressOnQueue(for sample: CMSampleBuffer) {
-        let seconds = duration.seconds
-        guard seconds.isFinite, seconds > 0 else { return }
-
-        let offset = timeRange?.start.seconds ?? 0
-        let elapsed = max(sample.presentationTimeStamp.seconds - offset, 0)
-        let percentage = min(max(elapsed / seconds, 0), 1)
-
-        progressLock.lock()
-        let completed = Int64(percentage * Double(progressState.total))
+        guard let completed = audioProgressCompletedUnitCount(
+            sampleTime: sample.presentationTimeStamp,
+            duration: duration,
+            range: timeRange,
+            total: progressState.total
+        ) else {
+            return
+        }
         let changed = completed > progressState.completed
         if changed {
             progressState.completed = completed
         }
-        progressLock.unlock()
 
         if changed {
             enqueueProgressDelivery()
@@ -521,49 +678,47 @@ internal final class AudioConversionSession: @unchecked Sendable {
     }
 
     private func setTerminalProgressOnQueue(completedSuccessfully: Bool) {
-        progressLock.lock()
         progressState.isTerminal = true
         progressState.completedSuccessfully = completedSuccessfully
         if completedSuccessfully {
             progressState.completed = progressState.total
         }
-        progressLock.unlock()
 
         enqueueProgressDelivery()
     }
 
     private func enqueueProgressDelivery() {
-        request.progressQueue.async { [self] in
-            deliverProgress()
-        }
-    }
-
-    private func deliverProgress() {
-        progressLock.lock()
-        let state = progressState
-        progressLock.unlock()
-
-        let progress = task.progress
-        if progress.totalUnitCount != state.total {
-            progress.totalUnitCount = state.total
-        }
-        if state.completed > progress.completedUnitCount {
-            progress.completedUnitCount = state.completed
-        }
-
-        if state.isTerminal {
-            if state.completedSuccessfully {
-                progress.completedUnitCount = state.total
-            }
-            progress.estimatedTimeRemaining = nil
-        } else if let startedAt = state.startedAt,
-                  let remaining = progress.estimateRemainingTime(startedAt: startedAt, offset: 0.05) {
-            progress.estimatedTimeRemaining = remaining
-        }
+        progressDelivery.enqueue(progressState)
     }
 }
 
 // MARK: - Shared Audio Helpers
+
+/// Maps a sample timestamp to a bounded progress count. Malformed media can
+/// carry invalid or non-finite `CMTime` values; reject those before converting
+/// the resulting percentage to `Int64`.
+internal func audioProgressCompletedUnitCount(
+    sampleTime: CMTime,
+    duration: CMTime,
+    range: CMTimeRange?,
+    total: Int64
+) -> Int64? {
+    let seconds = duration.seconds
+    let offset = range?.start.seconds ?? 0
+    let sampleSeconds = sampleTime.seconds
+    guard seconds.isFinite, seconds > 0,
+          offset.isFinite, sampleSeconds.isFinite,
+          total >= 0 else {
+        return nil
+    }
+
+    let elapsed = max(sampleSeconds - offset, 0)
+    let percentage = min(max(elapsed / seconds, 0), 1)
+    guard percentage.isFinite else { return nil }
+    return percentage == 1
+        ? total
+        : Int64(percentage * Double(total))
+}
 
 /// Applies edit operations and returns the resulting duration and source range.
 internal func applyAudioEditOperations(

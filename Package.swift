@@ -55,6 +55,11 @@ let package = Package(
                 "media",
                 "README.md"
             ]
+        ),
+        .testTarget(
+            name: "MediaToolSwiftClientTests",
+            dependencies: ["MediaToolSwift"],
+            path: "ClientTests"
         )
     ]
 )
