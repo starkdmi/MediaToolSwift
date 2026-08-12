@@ -138,9 +138,20 @@ internal class FileExtendedAttributes {
 
                 // Coordinates are rounded and stored in first 16 of 64 bytes
                 // Real coordinates: 36.54819444444444, 29.11145833333333
-                let latitude = Double(value.withUnsafeBytes { $0.load(as: Double.self) }) // 36.5482
-                let longitude = Double(value.advanced(by: 8).withUnsafeBytes { $0.load(as: Double.self) }) // 29.1116
+                guard let latitude = decodeDouble(value, at: 0),
+                      let longitude = decodeDouble(value, at: 8),
+                      let horizontalAccuracy = decodeDouble(value, at: 24),
+                      let timestamp = decodeDouble(value, at: 56) else {
+                    continue
+                }
                 let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+                guard latitude.isFinite,
+                      longitude.isFinite,
+                      horizontalAccuracy.isFinite,
+                      timestamp.isFinite,
+                      CLLocationCoordinate2DIsValid(coordinate) else {
+                    continue
+                }
                 // print("Location: \(latitude), \(longitude)")
 
                 // INFO: Bytes from 16-24 are probably altitude (com.apple.quicktime.location.altitude)
@@ -148,7 +159,6 @@ internal class FileExtendedAttributes {
                 // print(Double(customLocationData.advanced(by: 16).withUnsafeBytes { $0.load(as: Double.self) })) // 0.0
 
                 // Horizontal Accuracy - 4.766546
-                let horizontalAccuracy = Double(value.advanced(by: 24).withUnsafeBytes { $0.load(as: Double.self) })
                 // print("Horizontal Accuracy: \(horizontalAccuracy) meters")
 
                 // INFO: Bytes from 32-56 - unknown values stored
@@ -161,7 +171,6 @@ internal class FileExtendedAttributes {
 
                 // Timestamp - 688827791.0 (2022-10-30T13:03:11+0300)
                 // Timestamp stored in seconds since reference date - January 1, 2001
-                let timestamp = Double(value.advanced(by: 56).withUnsafeBytes { $0.load(as: Double.self) })
                 let date = NSDate(timeIntervalSinceReferenceDate: timestamp) as Date
                 // print("Date: \(date)") // 2022-10-30 13:03:11 +0000 (time zone lost)
 
@@ -196,5 +205,19 @@ internal class FileExtendedAttributes {
             whereFrom: whereFrom,
             originalFilename: originalFilename
         )
+    }
+
+    /// Extended-attribute payloads are not guaranteed to have native alignment.
+    /// `loadUnaligned` also lets malformed, truncated payloads fail closed instead
+    /// of reading beyond the `Data` buffer.
+    private static func decodeDouble(_ data: Data, at offset: Int) -> Double? {
+        data.withUnsafeBytes { bytes in
+            guard offset >= 0,
+                  offset <= bytes.count,
+                  bytes.count - offset >= MemoryLayout<Double>.size else {
+                return nil
+            }
+            return bytes.loadUnaligned(fromByteOffset: offset, as: Double.self)
+        }
     }
 }

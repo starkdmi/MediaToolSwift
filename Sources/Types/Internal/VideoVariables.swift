@@ -1,5 +1,11 @@
 import AVFoundation
 
+internal enum VideoSampleProcessingOutput {
+    case sampleBuffers([CMSampleBuffer])
+    case pixelBuffer(CVPixelBuffer, presentationTime: CMTime)
+    case dropped
+}
+
 /// Internal data type used to share local video related variables between code blocks
 internal struct VideoVariables {
     /// Target fps
@@ -18,7 +24,7 @@ internal struct VideoVariables {
     var sourceDuration: CMTime = .zero
 
     /// Frame modifier
-    var sampleHandler: ((CMSampleBuffer) -> [CMSampleBuffer])?
+    var sampleHandler: ((CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput)?
 
     /// Require to encode
     var hasChanges = true

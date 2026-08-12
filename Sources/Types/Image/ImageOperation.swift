@@ -72,6 +72,15 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
         return false
     }
 
+    /// Whether numeric operation parameters can safely be handed to Core
+    /// Graphics, Core Image, and vImage.
+    internal var hasValidGeometry: Bool {
+        if case .rotate(let rotation, _) = self {
+            return rotation.radians.isFinite
+        }
+        return true
+    }
+
     /// Hashable conformance
     public func hash(into hasher: inout Hasher) {
         switch self {
@@ -109,6 +118,11 @@ public enum ImageOperation: Equatable, Hashable, Comparable {
 }
 
 internal extension Set where Element == ImageOperation {
+    /// Whether every operation has finite geometry.
+    var hasValidGeometry: Bool {
+        allSatisfy(\.hasValidGeometry)
+    }
+
     /// Determine if any `ImageOperation` is rotation and the angle isn't multiply of 90 degree
     var containsRotationByCustomAngle: Bool {
         return self.contains(where: { $0.isRotationByCustomAngle })

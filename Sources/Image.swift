@@ -30,19 +30,6 @@ public struct ImageTool {
             throw CompressionError.sourceFileNotFound
         }
 
-        // Check the destination location
-        if FileManager.default.fileExists(atPath: destination.path) {
-            if overwrite {
-                do {
-                    try FileManager.default.removeItem(atPath: destination.path)
-                } catch {
-                    throw CompressionError.cannotOverWrite
-                }
-            } else {
-                throw CompressionError.destinationFileExists
-            }
-        }
-
         // Init image source
         guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil) else {
             // debugPrint(CGImageSourceCopyTypeIdentifiers()) // list of supported formats
@@ -277,12 +264,17 @@ public struct ImageTool {
 
         // Adjust animated image sequence frame rate
         var frameRate: Int?
-        let duration = images.duration // image sequence duration
+        let duration = try images.validatedDuration() // image sequence duration
         if isAnimated, let animationFrameRate = settings.frameRate, let duration = duration {
-            let (updatedFrames, updatedFrameRate) = images.withAdjustedFrameRate(frameRate: animationFrameRate, duration: duration)
+            let (updatedFrames, updatedFrameRate, updatedPrimaryIndex) = try images.withAdjustedFrameRate(
+                frameRate: animationFrameRate,
+                duration: duration,
+                primaryIndex: primaryIndex
+            )
             if let updatedFrames = updatedFrames {
                 images = updatedFrames
             }
+            primaryIndex = updatedPrimaryIndex
             frameRate = updatedFrameRate
         }
 
@@ -460,19 +452,18 @@ public struct ImageTool {
             // Also caused by insufficient permissions
             throw CompressionError.sourceFileNotFound
         }
+        let sourceFileIdentity = deleteSourceFile
+            ? SourceFileIdentity(at: source)
+            : nil
 
-        // Check the destination location
-        if FileManager.default.fileExists(atPath: destination.path) {
-            if overwrite {
-                do {
-                    try FileManager.default.removeItem(atPath: destination.path)
-                } catch {
-                    throw CompressionError.cannotOverWrite
-                }
-            } else {
-                throw CompressionError.destinationFileExists
-            }
+        guard !fileURLsReferToSameItem(source, destination) else {
+            throw CompressionError.cannotOverWrite
         }
+        let outputTransaction = try FileOutputTransaction(
+            destination: destination,
+            overwrite: overwrite
+        )
+        defer { outputTransaction.discard() }
 
         // Decode image frames
         let image = try decode(
@@ -487,7 +478,7 @@ public struct ImageTool {
         settings.format = image.format
 
         // Edit frames
-        let (frames, size) = edit(
+        let (frames, _) = edit(
             image.frames,
             settings: settings,
             processingMethod: image.processingMethod,
@@ -497,33 +488,50 @@ public struct ImageTool {
         )
 
         // Encode image frames
-        try encode(frames,
-            at: destination,
-            skipGPSMetadata: skipMetadata,
-            settings: settings,
-            orientation: image.info.orientation,
-            isHDR: image.info.isHDR,
-            primaryIndex: image.primaryIndex,
-            metadata: image.primaryProperties
-        )
+        do {
+            try encode(frames,
+                at: outputTransaction.outputURL,
+                skipGPSMetadata: skipMetadata,
+                settings: settings,
+                orientation: image.info.orientation,
+                isHDR: image.info.isHDR,
+                primaryIndex: image.primaryIndex,
+                metadata: skipMetadata ? nil : image.primaryProperties
+            )
+            outputTransaction.captureOutputIdentityIfPresent()
+        } catch {
+            outputTransaction.captureOutputIdentityIfPresent()
+            throw error
+        }
 
-        // Info
-        let info = ImageInfo(
-            format: settings.format!,
-            size: size,
-            hasAlpha: image.hasAlpha && settings.preserveAlphaChannel,
-            isHDR: image.info.isHDR,
-            bitDepth: image.info.bitDepth,
-            orientation: image.info.orientation,
-            framesCount: frames.count,
-            frameRate: image.info.frameRate,
-            duration: image.info.duration
-        )
+        do {
+            try outputTransaction.commit()
+        } catch {
+            throw CompressionError.cannotOverWrite
+        }
+
+        // Built-in ImageIO formats can be inspected after publication. Custom
+        // encoders are not required to produce an ImageIO-readable payload, so
+        // retain the encoder snapshot for that public extension point.
+        let info: ImageInfo
+        if case .custom = settings.format! {
+            info = ImageInfo(
+                format: settings.format!,
+                size: frames[image.primaryIndex].size,
+                hasAlpha: image.hasAlpha && settings.preserveAlphaChannel,
+                isHDR: image.info.isHDR,
+                bitDepth: image.info.bitDepth,
+                orientation: image.info.orientation,
+                framesCount: frames.count,
+                frameRate: frames.count > 1 ? image.info.frameRate : nil,
+                duration: frames.count > 1 ? image.info.duration : nil
+            )
+        } else {
+            info = try getInfo(source: destination)
+        }
 
         // Delete original
-        if deleteSourceFile {
-            try? FileManager.default.removeItem(atPath: source.path)
-        }
+        sourceFileIdentity?.deleteIfUnchanged()
 
         return info
     }
@@ -680,6 +688,14 @@ public struct ImageTool {
         settings: ImageSettings = ImageSettings(),
         skipMetadata: Bool = false
     ) throws -> Image {
+        guard settings.hasValidGeometry else {
+            throw CompressionError.failedToReadImage
+        }
+
+        if let frameRate = settings.frameRate, frameRate <= 0 {
+            throw CompressionError.invalidFrameRate
+        }
+
         // Init image source
         guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil) else {
             // debugPrint(CGImageSourceCopyTypeIdentifiers()) // list of supported formats
@@ -917,15 +933,39 @@ public struct ImageTool {
             images.append(primaryFrame)
         }
 
+        // Loop count belongs to the sequence, not to an arbitrary frame.
+        // ImageIO normally exposes it only in the source-level dictionary, so
+        // normalize it onto frame zero before frame-rate reduction. Frame zero
+        // is always retained, and HEICS encoding later rotates it cyclically.
+        let sequenceLoopCount = isAnimated
+            ? ImageFrame.sequenceLoopCount(from: imageSource)
+                ?? images.compactMap(\.loopCount).first
+            : nil
+        if let sequenceLoopCount {
+            for index in images.indices {
+                images[index].loopCount = nil
+            }
+            images[0].loopCount = sequenceLoopCount
+        }
+
         // Adjust animated image sequence frame rate
         var frameRate: Int?
-        let duration = images.duration // image sequence duration
+        let duration = try images.validatedDuration() // image sequence duration
         if isAnimated, let animationFrameRate = settings.frameRate, let duration = duration {
-            let (updatedFrames, updatedFrameRate) = images.withAdjustedFrameRate(frameRate: animationFrameRate, duration: duration)
+            let (updatedFrames, updatedFrameRate, updatedPrimaryIndex) = try images.withAdjustedFrameRate(
+                frameRate: animationFrameRate,
+                duration: duration,
+                primaryIndex: primaryIndex
+            )
             if let updatedFrames = updatedFrames {
                 images = updatedFrames
             }
+            primaryIndex = updatedPrimaryIndex
             frameRate = updatedFrameRate
+            if images.count <= 1 {
+                isAnimated = false
+                frameRate = nil
+            }
         }
 
         // Fix HEIC format based on animation presence (duplicate, properties may have changed)
@@ -1010,6 +1050,11 @@ public struct ImageTool {
         orientation: CGImagePropertyOrientation? = nil,
         primaryIndex: Int = 0
     ) -> (frames: [ImageFrame], size: CGSize) {
+        guard settings.hasValidGeometry,
+              frames.indices.contains(primaryIndex) else {
+            return (frames, .zero)
+        }
+
         var images = frames
         let primaryFrame = frames[primaryIndex]
 
@@ -1180,6 +1225,21 @@ public struct ImageTool {
             throw CompressionError.emptyImage
         }
 
+        guard frames.indices.contains(primaryIndex) else {
+            throw CompressionError.invalidImagePrimaryIndex
+        }
+
+        var frames = frames
+        let sequenceLoopCount = frames.count > 1
+            ? frames.compactMap(\.loopCount).first
+            : nil
+        if let sequenceLoopCount {
+            for index in frames.indices {
+                frames[index].loopCount = nil
+            }
+            frames[0].loopCount = sequenceLoopCount
+        }
+
         let embedThumbnail = settings.embedThumbnail ? kCFBooleanTrue! : kCFBooleanFalse!
         let optimizeColors = settings.optimizeColorForSharing ? kCFBooleanTrue! : kCFBooleanFalse!
 
@@ -1291,7 +1351,16 @@ public struct ImageTool {
             fallthrough
         #endif
         case .jpeg, .gif, .bmp, .exr, .ico, .png, .tiff, .heic, .heics, .pdf:
-            guard let utType = format.utType, let destination = CGImageDestinationCreateWithURL(url as CFURL, utType, frames.count, nil) else {
+            // ImageIO's HEICS writer designates the first emitted image as the
+            // primary image even when given a nonzero primary index. Emit the
+            // requested primary first below and describe that encoded index.
+            guard let utType = format.utType,
+                  let destination = CGImageDestinationCreateWithURL(
+                      url as CFURL,
+                      utType,
+                      frames.count,
+                      nil
+                  ) else {
                 // debugPrint(CGImageDestinationCopyTypeIdentifiers()) // supported output image formats when using `CGImageDestination` methods
                 throw CompressionError.failedToCreateImageFile
             }
@@ -1299,6 +1368,27 @@ public struct ImageTool {
             var imageOptions: [CFString: Any] = [
                 kCGImageDestinationEmbedThumbnail: embedThumbnail
             ]
+            if format == .heics {
+                imageOptions[kCGImagePropertyPrimaryImage] = 0
+            }
+            if let sequenceLoopCount {
+                switch format {
+                case .gif:
+                    imageOptions[kCGImagePropertyGIFDictionary] = [
+                        kCGImagePropertyGIFLoopCount: sequenceLoopCount
+                    ]
+                case .heics:
+                    imageOptions[kCGImagePropertyHEICSDictionary] = [
+                        kCGImagePropertyHEICSLoopCount: NSNumber(value: sequenceLoopCount)
+                    ]
+                case .png:
+                    imageOptions[kCGImagePropertyPNGDictionary] = [
+                        kCGImagePropertyAPNGLoopCount: sequenceLoopCount
+                    ]
+                default:
+                    break
+                }
+            }
 
             // Exclude GPS
             if skipGPSMetadata {
@@ -1383,7 +1473,15 @@ public struct ImageTool {
             // Insert all the frames
             lazy var context = CIContext(options: [.highQualityDownsample: true])
             var success = 0
-            for index in 0 ..< frames.count {
+            let frameIndexes: [Int]
+            if format == .heics, primaryIndex != 0 {
+                // Preserve cyclic animation order while moving the designated
+                // poster frame to the only primary position ImageIO writes.
+                frameIndexes = Array(primaryIndex ..< frames.count) + Array(0 ..< primaryIndex)
+            } else {
+                frameIndexes = Array(frames.indices)
+            }
+            for (outputIndex, index) in frameIndexes.enumerated() {
                 var properties: [CFString: Any]?
                 let frame = frames[index]
 
@@ -1396,8 +1494,8 @@ public struct ImageTool {
                     if let unclampedDelayTime = frame.unclampedDelayTime {
                         gifProperties[kCGImagePropertyGIFUnclampedDelayTime] = unclampedDelayTime
                     }
-                    if let loopCount = frame.loopCount {
-                        gifProperties[kCGImagePropertyGIFLoopCount] = loopCount
+                    if outputIndex == 0, let sequenceLoopCount {
+                        gifProperties[kCGImagePropertyGIFLoopCount] = sequenceLoopCount
                     }
                     if let frameInfoArray = frame.frameInfoArray {
                         gifProperties[kCGImagePropertyGIFFrameInfoArray] = frameInfoArray
@@ -1419,8 +1517,8 @@ public struct ImageTool {
                     if let unclampedDelayTime = frame.unclampedDelayTime {
                         heicsProperties[kCGImagePropertyHEICSUnclampedDelayTime] = unclampedDelayTime
                     }
-                    if let loopCount = frame.loopCount {
-                        heicsProperties[kCGImagePropertyHEICSLoopCount] = loopCount
+                    if outputIndex == 0, let sequenceLoopCount {
+                        heicsProperties[kCGImagePropertyHEICSLoopCount] = NSNumber(value: sequenceLoopCount)
                     }
                     if let frameInfoArray = frame.frameInfoArray {
                         heicsProperties[kCGImagePropertyHEICSFrameInfoArray] = frameInfoArray
@@ -1442,8 +1540,8 @@ public struct ImageTool {
                     if let unclampedDelayTime = frame.unclampedDelayTime {
                         pngProperties[kCGImagePropertyAPNGUnclampedDelayTime] = unclampedDelayTime
                     }
-                    if let loopCount = frame.loopCount {
-                        pngProperties[kCGImagePropertyAPNGLoopCount] = loopCount
+                    if outputIndex == 0, let sequenceLoopCount {
+                        pngProperties[kCGImagePropertyAPNGLoopCount] = sequenceLoopCount
                     }
                     if let frameInfoArray = frame.frameInfoArray {
                         pngProperties[kCGImagePropertyAPNGFrameInfoArray] = frameInfoArray
@@ -1459,6 +1557,14 @@ public struct ImageTool {
                     }
                 default:
                     break
+                }
+
+                if format == .heics, outputIndex == 0 {
+                    if properties != nil {
+                        properties![kCGImagePropertyPrimaryImage] = true
+                    } else {
+                        properties = [kCGImagePropertyPrimaryImage: true]
+                    }
                 }
 
                 if format != .heics, index == 0 || index == primaryIndex {
@@ -1504,18 +1610,27 @@ public struct ImageTool {
             }
         case .custom(let identifier):
             do {
-                // Custom encoder
-                try ImageFormat.customFormats[identifier]!.write(
-                    frames: frames,
-                    to: url,
-                    skipMetadata: skipGPSMetadata,
-                    settings: settings,
-                    orientation: orientation,
-                    isHDR: isHDR,
-                    primaryIndex: primaryIndex,
-                    metadata: metadata
-                )
+                let didWrite: Bool? = try ImageFormat.writeCustomFormat(identifier: identifier) { customFormat in
+                    try customFormat.write(
+                        frames: frames,
+                        to: url,
+                        skipMetadata: skipGPSMetadata,
+                        settings: settings,
+                        orientation: orientation,
+                        isHDR: isHDR,
+                        primaryIndex: primaryIndex,
+                        metadata: metadata
+                    )
+                    return true
+                }
+                guard didWrite != nil else {
+                    throw CompressionError.unsupportedImageFormat
+                }
             } catch {
+                if let error = error as? CompressionError,
+                   error == .unsupportedImageFormat {
+                    throw error
+                }
                 throw CompressionError.failedToSaveImage
             }
         }
@@ -1591,22 +1706,40 @@ public struct ImageTool {
             // Frame duration
             var delay: Double?
             if let gifProperties = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
-                delay = gifProperties[kCGImagePropertyGIFDelayTime] as? Double
+                delay = (gifProperties[kCGImagePropertyGIFUnclampedDelayTime] as? Double)
+                    ?? (gifProperties[kCGImagePropertyGIFDelayTime] as? Double)
             } else if let heicsProperties = properties[kCGImagePropertyHEICSDictionary] as? [CFString: Any] {
-                delay = heicsProperties[kCGImagePropertyHEICSDelayTime] as? Double
+                delay = (heicsProperties[kCGImagePropertyHEICSUnclampedDelayTime] as? Double)
+                    ?? (heicsProperties[kCGImagePropertyHEICSDelayTime] as? Double)
             } else if #available(macOS 11, iOS 14, tvOS 14, *), let webPProperties = properties[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
-                delay = webPProperties[kCGImagePropertyWebPDelayTime] as? Double
+                delay = (webPProperties[kCGImagePropertyWebPUnclampedDelayTime] as? Double)
+                    ?? (webPProperties[kCGImagePropertyWebPDelayTime] as? Double)
             } else if let pngProperties = properties[kCGImagePropertyPNGDictionary] as? [CFString: Any] {
-                delay = pngProperties[kCGImagePropertyAPNGDelayTime] as? Double
+                delay = (pngProperties[kCGImagePropertyAPNGUnclampedDelayTime] as? Double)
+                    ?? (pngProperties[kCGImagePropertyAPNGDelayTime] as? Double)
             }
-            duration += delay ?? .zero
+            if let delay {
+                guard delay.isFinite, delay >= 0 else {
+                    throw CompressionError.failedToReadImage
+                }
+                duration += delay
+                guard duration.isFinite else {
+                    throw CompressionError.failedToReadImage
+                }
+            }
         }
 
         // Frame rate
         var frameRate: Int?
-        if duration != .zero {
+        if duration > .zero {
             let nominalFrameRate = Double(framesCount) / duration
-            frameRate = Int(nominalFrameRate.rounded())
+            let roundedNominalFrameRate = nominalFrameRate.rounded()
+            guard roundedNominalFrameRate.isFinite,
+                  roundedNominalFrameRate >= 0,
+                  roundedNominalFrameRate < Double(Int.max) else {
+                throw CompressionError.failedToReadImage
+            }
+            frameRate = Int(roundedNominalFrameRate)
         }
 
         return ImageInfo(
@@ -1618,7 +1751,7 @@ public struct ImageTool {
             orientation: orientation,
             framesCount: framesCount,
             frameRate: frameRate,
-            duration: duration != .zero ? duration : nil
+            duration: duration > .zero ? duration : nil
         )
     }
 }

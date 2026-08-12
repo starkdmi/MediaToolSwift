@@ -133,4 +133,13 @@ public extension CGSize {
             height: height - height.truncatingRemainder(dividingBy: 2)
         )
     }
+
+    /// Whether both dimensions can safely be passed to the integer-backed
+    /// Core Graphics and vImage APIs used by the media pipelines.
+    internal var hasFinitePositiveDimensions: Bool {
+        let integerLimit = CGFloat(Int.max)
+        return width.isFinite && height.isFinite &&
+            width > 0 && height > 0 &&
+            width < integerLimit && height < integerLimit
+    }
 }

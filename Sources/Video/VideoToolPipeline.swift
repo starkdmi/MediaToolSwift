@@ -15,6 +15,11 @@ extension VideoTool {
         asset: AVAsset,
         videoSettings: CompressionVideoSettings
     ) async throws -> VideoVariables {
+        if let frameRate = videoSettings.frameRate,
+           frameRate <= 0 || frameRate > Int(Int32.max) {
+            throw CompressionError.invalidFrameRate
+        }
+
         var variables = VideoVariables()
 
         // Get first video track
@@ -26,6 +31,17 @@ extension VideoTool {
 
         let trackAnalyzer = VideoTrackAnalyzer()
         let analysis = try await trackAnalyzer.analyze(track: videoTrack, asset: asset)
+
+        if videoSettings.color != nil {
+            // The current pipeline can preserve source color metadata but has no
+            // color-space, gamut, or transfer-function conversion stage. Merely
+            // retagging decoded samples would corrupt their interpretation.
+            throw CompressionError.invalidVideoCodec
+        }
+        if videoSettings.frameRate != nil, analysis.nominalFrameRate <= 0 {
+            throw CompressionError.invalidFrameRate
+        }
+        let requiresHighBitDepth = analysis.isHDR || (analysis.bitsPerComponent ?? 8) > 8
 
         // Register supplemental decoders if needed (VP9, AV1 on macOS)
         trackAnalyzer.registerSupplementalDecodersIfNeeded(for: analysis.formatDescription)
@@ -40,9 +56,14 @@ extension VideoTool {
             requestedCodec: videoSettings.codec,
             sourceCodec: analysis.codec,
             sourceHasAlpha: analysis.hasAlpha,
-            isHDR: analysis.isHDR,
             preserveAlphaRequested: videoSettings.preserveAlphaChannel
         )
+        if requiresHighBitDepth {
+            try VideoCodecResolver.validateHighBitDepthCompatibility(
+                codec: codecResolution.codec,
+                profile: videoSettings.profile
+            )
+        }
 
         variables.codec = codecResolution.codec
         variables.hasAlpha = codecResolution.hasAlpha
@@ -64,8 +85,17 @@ extension VideoTool {
                 if variables.range == nil,
                    let range = CMTimeRange(start: start, end: end, duration: durationInSeconds, timescale: analysis.timeScale) {
                     variables.range = range
-                    cutDurationInSeconds = range.duration.seconds
-                    totalFrames = Int64(ceil(cutDurationInSeconds! * Double(analysis.nominalFrameRate)))
+                    let cutDuration = range.duration.seconds
+                    let cutFrameCount = ceil(cutDuration * Double(analysis.nominalFrameRate))
+                    guard cutDuration.isFinite,
+                          cutDuration >= 0,
+                          cutFrameCount.isFinite,
+                          cutFrameCount >= 0,
+                          cutFrameCount < Double(Int64.max) else {
+                        throw CompressionError.failedToReadVideo
+                    }
+                    cutDurationInSeconds = cutDuration
+                    totalFrames = Int64(cutFrameCount)
                 }
             case .crop(let options):
                 let rect = options.makeCroppingRectangle(in: analysis.sourceVideoSize)
@@ -73,11 +103,18 @@ extension VideoTool {
                     continue
                 }
                 guard rect.size.width >= 0, rect.size.height >= 0, rect.minX >= 0, rect.minY >= 0,
-                      rect.width <= analysis.sourceVideoSize.width, rect.height <= analysis.sourceVideoSize.height else {
+                      rect.maxX <= analysis.sourceVideoSize.width,
+                      rect.maxY <= analysis.sourceVideoSize.height else {
                     throw CompressionError.croppingOutOfBounds
                 }
                 cropRect = rect
-            case .rotate, .flip, .mirror:
+            case .rotate(let rotation):
+                guard rotation.radians.isFinite else {
+                    throw CompressionError.invalidVideoSize
+                }
+                transform = transform.concatenating(operation.transform!)
+                transformed = true
+            case .flip, .mirror:
                 transform = transform.concatenating(operation.transform!)
                 transformed = true
             case .process(let processor):
@@ -100,6 +137,7 @@ extension VideoTool {
         // Prefer sizeResult.cropRect since sizeCalculator already validated bounds
         // Fall back to locally parsed cropRect if sizeResult doesn't have it
         let effectiveCropRect = sizeResult.cropRect ?? cropRect
+        let preservesSourcePixelAspectRatio = effectiveCropRect == nil && !sizeResult.needsResize
 
         let useVideoAdaptor = frameProcessor?.requirePixelAdaptor == true
         var useVideoComposition = frameProcessor?.canCrop != true && effectiveCropRect != nil
@@ -123,11 +161,11 @@ extension VideoTool {
 
         let bitrateCalculator = VideoBitrateCalculator()
         let effectiveFrameRate = videoSettings.frameRate.map { Float($0) } ?? analysis.nominalFrameRate
-        let bitrateResult = bitrateCalculator.calculate(
+        let bitrateResult = try bitrateCalculator.calculate(
             bitrateOption: videoSettings.bitrate,
             sourceBitrate: analysis.estimatedDataRate,
             targetSize: targetVideoSize,
-            sourceSize: analysis.naturalSize,
+            sourceSize: analysis.encodedSize,
             codec: codecResolution.codec,
             codecChanged: codecResolution.codecChanged,
             isHDR: analysis.isHDR,
@@ -151,6 +189,12 @@ extension VideoTool {
         // Profile
         if let profile = videoSettings.profile {
             videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
+        } else if requiresHighBitDepth, codecResolution.codec == .hevc {
+            // An HDR transfer function alone does not make an HEVC encode
+            // high-bit-depth. Select Main10 unless the caller supplied an
+            // explicit profile so the encoder does not silently emit 8-bit
+            // Main-profile video with copied HDR color metadata.
+            videoCompressionSettings[AVVideoProfileLevelKey] = CompressionVideoProfile.hevcMain10.rawValue
         }
 
         // Frame Rate
@@ -191,7 +235,7 @@ extension VideoTool {
         #endif
 
         // Apply bitrate
-        if let bitrateValue = bitrateResult.targetBitrate {
+        if let bitrateValue = bitrateResult.encoderBitrate {
             videoCompressionSettings[AVVideoAverageBitRateKey] = bitrateValue
         }
 
@@ -217,6 +261,14 @@ extension VideoTool {
             ]
         }
 
+        if preservesSourcePixelAspectRatio,
+           let pixelAspectRatio = analysis.pixelAspectRatio {
+            videoParameters[AVVideoPixelAspectRatioKey] = [
+                AVVideoPixelAspectRatioHorizontalSpacingKey: pixelAspectRatio.horizontalSpacing,
+                AVVideoPixelAspectRatioVerticalSpacingKey: pixelAspectRatio.verticalSpacing
+            ]
+        }
+
         // Set final resolution
         videoParameters[AVVideoWidthKey] = targetVideoSize.width
         videoParameters[AVVideoHeightKey] = targetVideoSize.height
@@ -228,7 +280,7 @@ extension VideoTool {
         if codecResolution.codecChanged == false,
            bitrateResult.bitrateChanged == false,
            videoSettings.quality == defaultSettings.quality,
-           targetVideoSize == analysis.naturalSize,
+           targetVideoSize == analysis.encodedSize,
            variables.frameRate == defaultSettings.frameRate,
            !(videoSettings.preserveAlphaChannel == false && analysis.hasAlpha == true),
            videoSettings.profile?.rawValue == defaultSettings.profile?.rawValue,
@@ -243,9 +295,31 @@ extension VideoTool {
 
         // MARK: - Phase 8: Setup Reader/Writer
 
-        let pixelFormat = !codecResolution.preserveAlpha && frameProcessor == nil
-            ? kCVPixelFormatType_422YpCbCr8
-            : kCVPixelFormatType_32BGRA
+        let pixelFormat: OSType
+        if requiresHighBitDepth {
+            // Keep HDR samples in a 10-bit format through decode, optional
+            // frame processing, and the pixel-buffer adaptor. Using the SDR
+            // 8-bit YUV/BGRA formats here irreversibly quantizes the image
+            // before the writer sees it, even when HDR color tags survive.
+            if codecResolution.preserveAlpha {
+                pixelFormat = kCVPixelFormatType_64RGBAHalf
+            } else {
+                #if !os(visionOS)
+                switch codecResolution.codec {
+                case .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy, .proRes4444:
+                    pixelFormat = kCVPixelFormatType_422YpCbCr10
+                default:
+                    pixelFormat = kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+                }
+                #else
+                pixelFormat = kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+                #endif
+            }
+        } else if !codecResolution.preserveAlpha && frameProcessor == nil {
+            pixelFormat = kCVPixelFormatType_422YpCbCr8
+        } else {
+            pixelFormat = kCVPixelFormatType_32BGRA
+        }
 
         var videoReaderSettings: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: pixelFormat
@@ -354,8 +428,16 @@ extension VideoTool {
         )
 
         variables.nominalFrameRate = analysis.nominalFrameRate
-        variables.totalFrames = totalFrames
-        variables.size = targetVideoSize
+        if let frameRate = variables.frameRate {
+            variables.totalFrames = adjustedFrameCount(
+                sourceFrames: totalFrames,
+                targetFrameRate: frameRate,
+                nominalFrameRate: analysis.nominalFrameRate
+            )
+        } else {
+            variables.totalFrames = totalFrames
+        }
+        variables.size = preservesSourcePixelAspectRatio ? analysis.naturalSize : targetVideoSize
 
         return variables
     }
@@ -431,12 +513,12 @@ extension VideoTool {
         colorInfo: VideoColorInformation?,
         context: CIContext?,
         orientation: VideoOrientation
-    ) -> ((CMSampleBuffer) -> [CMSampleBuffer])? {
-        // Sample writer
-        let append: (CMSampleBuffer) -> [CMSampleBuffer] = { sample in
+    ) -> ((CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput)? {
+        let process: (CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput = { sample, pixelBufferPool in
             autoreleasepool {
                 switch frameProcessor {
                 case .image, .pixelBuffer:
+                    guard let pixelBufferPool else { return .dropped }
                     let timeStamp = CMSampleBufferGetPresentationTimeStamp(sample)
                     let pixelBuffer = CVPixelBuffer.processSampleBuffer(
                         sample,
@@ -446,56 +528,65 @@ extension VideoTool {
                         targetSize: targetVideoSize,
                         cropRect: cropRect,
                         transform: fixedPreferredTransform,
-                        pixelBufferAdaptor: videoInputAdaptor!,
+                        pixelBufferPool: pixelBufferPool,
                         colorInfo: colorInfo,
                         context: context
                     )
 
-                    if let pixelBuffer = pixelBuffer {
-                        videoInputAdaptor!.append(pixelBuffer, withPresentationTime: timeStamp)
+                    if let pixelBuffer {
+                        return .pixelBuffer(pixelBuffer, presentationTime: timeStamp)
                     }
-                    return []
+                    return .dropped
                 case .sampleBuffer(let processor):
                     if let sampleBuffer = processor(sample) {
-                        return [sampleBuffer]
+                        return .sampleBuffers([sampleBuffer])
                     }
-                    return []
+                    return .dropped
+                case .sampleBufferToMany(let processor):
+                    let samples = processor(sample)
+                    return samples.isEmpty ? .dropped : .sampleBuffers(samples)
                 default:
-                    return [sample]
+                    return .sampleBuffers([sample])
                 }
             }
         }
 
         guard let frameRate = frameRate else {
-            return frameProcessor != nil ? append : nil
+            return frameProcessor != nil ? process : nil
         }
 
         // Frame rate adjustment
-        let frameDuration = CMTimeMake(value: Int64(timeScale) / Int64(frameRate), timescale: timeScale)
+        let frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate))
 
-        let targetFrames = Int(round(Float(totalFrames) * Float(frameRate) / nominalFrameRate))
+        let targetFrames = Int(adjustedFrameCount(
+            sourceFrames: totalFrames,
+            targetFrameRate: frameRate,
+            nominalFrameRate: nominalFrameRate
+        ))
         var frames: Set<Int> = []
         frames.reserveCapacity(targetFrames)
         frames.insert(1)
-        for index in 1 ..< targetFrames {
-            frames.insert(Int(ceil(Double(totalFrames) * Double(index) / Double(targetFrames - 1))))
+        if targetFrames > 1 {
+            for index in 1 ..< targetFrames {
+                frames.insert(Int(ceil(Double(totalFrames) * Double(index) / Double(targetFrames - 1))))
+            }
         }
 
         var frameIndex: Int = 0
         var previousPresentationTimeStamp: CMTime?
 
-        return { sample in
+        return { sample, pixelBufferPool in
             frameIndex += 1
 
             guard frames.contains(frameIndex) else {
-                return []
+                return .dropped
             }
 
-            return autoreleasepool { () -> [CMSampleBuffer] in
+            return autoreleasepool { () -> VideoSampleProcessingOutput in
                 var timingInfo = CMSampleTimingInfo()
 
                 let status = CMSampleBufferGetSampleTimingInfo(sample, at: 0, timingInfoOut: &timingInfo)
-                guard status == noErr else { return [] }
+                guard status == noErr else { return .dropped }
 
                 timingInfo.duration = frameDuration
 
@@ -521,11 +612,21 @@ extension VideoTool {
                 )
 
                 if copyStatus == noErr {
-                    return append(buffer)
+                    return process(buffer, pixelBufferPool)
                 }
-                return []
+                return .dropped
             }
         }
+    }
+
+    private static func adjustedFrameCount(
+        sourceFrames: Int64,
+        targetFrameRate: Int,
+        nominalFrameRate: Float
+    ) -> Int64 {
+        let estimate = Double(sourceFrames) * Double(targetFrameRate) / Double(nominalFrameRate)
+        guard estimate.isFinite, estimate > 0 else { return 1 }
+        return max(Int64(min(estimate.rounded(), Double(Int64.max).nextDown)), 1)
     }
 }
 

@@ -2,7 +2,7 @@
 
 @implementation ObjCExceptionCatcher
 
-+ (nullable id)catchException:(nullable id(^)())tryBlock error:(NSError **)error {
++ (nullable id)catchException:(nullable id(^)(void))tryBlock error:(NSError **)error {
     @try {
         return tryBlock ? tryBlock() : nil;
     }

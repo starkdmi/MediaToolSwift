@@ -35,6 +35,9 @@ public struct CompressionError: LocalizedError, Equatable {
     public static let videoTrackNotFound = CompressionError(description: "Video track not found")
     public static let audioTrackNotFound = CompressionError(description: "Audio track not found")
     public static let invalidVideoCodec = CompressionError(description: "Specified video codec is not supported")
+    public static let invalidVideoBitrate = CompressionError(description: "Video bitrate must be a finite positive value")
+    public static let invalidVideoSize = CompressionError(description: "Video size must contain finite positive dimensions")
+    public static let invalidFrameRate = CompressionError(description: "Frame rate must be greater than zero")
     public static let croppingNotAllowed = CompressionError(description: "Cropping is not allowed while the video size is set")
     public static let croppingOutOfBounds = CompressionError(description: "Cropping area is larger than source video bounds")
     public static let notSupportedOnVisionOS = CompressionError(description: "Operation is not supported on Vision Pro")
@@ -47,6 +50,7 @@ public struct CompressionError: LocalizedError, Equatable {
     public static let failedToCreateImageFile = CompressionError(description: "Failed to create destination for file.")
     public static let failedToSaveImage = CompressionError(description: "Failed to save image")
     public static let emptyImage = CompressionError(description: "Image frames are missing")
+    public static let invalidImagePrimaryIndex = CompressionError(description: "Primary image index is out of bounds")
     public static let failedToGenerateThumbnails = CompressionError(description: "Failed to generate thumbnails from a video file")
     // public static let blurNotAllowed = CompressionError(description: "Blur filling is not allowed for images with alpha channel")
 }

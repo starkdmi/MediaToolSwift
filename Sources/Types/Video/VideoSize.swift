@@ -17,12 +17,17 @@ public enum CompressionVideoSize {
     case dynamic((_ sourceVideoSize: CGSize) -> CompressionVideoSize)
 
     /// Get exact value, used for dynamic retreiving
-    func value(for videoSize: CGSize) -> CompressionVideoSize {
+    func value(for videoSize: CGSize) throws -> CompressionVideoSize {
         var size = self
         // Loop while case is dynamic
+        var resolutionDepth = 0
         while case .dynamic(let handler) = size {
+            guard resolutionDepth < 32 else {
+                throw CompressionError.invalidVideoSize
+            }
             // Dynamically calculate video size based on source video resolution
             size = handler(videoSize)
+            resolutionDepth += 1
         }
         return size
     }

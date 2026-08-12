@@ -22,6 +22,9 @@ internal struct VideoTrackAnalyzer {
         /// Encoded pixel dimensions (actual pixel count)
         internal let encodedSize: CGSize
 
+        /// Encoded pixel aspect ratio, when pixels are not square
+        internal let pixelAspectRatio: VideoPixelAspectRatio?
+
         /// Video orientation from track transform
         internal let orientation: VideoOrientation
 
@@ -86,7 +89,20 @@ internal struct VideoTrackAnalyzer {
         let duration = await asset.getDuration()
         let nominalFrameRate = await track.getNominalFrameRate()
         let timeScale = await track.getVideoTimeScale()
-        let totalFrames = Int64(ceil(duration.seconds * Double(nominalFrameRate)))
+        let durationSeconds = duration.seconds
+        let frameCount = ceil(durationSeconds * Double(nominalFrameRate))
+        guard durationSeconds.isFinite,
+              durationSeconds >= 0,
+              nominalFrameRate.isFinite,
+              nominalFrameRate >= 0,
+              timeScale > 0,
+              frameCount.isFinite,
+              frameCount >= 0,
+              frameCount < Double(Int64.max),
+              Double(nominalFrameRate) < Double(Int.max) else {
+            throw CompressionError.failedToReadVideo
+        }
+        let totalFrames = Int64(frameCount)
 
         // Codec
         let hasAlphaChannel = formatDescription.hasAlphaChannel
@@ -103,11 +119,19 @@ internal struct VideoTrackAnalyzer {
         let naturalSize = await track.getNaturalSize()
         let fixedPreferredTransform = await track.getFixedPreferredTransform()
         let dimensions = CMVideoFormatDescriptionGetDimensions(formatDescription)
+        guard dimensions.width > 0, dimensions.height > 0 else {
+            throw CompressionError.failedToReadVideo
+        }
         let encodedSize = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
 
         // Orientation
         let orientation = await track.getOrientation()
         let estimatedDataRate = await track.getEstimatedDataRate()
+        guard estimatedDataRate.isFinite,
+              estimatedDataRate >= 0,
+              Double(estimatedDataRate) < Double(Int.max) else {
+            throw CompressionError.failedToReadVideo
+        }
 
         // Color information
         let colorPrimaries = formatDescription.colorPrimaries
@@ -121,6 +145,7 @@ internal struct VideoTrackAnalyzer {
             naturalSize: naturalSize,
             fixedPreferredTransform: fixedPreferredTransform,
             encodedSize: encodedSize,
+            pixelAspectRatio: formatDescription.pixelAspectRatio,
             orientation: orientation,
             nominalFrameRate: nominalFrameRate,
             timeScale: timeScale,

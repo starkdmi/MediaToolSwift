@@ -1,7 +1,36 @@
 import AVFoundation
 
+internal struct VideoPixelAspectRatio: Equatable {
+    let horizontalSpacing: Int
+    let verticalSpacing: Int
+}
+
 /// Extensions on `CMFormatDescription` of `AVAssetTrack`
 internal extension CMFormatDescription {
+    /// Non-square pixel spacing carried by the encoded video sample entry.
+    var pixelAspectRatio: VideoPixelAspectRatio? {
+        guard mediaType == .video,
+              let dictionary = CMFormatDescriptionGetExtension(
+                self,
+                extensionKey: kCMFormatDescriptionExtension_PixelAspectRatio
+              ) as? NSDictionary,
+              let horizontal = dictionary[
+                kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing as String
+              ] as? NSNumber,
+              let vertical = dictionary[
+                kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing as String
+              ] as? NSNumber,
+              horizontal.intValue > 0,
+              vertical.intValue > 0 else {
+            return nil
+        }
+
+        return VideoPixelAspectRatio(
+            horizontalSpacing: horizontal.intValue,
+            verticalSpacing: vertical.intValue
+        )
+    }
+
     /// Boolean indicator of transparency presence in format description
     var hasAlphaChannel: Bool {
         // Method #1 - Check .containsAlphaChannel extension value
@@ -50,14 +79,18 @@ internal extension CMFormatDescription {
 
     /// Boolean indicator of HDR content presence in format description
     var isHDRVideo: Bool {
-        guard let transferFunction = CMFormatDescriptionGetExtension(self, extensionKey: kCVImageBufferTransferFunctionKey)
-        else { return false }
+        guard let transferFunction = CMFormatDescriptionGetExtension(
+            self,
+            extensionKey: kCVImageBufferTransferFunctionKey
+        ) as? String else {
+            return false
+        }
 
         return [
-            kCVImageBufferTransferFunction_ITU_R_2020,
-            kCVImageBufferTransferFunction_ITU_R_2100_HLG,
-            kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ
-        ].contains(transferFunction as! CFString) // swiftlint:disable:this force_cast
+            kCVImageBufferTransferFunction_ITU_R_2020 as String,
+            kCVImageBufferTransferFunction_ITU_R_2100_HLG as String,
+            kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String
+        ].contains(transferFunction)
     }
 
     /// Video codec value stored in format description

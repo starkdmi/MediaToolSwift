@@ -6,6 +6,8 @@ import CoreImage
 public extension CIImage {
     /// Rotate `CIImage` with crop or fill options
     func rotating(by value: Rotate, using fill: RotationFill = .crop, orientation: CGImagePropertyOrientation? = nil) -> CIImage {
+        guard value.radians.isFinite else { return self }
+
         let ciImage = self
         // Warning: -angle is used for correct rotation
         let invertAngle = orientation?.mirrored != true // not mirrored
@@ -86,6 +88,7 @@ public extension CIImage {
 
     /// Scale `CIImage`
     func resizing(to size: CGSize) -> CIImage {
+        guard size.hasFinitePositiveDimensions else { return self }
         let (scale, aspectRatio) = self.extent.size / size
         return self.applyingFilter("CILanczosScaleTransform", parameters: [
             kCIInputScaleKey: scale,

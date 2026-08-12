@@ -31,6 +31,10 @@ public enum VideoFrameProcessor: Equatable, Hashable {
     /// By returning `nil` the frame will be dropped
     case sampleBuffer((_ buffer: CMSampleBuffer) -> CMSampleBuffer?)
 
+    /// Sample processing function with return of one or multiple samples
+    /// By returning an empty array the frame will be dropped
+    case sampleBufferToMany((_ buffer: CMSampleBuffer) -> [CMSampleBuffer])
+
     /// Indicator of cropping supported by processor
     internal var canCrop: Bool {
         switch self {
@@ -40,7 +44,7 @@ public enum VideoFrameProcessor: Equatable, Hashable {
         case .imageComposition:
             return false
         #endif
-        case .pixelBuffer, .sampleBuffer:
+        case .pixelBuffer, .sampleBuffer, .sampleBufferToMany:
             return false
         }
     }
@@ -54,7 +58,7 @@ public enum VideoFrameProcessor: Equatable, Hashable {
         case .imageComposition:
             return false
         #endif
-        case .sampleBuffer:
+        case .sampleBuffer, .sampleBufferToMany:
             return false
         }
     }
@@ -68,7 +72,7 @@ public enum VideoFrameProcessor: Equatable, Hashable {
         case .imageComposition:
             return true
         #endif
-        case .sampleBuffer: // .cgImage, .vImage
+        case .sampleBuffer, .sampleBufferToMany: // .cgImage, .vImage
             return false
         }
     }
@@ -90,6 +94,8 @@ public enum VideoFrameProcessor: Equatable, Hashable {
             hasher.combine("pixelBufferProcessor")
         case .sampleBuffer:
             hasher.combine("sampleBufferProcessor")
+        case .sampleBufferToMany:
+            hasher.combine("sampleBufferToManyProcessor")
         }
     }
 
@@ -109,6 +115,8 @@ public enum VideoFrameProcessor: Equatable, Hashable {
         case (.pixelBuffer, .pixelBuffer):
             return true
         case (.sampleBuffer, .sampleBuffer):
+            return true
+        case (.sampleBufferToMany, .sampleBufferToMany):
             return true
         default:
             return false

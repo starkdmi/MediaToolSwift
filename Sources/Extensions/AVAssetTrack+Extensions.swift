@@ -139,6 +139,12 @@ internal extension AVAssetTrack {
 
     /// Estimated data rate rounded to integer
     func getEstimatedDataRateInt() async -> Int {
-        Int((await getEstimatedDataRate()).rounded())
+        let rate = await getEstimatedDataRate()
+        guard rate.isFinite,
+              rate >= 0,
+              Double(rate) < Double(Int.max) else {
+            return 0
+        }
+        return Int(rate.rounded())
     }
 }

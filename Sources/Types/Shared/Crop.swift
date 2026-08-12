@@ -29,6 +29,21 @@ public struct Crop: Equatable, Hashable {
         return self.size ?? self.rect?.size ?? .zero
     }
 
+    /// Whether this public crop request is safe to pass to Core Graphics and
+    /// vImage, both of which eventually convert its values to integer pixels.
+    internal var hasValidGeometry: Bool {
+        if let size, alignment != nil {
+            return size.hasFinitePositiveDimensions
+        } else if let rect {
+            return rect.origin.hasFinitePixelCoordinates &&
+                rect.size.hasFinitePositiveDimensions
+        } else if let origin, let size {
+            return origin.hasFinitePixelCoordinates &&
+                size.hasFinitePositiveDimensions
+        }
+        return false
+    }
+
     /// Calculate cropping rectangle
     internal func makeCroppingRectangle(in size: CGSize) -> CGRect {
         if let aligment = self.alignment, let cropSize = self.size {

@@ -15,6 +15,13 @@ internal enum AudioTrackConfiguration {
         track: AVAssetTrack,
         settings: CompressionAudioSettings?
     ) async throws -> AudioVariables {
+        // AVFoundation raises an Objective-C exception for invalid decoder
+        // sample rates, which Swift cannot catch.
+        if let sampleRate = settings?.sampleRate,
+           !(8_000 ... 192_000).contains(sampleRate) {
+            throw CompressionError.failedToReadAudio
+        }
+
         guard let formatDescription = await track.getFormatDescriptions().first else {
             throw CompressionError.failedToReadAudio
         }
@@ -27,7 +34,7 @@ internal enum AudioTrackConfiguration {
             variables.codec = CompressionAudioCodec(
                 formatId: CMFormatDescriptionGetMediaSubType(formatDescription)
             ) ?? .default
-            variables.audioOutput = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+            variables.audioOutput = try makeReaderOutput(track: track, outputSettings: nil)
             variables.audioInput = try makeWriterInput(
                 outputSettings: nil,
                 sourceFormatHint: formatDescription
@@ -50,7 +57,7 @@ internal enum AudioTrackConfiguration {
         variables.codec = resolution.codec
         variables.hasChanges = resolution.hasChanges
         variables.bitrate = resolution.targetBitrate
-        variables.audioOutput = AVAssetReaderTrackOutput(
+        variables.audioOutput = try makeReaderOutput(
             track: track,
             outputSettings: resolution.hasChanges ? resolution.decoderSettings : nil
         )
@@ -59,6 +66,24 @@ internal enum AudioTrackConfiguration {
             sourceFormatHint: resolution.hasChanges ? nil : analysis.formatDescription
         )
         return variables
+    }
+
+    private static func makeReaderOutput(
+        track: AVAssetTrack,
+        outputSettings: [String: Any]?
+    ) throws -> AVAssetReaderTrackOutput {
+        #if canImport(ObjCExceptionCatcher)
+        var output: AVAssetReaderTrackOutput?
+        try ObjCExceptionCatcher.catchException {
+            output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
+        }
+        guard let output else {
+            throw CompressionError.failedToReadAudio
+        }
+        return output
+        #else
+        return AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
+        #endif
     }
 
     private static func makeWriterInput(
@@ -138,7 +163,11 @@ extension AudioTool {
             callback: callback
         )
         let session = AudioConversionSession(request: request, task: task)
-        await session.prepareAndStart()
+        await withTaskCancellationHandler {
+            await session.prepareAndStart()
+        } onCancel: {
+            task.cancel()
+        }
         return task
     }
 }

@@ -65,8 +65,16 @@ internal struct AudioCodecResolver {
 
         // Resolve codec
         var codec = settings.codec
-        if codec == .default, let sourceCodec = CompressionAudioCodec(formatId: sourceAnalysis.formatId), sourceCodec != .default {
-            codec = sourceCodec
+        if codec == .default {
+            if let sourceCodec = CompressionAudioCodec(formatId: sourceAnalysis.formatId),
+               sourceCodec != .default {
+                codec = sourceCodec
+            } else {
+                // AVAssetWriter cannot passthrough decoded PCM into an unknown
+                // source codec. AAC is the portable default for explicit
+                // settings applied to MP3/E-AC-3 and other unsupported inputs.
+                codec = .aac
+            }
         }
 
         let codecChanged = sourceAnalysis.formatId != codec.formatId
@@ -78,6 +86,7 @@ internal struct AudioCodecResolver {
         case .aac:
             encoderParameters = buildAACParameters(
                 settings: settings,
+                sampleRate: sourceAnalysis.sampleRate,
                 channels: sourceAnalysis.channelsPerFrame,
                 targetBitrate: &targetBitrate
             )
@@ -85,6 +94,7 @@ internal struct AudioCodecResolver {
         case .opus:
             encoderParameters = buildOpusParameters(
                 settings: settings,
+                sampleRate: sourceAnalysis.sampleRate,
                 channels: sourceAnalysis.channelsPerFrame,
                 targetBitrate: &targetBitrate
             )
@@ -92,12 +102,14 @@ internal struct AudioCodecResolver {
         case .flac:
             encoderParameters = buildFLACParameters(
                 settings: settings,
+                sampleRate: sourceAnalysis.sampleRate,
                 channels: sourceAnalysis.channelsPerFrame
             )
 
         case .lpcm:
             encoderParameters = buildLPCMParameters(
                 settings: settings,
+                sampleRate: sourceAnalysis.sampleRate,
                 channels: sourceAnalysis.channelsPerFrame,
                 bitsPerChannel: effectiveBitsPerChannel,
                 isFloat: sourceAnalysis.isFloat,
@@ -107,6 +119,7 @@ internal struct AudioCodecResolver {
         case .alac:
             encoderParameters = buildALACParameters(
                 settings: settings,
+                sampleRate: sourceAnalysis.sampleRate,
                 channels: sourceAnalysis.channelsPerFrame,
                 bitsPerChannel: effectiveBitsPerChannel
             )
@@ -151,17 +164,32 @@ internal struct AudioCodecResolver {
 
     private func buildAACParameters(
         settings: CompressionAudioSettings,
+        sampleRate: Int,
         channels: Int,
         targetBitrate: inout Int?
     ) -> [String: Any] {
         var channelLayout = AudioChannelLayout()
-        channelLayout.mChannelLayoutTag = kAudioChannelLayoutTag_MPEG_2_0
+        switch channels {
+        case 1:
+            channelLayout.mChannelLayoutTag = kAudioChannelLayoutTag_Mono
+        case 2:
+            channelLayout.mChannelLayoutTag = kAudioChannelLayoutTag_MPEG_2_0
+        case 6:
+            channelLayout.mChannelLayoutTag = kAudioChannelLayoutTag_MPEG_5_1_A
+        case 8:
+            channelLayout.mChannelLayoutTag = kAudioChannelLayoutTag_MPEG_7_1_A
+        default:
+            // Keep the discrete channel count without silently forcing stereo.
+            channelLayout.mChannelLayoutTag = AudioChannelLayoutTag(
+                kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channels)
+            )
+        }
         let channelLayoutData = NSData(bytes: &channelLayout, length: MemoryLayout.size(ofValue: channelLayout))
 
         var params: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: settings.sampleRate ?? 44100,
-            AVNumberOfChannelsKey: 2,
+            AVSampleRateKey: settings.sampleRate ?? sampleRate,
+            AVNumberOfChannelsKey: channels,
             AVChannelLayoutKey: channelLayoutData
         ]
 
@@ -188,12 +216,18 @@ internal struct AudioCodecResolver {
 
     private func buildOpusParameters(
         settings: CompressionAudioSettings,
+        sampleRate: Int,
         channels: Int,
         targetBitrate: inout Int?
     ) -> [String: Any] {
+        let supportedRates = [8_000, 12_000, 16_000, 24_000, 48_000]
+        let requestedRate = settings.sampleRate ?? sampleRate
+        let outputRate = supportedRates.min {
+            abs($0 - requestedRate) < abs($1 - requestedRate)
+        } ?? 48_000
         var params: [String: Any] = [
             AVFormatIDKey: kAudioFormatOpus,
-            AVSampleRateKey: settings.sampleRate ?? 48000,
+            AVSampleRateKey: outputRate,
             AVNumberOfChannelsKey: channels
         ]
 
@@ -216,11 +250,12 @@ internal struct AudioCodecResolver {
 
     private func buildFLACParameters(
         settings: CompressionAudioSettings,
+        sampleRate: Int,
         channels: Int
     ) -> [String: Any] {
         var params: [String: Any] = [
             AVFormatIDKey: kAudioFormatFLAC,
-            AVSampleRateKey: settings.sampleRate ?? 44100,
+            AVSampleRateKey: settings.sampleRate ?? sampleRate,
             AVNumberOfChannelsKey: channels
         ]
 
@@ -233,6 +268,7 @@ internal struct AudioCodecResolver {
 
     private func buildLPCMParameters(
         settings: CompressionAudioSettings,
+        sampleRate: Int,
         channels: Int,
         bitsPerChannel: Int,
         isFloat: Bool,
@@ -240,7 +276,7 @@ internal struct AudioCodecResolver {
     ) -> [String: Any] {
         return [
             AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: settings.sampleRate ?? 44100,
+            AVSampleRateKey: settings.sampleRate ?? sampleRate,
             AVNumberOfChannelsKey: channels,
             AVLinearPCMBitDepthKey: bitsPerChannel > 0 ? bitsPerChannel : 16,
             AVLinearPCMIsFloatKey: isFloat,
@@ -251,12 +287,13 @@ internal struct AudioCodecResolver {
 
     private func buildALACParameters(
         settings: CompressionAudioSettings,
+        sampleRate: Int,
         channels: Int,
         bitsPerChannel: Int
     ) -> [String: Any] {
         return [
             AVFormatIDKey: kAudioFormatAppleLossless,
-            AVSampleRateKey: settings.sampleRate ?? 44100,
+            AVSampleRateKey: settings.sampleRate ?? sampleRate,
             AVNumberOfChannelsKey: channels,
             AVEncoderBitDepthHintKey: bitsPerChannel > 0 ? bitsPerChannel : 16
         ]

@@ -49,8 +49,16 @@ internal struct AudioTrackAnalyzer {
 
         let basicDescription = formatDescription.audioBasicDescription
 
-        let sampleRate = Int(basicDescription?.mSampleRate ?? 44100)
-        let channelsPerFrame = Int(basicDescription?.mChannelsPerFrame ?? 2)
+        let rawSampleRate = basicDescription?.mSampleRate ?? 44100
+        let rawChannelsPerFrame = basicDescription?.mChannelsPerFrame ?? 2
+        guard rawSampleRate.isFinite,
+              rawSampleRate > 0,
+              rawSampleRate < Double(Int.max),
+              rawChannelsPerFrame > 0 else {
+            throw CompressionError.failedToReadAudio
+        }
+        let sampleRate = Int(rawSampleRate)
+        let channelsPerFrame = Int(rawChannelsPerFrame)
 
         var bitsPerChannel = Int(basicDescription?.mBitsPerChannel ?? 0)
         var isFloat = false
@@ -66,7 +74,13 @@ internal struct AudioTrackAnalyzer {
             bitsPerChannel = 32
         }
 
-        let estimatedBitrate = await track.getEstimatedDataRateInt()
+        let rawEstimatedBitrate = await track.getEstimatedDataRate()
+        guard rawEstimatedBitrate.isFinite,
+              rawEstimatedBitrate >= 0,
+              Double(rawEstimatedBitrate) < Double(Int.max) else {
+            throw CompressionError.failedToReadAudio
+        }
+        let estimatedBitrate = Int(rawEstimatedBitrate.rounded())
 
         return Analysis(
             formatDescription: formatDescription,
