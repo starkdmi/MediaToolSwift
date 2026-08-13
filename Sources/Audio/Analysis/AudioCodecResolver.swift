@@ -27,8 +27,6 @@ internal struct AudioCodecResolver {
         internal let decoderSettings: [String: Any]?
     }
 
-    internal init() {}
-
     /// Resolve audio codec and settings
     /// - Parameters:
     ///   - settings: User audio settings (nil = passthrough)

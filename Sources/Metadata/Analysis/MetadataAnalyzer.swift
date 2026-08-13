@@ -25,20 +25,7 @@ internal struct MetadataTrackAnalyzer {
         /// Asset metadata items (container-level metadata)
         internal let assetMetadata: [AVMetadataItem]
 
-        internal init(
-            hasTimedMetadataTrack: Bool,
-            metadataTrack: AVAssetTrack?,
-            formatDescription: CMFormatDescription?,
-            assetMetadata: [AVMetadataItem]
-        ) {
-            self.hasTimedMetadataTrack = hasTimedMetadataTrack
-            self.metadataTrack = metadataTrack
-            self.formatDescription = formatDescription
-            self.assetMetadata = assetMetadata
-        }
     }
-
-    internal init() {}
 
     /// Analyzes the asset for metadata information
     /// - Parameters:
@@ -102,8 +89,6 @@ internal struct MetadataIOFactory {
         }
     }
 
-    internal init() {}
-
     /// Creates reader output and writer input for a metadata track
     /// - Parameters:
     ///   - metadataTrack: The metadata track to create I/O for
@@ -148,8 +133,6 @@ internal struct MetadataIOFactory {
 
 /// Resolves final metadata configuration combining source and custom metadata
 internal struct MetadataResolver {
-
-    internal init() {}
 
     /// Combines source metadata with custom metadata items
     /// - Parameters:
