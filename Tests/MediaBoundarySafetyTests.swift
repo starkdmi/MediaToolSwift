@@ -140,11 +140,21 @@ final class MediaBoundarySafetyTests: XCTestCase {
         }
         holder.set(observer)
 
+        // The throwing FileHandle API requires 13.4, above the package's iOS and
+        // tvOS deployment targets, so mirror `FileHandle.seekToFileEnd()`.
         let writer = try FileHandle(forWritingTo: url)
-        try writer.seekToEnd()
-        try writer.write(contentsOf: Data(repeating: 0xA5, count: 64))
-        try writer.synchronize()
-        try writer.close()
+        let payload = Data(repeating: 0xA5, count: 64)
+        if #available(macOS 11, iOS 13.4, tvOS 13.4, *) {
+            try writer.seekToEnd()
+            try writer.write(contentsOf: payload)
+            try writer.synchronize()
+            try writer.close()
+        } else {
+            _ = writer.seekToEndOfFile()
+            writer.write(payload)
+            writer.synchronizeFile()
+            writer.closeFile()
+        }
 
         wait(for: [callbackFinished], timeout: 2)
         observer.finish()
