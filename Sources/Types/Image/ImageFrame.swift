@@ -237,6 +237,18 @@ public struct ImageFrame: Equatable, Hashable {
     }
 }
 
+/// Outcome of reducing an animated sequence to a requested frame rate.
+internal struct AdjustedFrameRate {
+    /// Reduced frames, or `nil` when the sequence was left unchanged.
+    let frames: [ImageFrame]?
+
+    /// Frame rate describing the returned sequence.
+    let frameRate: Int
+
+    /// The requested primary index remapped onto the returned sequence.
+    let primaryIndex: Int
+}
+
 internal extension Array where Element == ImageFrame {
     /// Calculate animated image sequence duration
     func validatedDuration() throws -> Double? {
@@ -264,12 +276,19 @@ internal extension Array where Element == ImageFrame {
         frameRate: Int,
         duration: Double,
         primaryIndex: Int
-    ) throws -> (frames: [ImageFrame]?, frameRate: Int, primaryIndex: Int) {
+    ) throws -> AdjustedFrameRate {
         guard frameRate > 0,
               duration.isFinite,
               duration > 0,
               indices.contains(primaryIndex) else {
-            return (nil, 0, 0)
+            // Callers reject a non-positive frame rate before reaching this
+            // point. Leave the sequence untouched rather than silently moving
+            // the primary frame if that guarantee ever changes.
+            return AdjustedFrameRate(
+                frames: nil,
+                frameRate: 0,
+                primaryIndex: indices.contains(primaryIndex) ? primaryIndex : 0
+            )
         }
 
         let nominalFrameRate = Double(self.count) / duration
@@ -374,10 +393,18 @@ internal extension Array where Element == ImageFrame {
 
             // Return the frames array
             let remappedPrimaryIndex = retainedIndexes.firstIndex(of: primaryIndex) ?? 0
-            return (newImages, frameRate, remappedPrimaryIndex)
+            return AdjustedFrameRate(
+                frames: newImages,
+                frameRate: frameRate,
+                primaryIndex: remappedPrimaryIndex
+            )
         } else {
             // Frames weren't changed
-            return (nil, nominalFrameRateRounded, primaryIndex)
+            return AdjustedFrameRate(
+                frames: nil,
+                frameRate: nominalFrameRateRounded,
+                primaryIndex: primaryIndex
+            )
         }
     }
 }

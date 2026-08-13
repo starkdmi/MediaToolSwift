@@ -300,10 +300,15 @@ internal final class FileOutputTransaction {
             }
             throw CompressionError.cannotOverWrite
         }
-        guard deleteEntry(at: outputURL, ifIdentityMatches: destinationIdentifier) else {
-            throw CompressionError.cannotOverWrite
-        }
+        // The new output is live at the destination from here on, so publication
+        // has succeeded. Removing the displaced original is cleanup and is
+        // deliberately best-effort: reporting a failed conversion for a
+        // completed publication would be wrong, and leaves callers unable to
+        // tell whether the destination was replaced. A failure here only leaves
+        // the previous file behind under the transaction's hidden temporary
+        // name.
         self.outputIdentifier = nil
+        deleteEntry(at: outputURL, ifIdentityMatches: destinationIdentifier)
     }
 
     private func publishNewDestination() throws {
