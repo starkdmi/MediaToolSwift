@@ -1,8 +1,7 @@
 import AVFoundation
 import CoreMedia
 
-/// Calculates video bitrate based on various strategies
-/// Calculates output bitrate and file-size estimates.
+/// Calculates output bitrate and file-size estimates using the requested strategy.
 internal struct VideoBitrateCalculator {
 
     /// Result of bitrate calculation
@@ -75,10 +74,8 @@ internal struct VideoBitrateCalculator {
         var bitrateChanged = false
         let isEstimatedFileSizeAccurate: Bool
 
-        /// Helper to set bitrate with source comparison
-        /// Returns (bitrateToApply, shouldSetTargetBitrate)
-        /// When capping to source, returns (sourceBitrate, false) to match original behavior
-        /// where targetBitrate stays nil but compression settings use sourceBitrate
+        /// Applies source-bitrate capping while preserving whether the requested
+        /// bitrate should be exposed as the target bitrate.
         func setBitrate(_ value: Int) -> (apply: Int, setTarget: Bool) {
             // For the same codec and resolution, use source bitrate as maximum
             if !codecChanged,
@@ -86,8 +83,8 @@ internal struct VideoBitrateCalculator {
                targetSize.height <= sourceSize.height,
                sourceBitrateValue > 0 {
                 if value >= sourceBitrateValue {
-                    // Use source bitrate when higher value targeted
-                    // Original behavior: apply sourceBitrate but leave targetBitrate as nil
+                    // Cap the encoder to the source bitrate while leaving the
+                    // target bitrate unset, preserving the released behavior.
                     return (sourceBitrateValue, false)
                 } else {
                     // Require re-encoding to lower bitrate
@@ -106,8 +103,7 @@ internal struct VideoBitrateCalculator {
             if result.setTarget {
                 targetBitrate = result.apply
             }
-            // Note: When capped to source, result.apply is used for AVVideoAverageBitRateKey
-            // but targetBitrate stays nil (matching original behavior)
+            // When capped, the encoder bitrate is set while the target remains unset.
             isEstimatedFileSizeAccurate = value >= 8_000_000
 
         case .dynamic(let handler):
