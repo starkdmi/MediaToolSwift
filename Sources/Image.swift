@@ -952,16 +952,16 @@ public struct ImageTool {
         var frameRate: Int?
         let duration = try images.validatedDuration() // image sequence duration
         if isAnimated, let animationFrameRate = settings.frameRate, let duration = duration {
-            let (updatedFrames, updatedFrameRate, updatedPrimaryIndex) = try images.withAdjustedFrameRate(
+            let adjusted = try images.withAdjustedFrameRate(
                 frameRate: animationFrameRate,
                 duration: duration,
                 primaryIndex: primaryIndex
             )
-            if let updatedFrames = updatedFrames {
+            if let updatedFrames = adjusted.frames {
                 images = updatedFrames
             }
-            primaryIndex = updatedPrimaryIndex
-            frameRate = updatedFrameRate
+            primaryIndex = adjusted.primaryIndex
+            frameRate = adjusted.frameRate
             if images.count <= 1 {
                 isAnimated = false
                 frameRate = nil
