@@ -118,12 +118,24 @@ internal struct SourceFileIdentity: Sendable {
     }
 }
 
+/// Builds the reservation name for a destination.
+///
+/// Canonical mapping is always applied because APFS is normalization
+/// insensitive and HFS+ stores decomposed names, so the composed and
+/// decomposed spellings of one name address the same entry.
+///
+/// Case folding is applied only on case-insensitive volumes. Nothing else is
+/// folded: diacritic and width insensitivity are not filesystem behaviors and
+/// are independent of case sensitivity. `resume.mov` and `résumé.mov` coexist
+/// on case-insensitive APFS, so folding them together would make concurrent
+/// conversions to those two names collide and spuriously report
+/// `destinationFileExists`.
 private func normalizedFileName(_ name: String, in parent: URL) -> String {
     let normalized = name.precomposedStringWithCanonicalMapping
     let values = try? parent.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
     guard values?.volumeSupportsCaseSensitiveNames == true else {
         return normalized.folding(
-            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            options: [.caseInsensitive],
             locale: Locale(identifier: "en_US_POSIX")
         )
     }

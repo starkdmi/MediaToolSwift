@@ -48,6 +48,74 @@ final class MediaBoundarySafetyTests: XCTestCase {
         }
     }
 
+    /// Case insensitivity, diacritic insensitivity, and width insensitivity are
+    /// independent properties, and only the first is a real filesystem
+    /// behavior. Names that differ by diacritics or character width are
+    /// distinct entries on every supported volume, so they must not share a
+    /// destination reservation.
+    func testDestinationReservationKeepsDiacriticAndWidthVariantsDistinct() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MediaToolSwift-reserve-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // Holding all three reservations at once fails if any two share a key.
+        let plain = try FileOutputTransaction(
+            destination: directory.appendingPathComponent("resume.mov"),
+            overwrite: false
+        )
+        defer { plain.discard() }
+
+        let accented = try FileOutputTransaction(
+            destination: directory.appendingPathComponent("résumé.mov"),
+            overwrite: false
+        )
+        defer { accented.discard() }
+
+        let fullWidth = try FileOutputTransaction(
+            destination: directory.appendingPathComponent("ｒｅｓｕｍｅ.mov"),
+            overwrite: false
+        )
+        defer { fullWidth.discard() }
+
+        XCTAssertNotEqual(plain.destinationURL, accented.destinationURL)
+        XCTAssertNotEqual(plain.destinationURL, fullWidth.destinationURL)
+    }
+
+    /// The composed and decomposed spellings of one name address the same
+    /// filesystem entry, so they must continue to share a reservation.
+    func testDestinationReservationTreatsUnicodeNormalizationAsOneName() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MediaToolSwift-reserve-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let composed = "résumé.mov".precomposedStringWithCanonicalMapping
+        let decomposed = "résumé.mov".decomposedStringWithCanonicalMapping
+        // `String` equality is canonical, so compare the encoded bytes to prove
+        // the two spellings really are different on disk.
+        XCTAssertNotEqual(
+            Array(composed.utf8),
+            Array(decomposed.utf8),
+            "fixture must exercise both normal forms"
+        )
+
+        let first = try FileOutputTransaction(
+            destination: directory.appendingPathComponent(composed),
+            overwrite: false
+        )
+        defer { first.discard() }
+
+        XCTAssertThrowsError(
+            try FileOutputTransaction(
+                destination: directory.appendingPathComponent(decomposed),
+                overwrite: false
+            )
+        ) { error in
+            XCTAssertEqual(error as? CompressionError, .destinationFileExists)
+        }
+    }
+
     func testVideoSizeCalculationRejectsNonFiniteRotation() {
         let calculator = VideoSizeCalculator()
         for angle in [Float.nan, .infinity, -.infinity] {
