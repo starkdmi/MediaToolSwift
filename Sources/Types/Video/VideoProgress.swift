@@ -1,249 +1,236 @@
-//
-//  VideoProgress.swift
-//
-//
-//  Created by Dmitry Starkov on 10/03/2024.
-//
-
 import AVFoundation
+import Foundation
 
-/// Compression Progress
-internal class CompressionVideoProgress {
-    /// Progress updating queue
+/// Queue-confined progress reporting for one video conversion.
+///
+/// `Progress` and file-system observers are reference types without Sendable
+/// contracts. This owner serializes every access to them on a private queue.
+internal final class CompressionVideoProgress: @unchecked Sendable {
     private let queue: DispatchQueue
 
-    /// Base progress variables
-    private let progress: Progress
-    // Base progress variables
-    private let total: Double // steps, min 100
-    private let frameDuration: Double // in seconds
-    private let timeOffset: Double // Remaining time calculation offset in percentage
-    private let duration: Double // in seconds
-    private let startTime: Double // in seconds
+    private let task: CompressionTask
+    private let total: Double
+    private let totalSteps: Int64
+    private let frameDuration: Double
+    private let timeOffset: Double
+    private let duration: Double
+    private let startTime: Double
 
-    /// Writing/saving progress
-    private let writingProgress: Progress
-    // Writing progress variables
     private let useWritingProgress: Bool
-    private var writingInitialized: Bool = false
-    private let writingTotal: Int64 // bytes
+    private var writingInitialized = false
+    private var writingTotal: Int64
+    private var configuredWritingProgress: Progress?
     private let fileURL: URL
     private var observer: FileSizeObserver?
 
-    /// Time for elapsed and remaining time calculation
     private let startedTime: Date
 
-    /// Public initializer
-    public init(
-        progress: Progress,
-        writingProgress: Progress,
+    /// Progress objects remain publicly replaceable for source compatibility.
+    /// Resolve them only on this queue so a replacement participates in later
+    /// updates instead of leaving the conversion bound to stale instances.
+    private var progress: Progress { task.progress }
+    private var writingProgress: Progress { task.writingProgress }
+
+    internal init(
+        task: CompressionTask,
         timeRange: CMTimeRange,
         estimatedFileLengthInKB: Double,
         frameRate: Float?,
         destination: URL,
-        queue: DispatchQueue,
+        queue progressQueue: DispatchQueue,
         config: FileObserverConfig
     ) {
-        self.queue = queue
+        queue = DispatchQueue(
+            label: "MediaToolSwift.video.progress",
+            qos: .userInteractive,
+            target: progressQueue
+        )
+        self.task = task
         startedTime = Date()
-        fileURL = destination // writingProgress.fileURL
+        fileURL = destination
 
         startTime = timeRange.start.seconds
         duration = timeRange.duration.seconds
-        // Calculate frame duration based on source frame rate
-        if let frameRate = frameRate {
+        if let frameRate, frameRate > 0 {
             frameDuration = 1.0 / Double(frameRate)
         } else {
             frameDuration = 0.0
         }
 
-        self.progress = progress
-        let minSteps: Int64 = 100 // min 100 steps (at least one step per 1%)
-        let scaleFactor = 0.5 // 0.5 events per second of source duration
-        let total: Int64 = max(Int64(ceil(duration * scaleFactor)), minSteps)
-        self.total = Double(total)
-        queue.async(qos: .userInteractive) {
-            progress.totalUnitCount = total
-        }
-        self.writingProgress = writingProgress
-        writingTotal = Int64(estimatedFileLengthInKB * 1024) // bytes
+        let minimumSteps: Int64 = 100
+        let scaleFactor = 0.5
+        let totalSteps = max(Int64(ceil(duration * scaleFactor)), minimumSteps)
+        total = Double(totalSteps)
+        self.totalSteps = totalSteps
+        writingTotal = Int64(estimatedFileLengthInKB * 1024)
 
-        // Percentage offset used before starting the remaining time calculations
         switch estimatedFileLengthInKB {
-        case 0...10_000: // small file (10MB), 10% offset
+        case 0 ... 10_000:
             timeOffset = 0.1
-        case 10_000...25_000: // medium file (10-25MB), 5% offset
+        case 10_000 ... 25_000:
             timeOffset = 0.05
-        case 25_000...50_000: // large file (25-50MB), 3% offset
+        case 25_000 ... 50_000:
             timeOffset = 0.03
-        default: // very big file (>50MB), 1% offset
+        default:
             timeOffset = 0.01
         }
 
-        // Detect writing progress algorithm
         if estimatedFileLengthInKB < FileObserverConfig.minimalFileLenght {
-            // Skip writing progress for small (<25MB) files due to inaccurate file size estimation
             useWritingProgress = false
         } else {
-            switch config {
-            case .disabled:
-                useWritingProgress = false
-            case .matching:
-                useWritingProgress = true
-            // case .directory(let path), .temp(let path): <#FileCreationObserver#>
-            }
+            useWritingProgress = config == .matching
         }
 
-        // Start file size observer, called once again in encoding progress after time offset is reached
-        // Alternatively file creating can be observed before `writer.startWriting()` is called
-        if useWritingProgress, FileManager.default.fileExists(atPath: destination.path) { // fileURL.path
-            initWriting()
+        queue.async { [self] in
+            self.configureEncodingProgress()
+            if self.useWritingProgress,
+               FileManager.default.fileExists(atPath: destination.path) {
+                self.initializeWriting()
+            }
         }
     }
 
-    private func initWriting() {
+    /// Update encoding progress with a sample presentation timestamp.
+    internal func update(_ timeStamp: CMTime) {
+        let currentTime = timeStamp.seconds + frameDuration - startTime
+        let percentage = currentTime / duration
+        guard percentage.isFinite else { return }
+
+        queue.async { [self] in
+            self.updateEncoding(percentage: percentage)
+        }
+    }
+
+    /// Finish encoding progress.
+    internal func complete() {
+        queue.async { [self] in
+            self.configureEncodingProgress()
+            if self.progress.completedUnitCount != self.progress.totalUnitCount {
+                self.progress.completedUnitCount = self.progress.totalUnitCount
+            }
+            self.progress.estimatedTimeRemaining = nil
+        }
+    }
+
+    /// Finish writing/saving progress.
+    internal func completeWriting() {
+        queue.async { [self] in
+            self.stopObservingWriting()
+            if self.useWritingProgress {
+                self.configureWritingProgress()
+                if self.writingProgress.totalUnitCount != self.writingProgress.completedUnitCount {
+                    self.writingProgress.totalUnitCount = self.writingProgress.completedUnitCount
+                }
+                self.writingProgress.estimatedTimeRemaining = nil
+                #if os(macOS)
+                self.writingProgress.unpublish()
+                #endif
+            } else {
+                self.writingProgress.completedUnitCount = 1
+                self.writingProgress.totalUnitCount = 1
+            }
+        }
+    }
+
+    /// Clear writing progress after cancellation or failure.
+    internal func cancelWriting() {
+        queue.async { [self] in
+            self.stopObservingWriting()
+            if self.useWritingProgress {
+                self.configureWritingProgress()
+                self.writingProgress.estimatedTimeRemaining = nil
+                self.writingProgress.totalUnitCount = -1
+                self.writingProgress.completedUnitCount = 0
+            }
+            #if os(macOS)
+            self.writingProgress.unpublish()
+            #endif
+        }
+    }
+
+    private func updateEncoding(percentage: Double) {
+        configureEncodingProgress()
+        var completedUnitCount = Int64(percentage * total)
+        completedUnitCount = min(completedUnitCount, progress.totalUnitCount)
+
+        guard completedUnitCount > progress.completedUnitCount else { return }
+        progress.completedUnitCount = completedUnitCount
+
+        if let remaining = progress.estimateRemainingTime(
+            startedAt: startedTime,
+            offset: timeOffset
+        ) {
+            progress.estimatedTimeRemaining = remaining
+        }
+
+        if useWritingProgress, progress.fractionCompleted > timeOffset {
+            initializeWriting()
+        }
+    }
+
+    private func configureEncodingProgress() {
+        if progress.totalUnitCount != totalSteps {
+            progress.totalUnitCount = totalSteps
+        }
+    }
+
+    private func configureWritingProgress() {
+        let writingProgress = self.writingProgress
+        guard configuredWritingProgress !== writingProgress else { return }
+
+        #if os(macOS)
+        configuredWritingProgress?.unpublish()
+        #endif
+
+        configuredWritingProgress = writingProgress
+        writingProgress.fileURL = fileURL
+        guard useWritingProgress else { return }
+
+        writingProgress.kind = .file
+        writingProgress.totalUnitCount = writingTotal
+        #if os(macOS)
+        writingProgress.publish()
+        #endif
+    }
+
+    private func initializeWriting() {
+        configureWritingProgress()
         guard !writingInitialized else { return }
         writingInitialized = true
 
-        // Determinate progress
-        queue.async(qos: .userInteractive) { [self] in
-            writingProgress.kind = .file
-            writingProgress.totalUnitCount = writingTotal
-        }
-
-        #if os(macOS)
-        // Publish progress
-        writingProgress.publish()
-        #endif
-
-        // Run file size changes observer
-        let queue = DispatchQueue(label: "FileSizeObserver")
-        observer = FileSizeObserver(url: fileURL, queue: queue) { [self] fileSize in
-            queue.async(qos: .userInteractive) { [weak self] in
-                guard let self = self else { return }
-                let fileSize = Int64(fileSize)
-
-                // Actual file size could be larger due to rough file lenght estimation
-                guard fileSize < writingProgress.totalUnitCount else {
-                    // Update total units, progress will be around 99.99% from this point
-                    writingProgress.totalUnitCount = fileSize + 1
-                    writingProgress.completedUnitCount = fileSize
-                    writingProgress.estimatedTimeRemaining = nil
-                    return
-                }
-
-                // Filter similar events
-                guard fileSize > writingProgress.completedUnitCount + FileObserverConfig.threshold ||
-                        writingProgress.completedUnitCount == 0 else {
-                    return
-                }
-
-                // Update progress
-                writingProgress.completedUnitCount = fileSize
-
-                // Calculate estimated remaining time
-                if let timeRemaining = writingProgress.estimateRemainingTime(
-                    startedAt: startedTime,
-                    offset: timeOffset
-                ) {
-                    writingProgress.estimatedTimeRemaining = timeRemaining
-                }
+        let observerQueue = DispatchQueue(label: "MediaToolSwift.video.file-size")
+        observer = FileSizeObserver(url: fileURL, queue: observerQueue) { [weak self] fileSize in
+            self?.queue.async { [weak self] in
+                self?.updateWriting(fileSize: Int64(fileSize))
             }
         }
     }
 
-    /// Update encoding progress with new time stamp
-    func update(_ timeStamp: CMTime) {
-        // Add frame duration to the starting time stamp and
-        // distract cutted out media part at the beginning
-        let currentTime = timeStamp.seconds + frameDuration - startTime
-        // Calculate current progress
-        let percentage = currentTime / duration
-        guard !percentage.isNaN else { return }
+    private func updateWriting(fileSize: Int64) {
+        configureWritingProgress()
+        guard fileSize < writingProgress.totalUnitCount else {
+            writingProgress.totalUnitCount = fileSize + 1
+            writingProgress.completedUnitCount = fileSize
+            writingProgress.estimatedTimeRemaining = nil
+            return
+        }
 
-        queue.async(qos: .userInteractive) { [self] in
-            // Current step
-            var completedUnitCount = Int64(percentage * total) // progress.totalUnitCount
+        guard fileSize > writingProgress.completedUnitCount + FileObserverConfig.threshold ||
+                writingProgress.completedUnitCount == 0 else {
+            return
+        }
 
-            // Progress can overflow a bit (less than `frameDuration` value)
-            completedUnitCount = min(completedUnitCount, progress.totalUnitCount)
-
-            // Check the current state is maximum, due to async processing
-            if completedUnitCount > progress.completedUnitCount {
-                // Update progress
-                progress.completedUnitCount = completedUnitCount
-
-                // Calculate estimated remaining time
-                if let timeRemaining = progress.estimateRemainingTime(
-                    startedAt: startedTime,
-                    offset: timeOffset
-                ) {
-                    progress.estimatedTimeRemaining = timeRemaining
-                }
-
-                // Init writing progress after time offset is reached
-                if useWritingProgress, progress.fractionCompleted > timeOffset {
-                    initWriting()
-                }
-            }
+        writingProgress.completedUnitCount = fileSize
+        if let remaining = writingProgress.estimateRemainingTime(
+            startedAt: startedTime,
+            offset: timeOffset
+        ) {
+            writingProgress.estimatedTimeRemaining = remaining
         }
     }
 
-    /// Finish encoding progress
-    func complete() {
-        queue.async(qos: .userInteractive) { [self] in
-            // Confirm the progress is 1.0
-            if progress.completedUnitCount != progress.totalUnitCount {
-                progress.completedUnitCount = progress.totalUnitCount
-            }
-            // Clear estimated time
-            progress.estimatedTimeRemaining = nil
-        }
-    }
-
-    /// Finish writing/saving progress
-    func completeWriting() {
-        // Stop observing file size changes
+    private func stopObservingWriting() {
         observer?.finish()
-
-        queue.async(qos: .userInteractive) { [self] in
-            if useWritingProgress {
-                if writingProgress.totalUnitCount != writingProgress.completedUnitCount {
-                    // Set total to actually written bytes amount
-                    writingProgress.totalUnitCount = writingProgress.completedUnitCount
-                }
-                // Clear estimated time
-                writingProgress.estimatedTimeRemaining = nil
-
-                #if os(macOS)
-                // Unpublish progress
-                writingProgress.unpublish()
-                #endif
-            } else {
-                // writingProgress.kind = nil
-                writingProgress.completedUnitCount = 1
-                writingProgress.totalUnitCount = 1
-            }
-        }
-    }
-
-    /// Cancel writing/saving progress
-    func cancelWriting() {
-        // Stop observing writing events
-        observer?.finish()
-
-        queue.async(qos: .userInteractive) { [self] in
-            if useWritingProgress {
-                // Clear progress and estimated time
-                writingProgress.estimatedTimeRemaining = nil
-                writingProgress.totalUnitCount = -1
-                writingProgress.completedUnitCount = 0
-            }
-
-            #if os(macOS)
-            // Unpublish progress
-            writingProgress.unpublish()
-            #endif
-        }
+        observer = nil
     }
 }

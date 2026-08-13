@@ -2,6 +2,19 @@ import AVFoundation
 
 /// Extensions on `AVAsset`
 internal extension AVAsset {
+    /// Load duration using the modern property API where available.
+    func getDuration() async -> CMTime {
+        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
+            return (try? await load(.duration)) ?? .zero
+        } else {
+            #if os(visionOS)
+            return (try? await load(.duration)) ?? .zero
+            #else
+            return duration
+            #endif
+        }
+    }
+
     /// Load tracks using newer API if possible and the deprecated one otherwise
     /// - Parameter type: Media type
     /// - Returns: List of tracks or nil
@@ -53,5 +66,20 @@ internal extension AVAsset {
             }
         }
         return metadata
+    }
+}
+
+internal extension AVMetadataItem {
+    /// Load metadata values without using visionOS-deprecated accessors.
+    func getValue() async -> (any NSCopying & NSObjectProtocol)? {
+        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
+            return try? await load(.value)
+        } else {
+            #if os(visionOS)
+            return try? await load(.value)
+            #else
+            return value
+            #endif
+        }
     }
 }
