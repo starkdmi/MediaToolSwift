@@ -19,8 +19,6 @@ internal struct VideoSizeCalculator {
         internal let cropRect: CGRect?
     }
 
-    internal init() {}
-
     /// Calculate output video size
     /// - Parameters:
     ///   - settings: Video size setting from configuration
@@ -62,7 +60,10 @@ internal struct VideoSizeCalculator {
                     continue
                 }
 
-                // Validate crop bounds
+                // Validate crop bounds. Only the cropping area itself has to fit
+                // the source: a rectangle positioned so that it overhangs an
+                // edge stays accepted, matching released behavior where the
+                // uncovered region is padded rather than rejected.
                 guard rect.origin.x.isFinite,
                       rect.origin.y.isFinite,
                       rect.size.width.isFinite,
@@ -71,8 +72,8 @@ internal struct VideoSizeCalculator {
                       rect.size.height > 0,
                       rect.minX >= 0,
                       rect.minY >= 0,
-                      rect.maxX <= sourceSize.width,
-                      rect.maxY <= sourceSize.height else {
+                      rect.width <= sourceSize.width,
+                      rect.height <= sourceSize.height else {
                     throw CompressionError.croppingOutOfBounds
                 }
 

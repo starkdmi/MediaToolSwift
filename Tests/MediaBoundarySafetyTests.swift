@@ -21,6 +21,33 @@ final class MediaBoundarySafetyTests: XCTestCase {
         )
     }
 
+    /// `AVAssetWriterInput.init` raises `NSInvalidArgumentException` -
+    /// "AVVideoCompressionPropertiesKey dictionary must specify a positive value
+    /// for AVVideoAverageBitRateKey" - when the bitrate is not positive.
+    /// `.source` therefore cannot forward an unknown (zero) source data rate to
+    /// the encoder, and has to fail with a typed error instead. This is a fix
+    /// rather than an optional strictness change; do not relax it back.
+    func testVideoBitrateRejectsSourceOptionWhenSourceDataRateIsUnknown() {
+        let calculator = VideoBitrateCalculator()
+        let size = CGSize(width: 1920, height: 1080)
+
+        XCTAssertThrowsError(
+            try calculator.calculate(
+                bitrateOption: .source,
+                sourceBitrate: 0,
+                targetSize: size,
+                sourceSize: size,
+                codec: .h264,
+                codecChanged: false,
+                isHDR: false,
+                frameRate: 30,
+                duration: 10
+            )
+        ) { error in
+            XCTAssertEqual(error as? CompressionError, .invalidVideoBitrate)
+        }
+    }
+
     func testVideoSizeCalculationRejectsNonFiniteRotation() {
         let calculator = VideoSizeCalculator()
         for angle in [Float.nan, .infinity, -.infinity] {
@@ -37,20 +64,39 @@ final class MediaBoundarySafetyTests: XCTestCase {
         }
     }
 
-    func testVideoCropRejectsRectanglesThatExtendPastSourceEdges() {
+    func testVideoCropRejectsRectanglesLargerThanTheSource() {
         let calculator = VideoSizeCalculator()
         XCTAssertThrowsError(
             try calculator.calculate(
                 settings: .original,
                 sourceSize: CGSize(width: 1920, height: 1080),
                 operations: [
-                    .crop(Crop(rect: CGRect(x: 1900, y: 0, width: 100, height: 100)))
+                    .crop(Crop(rect: CGRect(x: 0, y: 0, width: 2000, height: 100)))
                 ],
                 orientation: .landscape
             )
         ) { error in
             XCTAssertEqual(error as? CompressionError, .croppingOutOfBounds)
         }
+    }
+
+    /// A crop that fits the source but is positioned so it overhangs an edge is
+    /// accepted, matching released behavior: the encoder pads the uncovered
+    /// region rather than failing. Verified end to end against real media - a
+    /// 400x400 crop starting past the right edge of a 1280x720 source still
+    /// produces a valid 400x400 movie.
+    func testVideoCropAllowsRectanglesOverhangingSourceEdges() throws {
+        let calculator = VideoSizeCalculator()
+        let result = try calculator.calculate(
+            settings: .original,
+            sourceSize: CGSize(width: 1920, height: 1080),
+            operations: [
+                .crop(Crop(rect: CGRect(x: 1900, y: 0, width: 100, height: 100)))
+            ],
+            orientation: .landscape
+        )
+        XCTAssertEqual(result.cropRect, CGRect(x: 1900, y: 0, width: 100, height: 100))
+        XCTAssertEqual(result.targetSize, CGSize(width: 100, height: 100))
     }
 
     func testVideoFormatDescriptionReadsPixelAspectRatio() throws {
