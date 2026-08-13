@@ -14,6 +14,9 @@ internal struct VideoVariables {
     /// Cut range
     var range: CMTimeRange?
 
+    /// Source duration snapshot
+    var sourceDuration: CMTime = .zero
+
     /// Frame modifier
     var sampleHandler: ((CMSampleBuffer) -> [CMSampleBuffer])?
 

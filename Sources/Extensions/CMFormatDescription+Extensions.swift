@@ -12,13 +12,23 @@ internal extension CMFormatDescription {
         }
 
         // Method #2 - Check pixel format for known alpha channel formats
-        let pixelFormat = CMFormatDescriptionGetMediaSubType(self)
-        if  pixelFormat == kCVPixelFormatType_32ARGB ||
-            pixelFormat == kCVPixelFormatType_32BGRA ||
-            pixelFormat == kCVPixelFormatType_32RGBA ||
-            pixelFormat == kCVPixelFormatType_32ABGR {
+        let mediaSubType = CMFormatDescriptionGetMediaSubType(self)
+        if  mediaSubType == kCVPixelFormatType_32ARGB ||
+            mediaSubType == kCVPixelFormatType_32BGRA ||
+            mediaSubType == kCVPixelFormatType_32RGBA ||
+            mediaSubType == kCVPixelFormatType_32ABGR {
             return true
         }
+
+        // ProRes 4444 uses the format description depth to distinguish a
+        // transparent source (32) from an opaque one (24).
+        #if !os(visionOS)
+        if mediaSubType == kCMVideoCodecType_AppleProRes4444,
+           let depth = self.extensions[.depth]?.propertyListRepresentation as? Int,
+           depth == 32 {
+            return true
+        }
+        #endif
 
         // Method #3 - Check kCVImageBufferAlphaChannelModeKey extension value
         let alphaMode = CMFormatDescriptionGetExtension(
