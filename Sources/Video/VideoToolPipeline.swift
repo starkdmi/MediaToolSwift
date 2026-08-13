@@ -75,7 +75,6 @@ extension VideoTool {
 
         var transform = CGAffineTransform.identity
         var transformed = false
-        var cropRect: CGRect?
         var cutDurationInSeconds: Double?
         var frameProcessor: VideoFrameProcessor?
 
@@ -97,17 +96,10 @@ extension VideoTool {
                     cutDurationInSeconds = cutDuration
                     totalFrames = Int64(cutFrameCount)
                 }
-            case .crop(let options):
-                let rect = options.makeCroppingRectangle(in: analysis.sourceVideoSize)
-                if rect.origin == .zero && rect.size == analysis.sourceVideoSize {
-                    continue
-                }
-                guard rect.size.width >= 0, rect.size.height >= 0, rect.minX >= 0, rect.minY >= 0,
-                      rect.maxX <= analysis.sourceVideoSize.width,
-                      rect.maxY <= analysis.sourceVideoSize.height else {
-                    throw CompressionError.croppingOutOfBounds
-                }
-                cropRect = rect
+            case .crop:
+                // Cropping is resolved and validated by `VideoSizeCalculator`
+                // below, which owns the output size it feeds into.
+                continue
             case .rotate(let rotation):
                 guard rotation.radians.isFinite else {
                     throw CompressionError.invalidVideoSize
@@ -134,9 +126,7 @@ extension VideoTool {
 
         var targetVideoSize = sizeResult.targetSize
         let videoSize = sizeResult.resolvedSizeOption
-        // Prefer sizeResult.cropRect since sizeCalculator already validated bounds
-        // Fall back to locally parsed cropRect if sizeResult doesn't have it
-        let effectiveCropRect = sizeResult.cropRect ?? cropRect
+        let effectiveCropRect = sizeResult.cropRect
         let preservesSourcePixelAspectRatio = effectiveCropRect == nil && !sizeResult.needsResize
 
         let useVideoAdaptor = frameProcessor?.requirePixelAdaptor == true
