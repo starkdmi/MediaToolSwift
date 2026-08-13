@@ -19,28 +19,45 @@ permissions:
   contents: read
 
 jobs:
-  swift59:
-    name: Swift 5.9 compatibility
-    # Xcode 15.2 is only available on the macOS 14 hosted image. This lane
-    # needs a replacement runner when GitHub retires that image.
-    runs-on: macos-14
+  swift5-language-mode:
+    name: Swift 5 language mode (oldest Xcode)
+    # Deployment targets in Package.swift are what determine device support;
+    # this lane covers the oldest *toolchain* a consumer may integrate with.
+    #
+    # Xcode 15.2 (Swift 5.9) shipped only on the macOS 13 and macOS 14 images,
+    # both of which GitHub has retired, so the oldest toolchain reachable on a
+    # supported runner is Xcode 16. `swift-tools-version: 5.9` in Package.swift
+    # is what actually keeps the package resolvable by older Xcode.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 15.2 (Swift 5.9)
-        run: sudo xcode-select -s /Applications/Xcode_15.2.app
+      - name: Select Xcode 16 (oldest available)
+        run: sudo xcode-select -s /Applications/Xcode_16.app
       - name: Build and test
         run: swift test -Xswiftc -swift-version -Xswiftc 5
 
   macos:
-    name: macOS required suite
+    name: macOS required suite (Xcode ${{ matrix.xcode }})
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Compatibility floor: the oldest Swift 6 toolchain still supported.
+          - xcode: "16.2"
+            primary: true
+          # What consumers actually build with today. Without this lane a newer
+          # compiler's diagnostics can break their builds while CI stays green,
+          # because every build here uses -warnings-as-errors.
+          - xcode: "26.2"
+            primary: false
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Select Xcode 16.2 (Swift 6)
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      - name: Select Xcode ${{ matrix.xcode }}
+        run: sudo xcode-select -s /Applications/Xcode_${{ matrix.xcode }}.app
 
       - name: Swift 6 strict-concurrency build and test
         run: >-
@@ -50,6 +67,7 @@ jobs:
           -Xswiftc -warnings-as-errors
 
       - name: API compatibility with 1.2.0
+        if: matrix.primary
         shell: bash
         run: |
           set -uo pipefail
@@ -78,13 +96,14 @@ jobs:
           fi
 
       - name: API compatibility with pull-request base
-        if: github.event_name == 'pull_request'
+        if: matrix.primary && github.event_name == 'pull_request'
         run: >-
           swift package diagnose-api-breaking-changes
           "${{ github.event.pull_request.base.sha }}"
           --products MediaToolSwift
 
       - name: Whitespace check
+        if: matrix.primary
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -94,41 +113,53 @@ jobs:
           fi
 
       - name: Install SwiftLint
+        if: matrix.primary
         run: command -v swiftlint || brew install swiftlint
 
       - name: SwiftLint
+        if: matrix.primary
         run: swiftlint lint --no-cache
 
       - name: Build DocC documentation
+        if: matrix.primary
         run: >-
           swift package --allow-writing-to-directory "$RUNNER_TEMP/docc"
           generate-documentation --target MediaToolSwift --disable-indexing
           --output-path "$RUNNER_TEMP/docc"
 
+  # Guards the deployment targets declared in Package.swift. Each triple pins
+  # the oldest supported OS explicitly, so raising a minimum by accident fails
+  # here rather than silently dropping devices.
   platform-smoke:
-    name: ${{ matrix.platform }} build
+    name: ${{ matrix.platform }} build (Xcode ${{ matrix.xcode }})
     runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
+        xcode: ["16.2", "26.2"]
         include:
           - platform: iOS
             triple: arm64-apple-ios13.0
             sdk: iphoneos
+            destination: generic/platform=iOS
           - platform: tvOS
             triple: arm64-apple-tvos13.0
             sdk: appletvos
+            destination: generic/platform=tvOS
           - platform: Mac Catalyst
             triple: arm64-apple-ios13.1-macabi
             sdk: macosx
+          # No `destination` here: visionOS 1.0 predates none of the APIs the
+          # tests use, and the visionOS platform is not always installed
+          # alongside its SDK, which would fail the step environmentally.
           - platform: visionOS
             triple: arm64-apple-xros1.0
             sdk: xros
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app
-      - name: Build
+      - name: Select Xcode ${{ matrix.xcode }}
+        run: sudo xcode-select -s /Applications/Xcode_${{ matrix.xcode }}.app
+      - name: Build library
         shell: bash
         run: |
           sdk_path="$(xcrun --sdk "${{ matrix.sdk }}" --show-sdk-path)"
@@ -138,6 +169,16 @@ jobs:
             -Xswiftc -swift-version -Xswiftc 6 \
             -Xswiftc -strict-concurrency=complete \
             -Xswiftc -warnings-as-errors
+      # `swift build` compiles only the library, so test-target code that uses
+      # APIs newer than the deployment target slipped through unnoticed. Compile
+      # the tests for each platform as well.
+      - name: Build tests
+        if: matrix.destination != ''
+        run: >-
+          xcodebuild build-for-testing
+          -scheme MediaToolSwift
+          -destination '${{ matrix.destination }}'
+          -quiet
 
   cocoapods:
     name: CocoaPods
