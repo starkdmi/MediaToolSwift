@@ -347,9 +347,8 @@ extension VideoTool {
                 orientation: analysis.orientation
             )
 
-            // Fix profile (required for HDR content in Video Composition)
-            // Original applies this for ALL video compositions, not just HDR
-            // Uses bitsPerComponent to determine appropriate profile
+            // Preserve profile selection for every video composition, not only
+            // HDR, using the encoded component depth to choose the profile.
             if videoSettings.profile == nil {
                 let bitsPerComponent = analysis.bitsPerComponent ?? (analysis.isHDR ? 10 : 8)
                 if let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: bitsPerComponent) {

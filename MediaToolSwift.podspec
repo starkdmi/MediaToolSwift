@@ -1,6 +1,6 @@
 # To publish new version to CocoaPods:
-# - create a new GitHub release whose tag matches `spec.version`
-# - create the matching local tag
+# - update `spec.version`, commit it, and create and push the matching Git tag
+# - create a GitHub release from the pushed tag
 # - `pod trunk push MediaToolSwift.podspec --allow-warnings`
 
 Pod::Spec.new do |spec|
