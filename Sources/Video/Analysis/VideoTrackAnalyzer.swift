@@ -72,8 +72,6 @@ internal struct VideoTrackAnalyzer {
         internal let estimatedDataRate: Float
     }
 
-    internal init() {}
-
     /// Analyze a video track
     /// - Parameters:
     ///   - track: The video track to analyze

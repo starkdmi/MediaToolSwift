@@ -454,21 +454,9 @@ private final class VideoConversionSession: @unchecked Sendable {
                 return
             }
 
-            let samples = [sample]
-            if samples.isEmpty {
-                if prepared.writer.status == .failed {
-                    failOnQueue(prepared.writer.error ?? pump.writeError)
-                    return
-                }
-                updateProgress(for: sample, track: pump.kind)
-                processedSamples += 1
-                continue
-            }
-
-            guard append(samples[0], to: pump, writer: prepared.writer) else { return }
-            if samples.count > 1 {
-                pump.appendPendingSamples(samples.dropFirst())
-            }
+            // Without a sample handler a read yields exactly one sample, so it
+            // is appended directly and never queues follow-up samples.
+            guard append(sample, to: pump, writer: prepared.writer) else { return }
             updateProgress(for: sample, track: pump.kind)
             processedSamples += 1
         }

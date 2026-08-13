@@ -38,8 +38,6 @@ internal struct VideoCodecResolver {
         return codecs
     }
 
-    internal init() {}
-
     /// Rejects output choices that cannot preserve a high-bit-depth source.
     /// The pipeline has no SDR tone-mapping stage, so accepting an 8-bit codec
     /// or profile would either fail late or produce video that remains tagged

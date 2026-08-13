@@ -35,8 +35,6 @@ internal struct AudioTrackAnalyzer {
         internal let estimatedBitrate: Int
     }
 
-    internal init() {}
-
     /// Analyze an audio track
     /// - Parameter track: The audio track to analyze
     /// - Returns: Analysis result with all track properties

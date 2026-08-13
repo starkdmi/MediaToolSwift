@@ -25,8 +25,6 @@ internal struct VideoBitrateCalculator {
         internal let estimatedFileSizeKB: Double
     }
 
-    internal init() {}
-
     /// Calculate bitrate based on settings
     /// - Parameters:
     ///   - bitrateOption: The bitrate option from settings
