@@ -391,6 +391,36 @@ class MediaToolImageTests: XCTestCase {
         }
     }
 
+    /// Whether plain ImageIO can write the frames of `source` as a HEICS
+    /// sequence on this machine.
+    ///
+    /// HEICS output goes through the platform HEVC encoder, which is absent on
+    /// some virtualized hosts. Probing with `CGImageDestination` alone keeps an
+    /// environment that cannot encode the sequence at all separable from a
+    /// regression in this library, which still fails the test because the probe
+    /// succeeds wherever the encoder works.
+    private func imageIOCanEncodeHEICSSequence(from source: URL) throws -> Bool {
+        let url = try outputURL("heics-probe-\(UUID().uuidString).heics")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let imageSource = try XCTUnwrap(CGImageSourceCreateWithURL(source as CFURL, nil))
+        let count = CGImageSourceGetCount(imageSource)
+        let utType = try XCTUnwrap(ImageFormat.heics.utType)
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, utType, count, nil))
+
+        for index in 0 ..< count {
+            guard let image = CGImageSourceCreateImageAtIndex(imageSource, index, nil) else { continue }
+            CGImageDestinationAddImage(destination, image, [
+                kCGImagePropertyHEICSDictionary: [
+                    kCGImagePropertyHEICSDelayTime: 0.1,
+                    kCGImagePropertyHEICSUnclampedDelayTime: 0.1
+                ]
+            ] as CFDictionary)
+        }
+
+        return CGImageDestinationFinalize(destination)
+    }
+
     private static func encodeFixture(source: URL, destination: URL, format: ImageFormat) throws -> URL {
         guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil) else {
             throw CompressionError.failedToReadImage
@@ -494,13 +524,21 @@ class MediaToolImageTests: XCTestCase {
     func testAllImages() throws {
         let configs = imageConfigurations()
 
-        // A conversion failure names the config that produced it and lets the
-        // remaining configurations run, so one test run reports every broken
-        // conversion instead of only the first.
-        var failedConversions: Set<String> = []
+        // Outputs that were skipped or failed to convert, which the
+        // verification pass below has nothing to inspect for. A conversion
+        // failure names the config that produced it and lets the remaining
+        // configurations run, so one test run reports every broken conversion
+        // instead of only the first.
+        var unwrittenOutputs: Set<String> = []
         for file in configs {
             let source = try fixture(file.filename)
             for config in file.configs {
+                if config.settings.format == .heics, try !imageIOCanEncodeHEICSSequence(from: source) {
+                    unwrittenOutputs.insert(config.filename)
+                    print("Skipped \(config.filename): this platform cannot encode \(file.filename) as a HEICS sequence")
+                    continue
+                }
+
                 let destination = try outputURL(config.filename)
                 do {
                     _ = try ImageTool.convert(
@@ -510,14 +548,14 @@ class MediaToolImageTests: XCTestCase {
                         overwrite: true
                     )
                 } catch {
-                    failedConversions.insert(config.filename)
+                    unwrittenOutputs.insert(config.filename)
                     XCTFail("Conversion of \(file.filename) to \(config.filename) failed: \(error)")
                 }
             }
         }
 
         for file in configs {
-            for config in file.configs where !failedConversions.contains(config.filename) {
+            for config in file.configs where !unwrittenOutputs.contains(config.filename) {
                 let settings = config.result
                 let destination = try outputURL(config.filename)
 
