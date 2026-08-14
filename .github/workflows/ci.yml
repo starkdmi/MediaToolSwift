@@ -130,13 +130,19 @@ jobs:
   # Guards the deployment targets declared in Package.swift. Each triple pins
   # the oldest supported OS explicitly, so raising a minimum by accident fails
   # here rather than silently dropping devices.
-  platform-smoke:
+  deployment-targets:
     name: ${{ matrix.platform }} build (Xcode ${{ matrix.xcode }})
     runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
         xcode: ["16.2", "26.2"]
+        # `platform` has to stay a real axis. Each `include` entry below then
+        # matches the combinations naming its platform and only fills in the
+        # missing metadata. As include-only entries they would instead merge
+        # into the `xcode` combinations and overwrite one another, collapsing
+        # the cross-product to a single platform.
+        platform: ["iOS", "tvOS", "Mac Catalyst", "visionOS"]
         include:
           - platform: iOS
             triple: arm64-apple-ios13.0
