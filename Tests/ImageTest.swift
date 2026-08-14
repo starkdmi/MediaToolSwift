@@ -494,21 +494,30 @@ class MediaToolImageTests: XCTestCase {
     func testAllImages() throws {
         let configs = imageConfigurations()
 
+        // A conversion failure names the config that produced it and lets the
+        // remaining configurations run, so one test run reports every broken
+        // conversion instead of only the first.
+        var failedConversions: Set<String> = []
         for file in configs {
             let source = try fixture(file.filename)
             for config in file.configs {
                 let destination = try outputURL(config.filename)
-                _ = try ImageTool.convert(
-                    source: source,
-                    destination: destination,
-                    settings: config.settings,
-                    overwrite: true
-                )
+                do {
+                    _ = try ImageTool.convert(
+                        source: source,
+                        destination: destination,
+                        settings: config.settings,
+                        overwrite: true
+                    )
+                } catch {
+                    failedConversions.insert(config.filename)
+                    XCTFail("Conversion of \(file.filename) to \(config.filename) failed: \(error)")
+                }
             }
         }
 
         for file in configs {
-            for config in file.configs {
+            for config in file.configs where !failedConversions.contains(config.filename) {
                 let settings = config.result
                 let destination = try outputURL(config.filename)
 
