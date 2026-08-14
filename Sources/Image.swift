@@ -1368,9 +1368,6 @@ public struct ImageTool {
             var imageOptions: [CFString: Any] = [
                 kCGImageDestinationEmbedThumbnail: embedThumbnail
             ]
-            if format == .heics {
-                imageOptions[kCGImagePropertyPrimaryImage] = 0
-            }
             if let sequenceLoopCount {
                 switch format {
                 case .gif:
