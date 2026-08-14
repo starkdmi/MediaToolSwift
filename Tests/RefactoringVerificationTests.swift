@@ -280,6 +280,69 @@ final class RefactoringVerificationTests: XCTestCase {
         XCTAssertEqual(recorder.terminalStates(), [.cancelled])
     }
 
+    // visionOS reads through `AVAssetReaderTrackOutput` and rejects video
+    // composition outright, so it never takes the asynchronous read path this
+    // test covers. Cropping there throws `notSupportedOnVisionOS` instead.
+    #if !os(visionOS)
+    func testCancellationDuringCompositionReadsIsSerialized() async throws {
+        let source = try fixture("chromecast.mp4")
+        let settings = CompressionVideoSettings(
+            codec: .h264,
+            edit: [.crop(.init(size: CGSize(width: 640, height: 360)))]
+        )
+
+        // Establishes the premise: only a composition output reads off the
+        // session queue, and `AVAssetReader` forbids `cancelReading()` running
+        // concurrently with `copyNextSampleBuffer()`.
+        let variables = try await VideoTool.initializeVideo(
+            asset: AVAsset(url: source),
+            videoSettings: settings
+        )
+        XCTAssertTrue(
+            variables.videoOutput is AVAssetReaderVideoCompositionOutput,
+            "Cropping must route through a video composition output for this test to cover the race"
+        )
+
+        // The fixture runs 15 seconds, so every cancellation below lands while
+        // the reader is still active. Staggering the delay walks the cancellation
+        // across startup and steady-state reading.
+        for iteration in 0 ..< 8 {
+            let destination = try outputURL("composition-cancellation-\(iteration).mov")
+            let started = expectation(description: "started \(iteration)")
+            let terminal = expectation(description: "terminal callback \(iteration)")
+            let recorder = TerminalStateRecorder(terminal)
+
+            let task = await VideoTool.convert(
+                source: source,
+                destination: destination,
+                videoSettings: settings,
+                skipAudio: true,
+                overwrite: true,
+                callback: { state in
+                    if state == .started {
+                        started.fulfill()
+                    }
+                    recorder.record(state)
+                }
+            )
+
+            // `.started` is delivered immediately before the pumps run, so
+            // waiting for it puts cancellation inside the reading phase rather
+            // than in preparation.
+            await fulfillment(of: [started], timeout: 30)
+            try await Task.sleep(nanoseconds: UInt64(iteration + 1) * 5_000_000)
+            task.cancel()
+
+            await fulfillment(of: [terminal], timeout: 30)
+            XCTAssertEqual(recorder.terminalStates(), [.cancelled])
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: destination.path),
+                "A cancelled conversion must not publish its destination"
+            )
+        }
+    }
+    #endif
+
     func testInvalidAndShortFrameRatesDoNotTrap() async throws {
         let videoSource = try fixture("chromecast.mp4")
         let asset = AVAsset(url: videoSource)

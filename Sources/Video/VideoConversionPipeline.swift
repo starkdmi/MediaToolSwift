@@ -60,6 +60,14 @@ private final class VideoConversionSession: @unchecked Sendable {
     private let stateQueue = DispatchQueue(label: "MediaToolSwift.video.conversion.session")
     private let processingQueue: DispatchQueue
 
+    /// Serializes composition reads against reader cancellation.
+    ///
+    /// `AVAssetReader.cancelReading()` must not run concurrently with
+    /// `copyNextSampleBuffer()`, so both are confined to this queue. It is kept
+    /// separate from `processingQueue` to keep cancellation latency bounded by a
+    /// single read rather than by a caller-supplied frame processor.
+    private let readQueue: DispatchQueue
+
     private let task: CompressionTask
     private let source: URL
     private let destination: URL
@@ -105,6 +113,7 @@ private final class VideoConversionSession: @unchecked Sendable {
     ) {
         let processingQueue = DispatchQueue(label: "MediaToolSwift.video.frame-processing")
         self.processingQueue = processingQueue
+        readQueue = DispatchQueue(label: "MediaToolSwift.video.sample-reading")
         self.task = task
         self.source = source
         self.destination = destination
@@ -120,6 +129,11 @@ private final class VideoConversionSession: @unchecked Sendable {
         self.overwrite = overwrite
         self.deleteSourceFile = deleteSourceFile
         self.progressQueue = progressQueue
+        // Deliberately shares `processingQueue` with the public frame processor.
+        // A terminal callback must never overlap an in-flight processor, and the
+        // serial queue is what enforces that. Only `.started` and one terminal
+        // state travel this path, both at points where no frame work is pending,
+        // so the sharing costs no frame-processing throughput.
         callbackDelivery = LegacyCallbackDelivery(
             label: "MediaToolSwift.video.callback",
             queue: processingQueue,
@@ -128,14 +142,21 @@ private final class VideoConversionSession: @unchecked Sendable {
     }
 
     func prepareAndStart() async {
-        stateQueue.sync {
+        // Never block a cooperative pool thread on the session queue. Handler
+        // registration is ordered ahead of every other `stateQueue` block, and
+        // `registerCancellationHandler` invokes the handler itself when the task
+        // is already cancelled, so an asynchronous handoff loses no cancellation.
+        stateQueue.async { [self] in
             retainedSession = self
             cancellationHandlerID = task.registerCancellationHandler { [weak self] in
                 self?.requestCancellation()
             }
         }
 
-        guard !task.isCancelled, !terminalStateReached() else {
+        // A terminal state before the configuration is installed can only come
+        // from cancellation, which `claimCancellationTerminalOutcome` reflects in
+        // `task.isCancelled`. Reading it avoids a synchronous queue hop.
+        guard !task.isCancelled else {
             requestCancellation()
             return
         }
@@ -143,7 +164,7 @@ private final class VideoConversionSession: @unchecked Sendable {
         do {
             let prepared = try await prepareConfiguration()
 
-            guard !task.isCancelled, !terminalStateReached() else {
+            guard !task.isCancelled else {
                 requestCancellation()
                 return
             }
@@ -417,7 +438,7 @@ private final class VideoConversionSession: @unchecked Sendable {
             if pump.readsAsynchronously {
                 pump.isProcessing = true
                 let work = VideoSampleReadWork(output: pump.output)
-                processingQueue.async { [weak self, work] in
+                readQueue.async { [weak self, work] in
                     let result = work.run()
                     self?.stateQueue.async { [weak self, result] in
                         self?.finishReadOnQueue(result, at: index)
@@ -526,6 +547,29 @@ private final class VideoConversionSession: @unchecked Sendable {
         #endif
     }
 
+    /// Cancels the reader without overlapping an in-flight read.
+    ///
+    /// `AVAssetReader` forbids `cancelReading()` concurrent with
+    /// `copyNextSampleBuffer()`. Synchronous reads already share `stateQueue`
+    /// with this call, but composition reads run on `readQueue`, so cancellation
+    /// is handed to that queue to run after any read in flight. Every remaining
+    /// caller of `copyNextSampleBuffer()` on `stateQueue` is gated on
+    /// `isTerminal`, which both terminal paths set before returning.
+    private func cancelReadingOnQueue(_ prepared: PreparedVideoConversion) {
+        guard isVideoCompositionOutput(prepared.video.videoOutput) else {
+            if prepared.reader.status == .reading {
+                prepared.reader.cancelReading()
+            }
+            return
+        }
+
+        readQueue.async { [prepared] in
+            if prepared.reader.status == .reading {
+                prepared.reader.cancelReading()
+            }
+        }
+    }
+
     private func markInputFinishedOnQueue(
         _ pump: VideoTrackPump,
         writer: AVAssetWriter
@@ -621,6 +665,8 @@ private final class VideoConversionSession: @unchecked Sendable {
 
         isFinishing = true
         progress?.complete()
+        // Safe to cancel directly, unlike the terminal paths: every pump has
+        // already finished, so no read can be in flight on `readQueue`.
         prepared.reader.cancelReading()
         prepared.writer.finishWriting { [weak self] in
             self?.stateQueue.async { [weak self] in
@@ -691,9 +737,7 @@ private final class VideoConversionSession: @unchecked Sendable {
         guard !isTerminal else { return }
         guard task.claimCancellationTerminalOutcome() else { return }
         if let prepared = configuration {
-            if prepared.reader.status == .reading {
-                prepared.reader.cancelReading()
-            }
+            cancelReadingOnQueue(prepared)
             if prepared.writer.status == .writing {
                 prepared.writer.cancelWriting()
             }
@@ -722,9 +766,7 @@ private final class VideoConversionSession: @unchecked Sendable {
             }
         }
         if let prepared = configuration {
-            if prepared.reader.status == .reading {
-                prepared.reader.cancelReading()
-            }
+            cancelReadingOnQueue(prepared)
             if prepared.writer.status == .writing {
                 prepared.writer.cancelWriting()
             }
@@ -759,10 +801,6 @@ private final class VideoConversionSession: @unchecked Sendable {
         progress = nil
         retainedSession = nil
         callbackDelivery.enqueue(state)
-    }
-
-    private func terminalStateReached() -> Bool {
-        stateQueue.sync { isTerminal }
     }
 }
 
