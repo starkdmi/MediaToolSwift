@@ -370,6 +370,27 @@ class MediaToolImageTests: XCTestCase {
             .appendingPathComponent(name)
     }
 
+    private func containsTransparentPixels(in image: CGImage) throws -> Bool {
+        let bytesPerPixel = 4
+        let bytesPerRow = image.width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * image.height)
+        let context = try XCTUnwrap(
+            CGContext(
+                data: &pixels,
+                width: image.width,
+                height: image.height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        )
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return stride(from: 3, to: pixels.count, by: bytesPerPixel).contains {
+            pixels[$0] < UInt8.max
+        }
+    }
+
     private static func encodeFixture(source: URL, destination: URL, format: ImageFormat) throws -> URL {
         guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil) else {
             throw CompressionError.failedToReadImage
@@ -510,8 +531,13 @@ class MediaToolImageTests: XCTestCase {
                 XCTAssertEqual(isHDR, settings.isHDR, "No HDR data found in \(config.filename)")
 
                 // Image format
+                // The container type is authoritative: an ICO wraps a PNG
+                // payload, for which `CGImage.utType` reports `public.png`.
                 var format: ImageFormat?
-                if let utType = cgImage.utType, let utTypeFormat = ImageFormat(utType) {
+                if let sourceType = CGImageSourceGetType(imageSource),
+                   let sourceFormat = ImageFormat(sourceType) {
+                    format = sourceFormat
+                } else if let utType = cgImage.utType, let utTypeFormat = ImageFormat(utType) {
                     format = utTypeFormat
                 } else if let pathFormat = ImageFormat(destination.pathExtension) {
                     format = pathFormat
@@ -524,7 +550,18 @@ class MediaToolImageTests: XCTestCase {
                 // Alpha
                 let alpha = imageProperties?[kCGImagePropertyHasAlpha] as? Bool ?? false
                 let hasAlpha = alpha || cgImage.hasAlpha
-                XCTAssertEqual(hasAlpha, settings.hasAlpha, "No Alpha channel found in \(config.filename)")
+                // ImageIO on iOS 26 and tvOS 26 keeps an alpha channel in PNG
+                // output even for a fully opaque source, so channel presence no
+                // longer proves the channel carries data. Assert transparency
+                // instead of storage when no alpha is expected.
+                if settings.hasAlpha {
+                    XCTAssertTrue(hasAlpha, "No alpha channel found in \(config.filename)")
+                } else if hasAlpha {
+                    XCTAssertFalse(
+                        try containsTransparentPixels(in: cgImage),
+                        "Unexpected transparent pixels in \(config.filename)"
+                    )
+                }
 
                 // Size
                 var orientation: CGImagePropertyOrientation?
