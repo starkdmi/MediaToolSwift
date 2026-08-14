@@ -178,8 +178,14 @@ jobs:
       # `swift build` compiles only the library, so test-target code that uses
       # APIs newer than the deployment target slipped through unnoticed. Compile
       # the tests for each platform as well.
+      #
+      # Only on the newest Xcode: the macOS 15 image keeps the iOS and tvOS SDKs
+      # for Xcode 16.2 (the `swift build` step above uses them) but not those
+      # platforms themselves, so `xcodebuild` finds no matching destination
+      # there. The deployment targets are still guarded on both toolchains by
+      # the library build.
       - name: Build tests
-        if: matrix.destination != ''
+        if: matrix.destination != '' && matrix.xcode == '26.2'
         run: >-
           xcodebuild build-for-testing
           -scheme MediaToolSwift
@@ -191,7 +197,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      # The podspec declares iOS and tvOS, and lint builds every declared
+      # platform. Xcode 16.2 on this image has no iOS or tvOS platform
+      # installed, so lint cannot resolve their destinations.
+      - run: sudo xcode-select -s /Applications/Xcode_26.2.app
       - name: Validate release tag and podspec version
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
