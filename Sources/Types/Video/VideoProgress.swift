@@ -8,6 +8,23 @@ import Foundation
 internal final class CompressionVideoProgress: @unchecked Sendable {
     private let queue: DispatchQueue
 
+    /// Opens and services the observed output handle. `queue` targets the
+    /// caller's progress queue, which defaults to `.main`, so file descriptor
+    /// work is kept off it entirely.
+    private let observerQueue = DispatchQueue(label: "MediaToolSwift.video.file-size")
+
+    /// Coalescing state for per-frame encoding updates. Guarded by its own lock
+    /// because `update(_:)` is called from the conversion queue, not `queue`.
+    private let encodingLock = NSLock()
+    private var enqueuedEncodingCount: Int64 = 0
+    private var isEncodingUpdateScheduled = false
+
+    /// Observer lifetime is guarded separately from `queue` so the descriptor can
+    /// be released the moment the conversion ends, without waiting for a
+    /// caller-provided queue to drain.
+    private let observerLock = NSLock()
+    private var isObservingFinished = false
+
     private let task: CompressionTask
     private let total: Double
     private let totalSteps: Int64
@@ -103,14 +120,48 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
     }
 
     /// Update encoding progress with a sample presentation timestamp.
+    ///
+    /// This runs once per encoded video frame while `queue` targets the caller's
+    /// progress queue, which defaults to `.main`. Resolving the step count here
+    /// and keeping at most one delivery in flight replaces one main-queue block
+    /// per frame with one per actual step change. A caller that swaps
+    /// `task.progress` mid-conversion sees the replacement adopted on the next
+    /// step change rather than on the next frame.
     internal func update(_ timeStamp: CMTime) {
         let currentTime = timeStamp.seconds + frameDuration - startTime
         let percentage = currentTime / duration
         guard percentage.isFinite else { return }
 
-        queue.async { [self] in
-            self.updateEncoding(percentage: percentage)
+        let boundedPercentage = min(max(percentage, 0), 1)
+        let completedUnitCount = boundedPercentage == 1
+            ? totalSteps
+            : Int64(boundedPercentage * total)
+
+        encodingLock.lock()
+        guard completedUnitCount > enqueuedEncodingCount else {
+            encodingLock.unlock()
+            return
         }
+        enqueuedEncodingCount = completedUnitCount
+        guard !isEncodingUpdateScheduled else {
+            encodingLock.unlock()
+            return
+        }
+        isEncodingUpdateScheduled = true
+        encodingLock.unlock()
+
+        queue.async { [self] in
+            self.deliverEncodingUpdate()
+        }
+    }
+
+    private func deliverEncodingUpdate() {
+        encodingLock.lock()
+        let completedUnitCount = enqueuedEncodingCount
+        isEncodingUpdateScheduled = false
+        encodingLock.unlock()
+
+        updateEncoding(completedUnitCount: completedUnitCount)
     }
 
     /// Finish encoding progress.
@@ -126,9 +177,12 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
 
     /// Finish writing/saving progress.
     internal func completeWriting() {
+        // Close the observed handle now rather than when the caller's progress
+        // queue gets around to this block.
+        stopObservingWriting()
+
         queue.async { [self] in
             acceptsWritingUpdates = false
-            self.stopObservingWriting()
             let writingProgress = self.writingProgress
             if self.useWritingProgress {
                 self.configureWritingProgress(writingProgress)
@@ -148,9 +202,10 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
 
     /// Clear writing progress after cancellation or failure.
     internal func cancelWriting() {
+        stopObservingWriting()
+
         queue.async { [self] in
             acceptsWritingUpdates = false
-            self.stopObservingWriting()
             let writingProgress = self.writingProgress
             if self.useWritingProgress {
                 self.configureWritingProgress(writingProgress)
@@ -164,13 +219,8 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
         }
     }
 
-    private func updateEncoding(percentage: Double) {
+    private func updateEncoding(completedUnitCount: Int64) {
         let progress = configuredEncodingProgress()
-        let boundedPercentage = min(max(percentage, 0), 1)
-        let completedUnitCount = boundedPercentage == 1
-            ? totalSteps
-            : Int64(boundedPercentage * total)
-
         guard completedUnitCount > progress.completedUnitCount else { return }
         progress.completedUnitCount = completedUnitCount
 
@@ -219,13 +269,30 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
         guard !writingInitialized else { return }
         writingInitialized = true
 
-        let observerQueue = DispatchQueue(label: "MediaToolSwift.video.file-size")
-        observer = FileSizeObserver(url: observedOutputURL, queue: observerQueue) { [weak self] fileSize in
-            self?.queue.async { [weak self] in
-                guard let self, self.acceptsWritingUpdates else { return }
-                self.updateWriting(fileSize: Int64(fileSize))
+        // `FileSizeObserver` opens a file handle, so build it on the observer
+        // queue instead of the caller's progress queue.
+        let url = observedOutputURL
+        observerQueue.async { [self] in
+            let observer = FileSizeObserver(url: url, queue: observerQueue) { [weak self] fileSize in
+                self?.queue.async { [weak self] in
+                    guard let self, self.acceptsWritingUpdates else { return }
+                    self.updateWriting(fileSize: Int64(fileSize))
+                }
             }
+            adoptWritingObserver(observer)
         }
+    }
+
+    private func adoptWritingObserver(_ observer: FileSizeObserver) {
+        observerLock.lock()
+        guard !isObservingFinished else {
+            observerLock.unlock()
+            // The conversion ended while the handle was being opened.
+            observer.finish()
+            return
+        }
+        self.observer = observer
+        observerLock.unlock()
     }
 
     private func updateWriting(fileSize: Int64) {
@@ -253,8 +320,16 @@ internal final class CompressionVideoProgress: @unchecked Sendable {
         }
     }
 
+    /// Releases the observed descriptor. Callable from any queue, and idempotent,
+    /// so the conversion never leaves a handle open waiting on a busy or
+    /// suspended progress queue.
     private func stopObservingWriting() {
+        observerLock.lock()
+        isObservingFinished = true
+        let observer = self.observer
+        self.observer = nil
+        observerLock.unlock()
+
         observer?.finish()
-        observer = nil
     }
 }
