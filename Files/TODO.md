@@ -1,4 +1,5 @@
 ## Main
+- __`@Sendable` public callbacks (2.0)__ - Public closures (video/audio `convert` callbacks, `thumbnailImages` completions, frame and image processors, `.dynamic` bitrate/size) are unconstrained and run on MediaToolSwift-managed queues, so overlapping operations can race client state without a Swift 6 diagnostic. The 1.x boundary is intentional and documented in README "Swift 6 concurrency". Marking the parameters `@Sendable` alongside `@preconcurrency` on each declaration keeps existing clients compiling — the capture becomes a warning rather than an error, in both language modes — but `@preconcurrency` is itself reported as an API breakage, so this belongs in 2.0 where the warnings can become errors.
 - __Logger__ - Simple logging feature plus operations descriptions like [this](https://stackoverflow.com/a/23271969/20387962). Add kvImagePrintDiagnosticsToConsole to each kVImageFlags in vImage code.
 - __Command line tool__ - command line application like avconvert and ffmpeg
 - __Split voices/sounds in Video and Audio__ - Split different noises in audio track into multiple separate audio tracks (wind noise, music, voice #1, voice #2)
