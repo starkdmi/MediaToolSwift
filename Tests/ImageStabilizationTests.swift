@@ -63,9 +63,8 @@ final class ImageStabilizationTests: XCTestCase {
             frame.unclampedDelayTime = delays[index]
             return frame
         }
-        // ImageIO's HEICS writer currently normalizes sequence looping to its
-        // supported infinite-loop value. Verify the framework preserves that
-        // representable value across primary rotation and frame reduction.
+        // Frame reduction must preserve the requested repetition metadata. What
+        // ImageIO then stores for HEICS is its own choice, verified separately.
         frames[0].loopCount = 0
         let adjusted = try frames.withAdjustedFrameRate(
             frameRate: 3,
@@ -73,6 +72,7 @@ final class ImageStabilizationTests: XCTestCase {
             primaryIndex: 3
         )
         let adjustedFrames = try XCTUnwrap(adjusted.frames)
+        XCTAssertEqual(adjustedFrames.compactMap(\.loopCount), [0])
 
         let destination = FileManager.default.temporaryDirectory
             .appendingPathComponent("MediaToolSwift-primary-timing-\(UUID().uuidString).heics")
@@ -88,7 +88,8 @@ final class ImageStabilizationTests: XCTestCase {
         let encoded = try XCTUnwrap(CGImageSourceCreateWithURL(destination as CFURL, nil))
         XCTAssertEqual(CGImageSourceGetPrimaryImageIndex(encoded), 0)
         XCTAssertEqual(CGImageSourceGetCount(encoded), 3)
-        XCTAssertEqual(ImageFrame.sequenceLoopCount(from: encoded), 0)
+        let expectedLoopCount = try XCTUnwrap(imageIOHEICSLoopCount(requesting: 0))
+        XCTAssertEqual(ImageFrame.sequenceLoopCount(from: encoded), expectedLoopCount)
 
         // The retained source order is [0, 3, 5]. Emitting primary frame 3
         // first must rotate, rather than reorder, that cycle to [3, 5, 0].
@@ -124,7 +125,7 @@ final class ImageStabilizationTests: XCTestCase {
         XCTAssertEqual(encodedDuration, 1, accuracy: 0.01)
 
         let decoded = try ImageTool.decode(source: destination)
-        XCTAssertEqual(decoded.frames.first?.loopCount, 0)
+        XCTAssertEqual(decoded.frames.first?.loopCount, expectedLoopCount)
         XCTAssertTrue(decoded.frames.dropFirst().allSatisfy { $0.loopCount == nil })
     }
 
@@ -206,6 +207,46 @@ final class ImageStabilizationTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error as? CompressionError, .failedToReadImage)
         }
+    }
+
+    /// The sequence loop count ImageIO stores when asked for `requested` while
+    /// writing HEICS.
+    ///
+    /// ImageIO ignores the requested value and substitutes a platform constant:
+    /// releases up to iOS 18/macOS 15 store `0`, the 26 releases store `1`.
+    /// Encoding a reference file through `CGImageDestination` directly keeps the
+    /// expectation exact on every OS instead of pinning it to one generation,
+    /// and fails the moment the framework stops matching plain ImageIO output.
+    private func imageIOHEICSLoopCount(requesting requested: Int) throws -> Int? {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MediaToolSwift-reference-\(UUID().uuidString).heics")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let utType = try XCTUnwrap(ImageFormat.heics.utType)
+        let destination = try XCTUnwrap(
+            CGImageDestinationCreateWithURL(url as CFURL, utType, 2, nil)
+        )
+        CGImageDestinationSetProperties(destination, [
+            kCGImagePropertyHEICSDictionary: [
+                kCGImagePropertyHEICSLoopCount: NSNumber(value: requested)
+            ]
+        ] as CFDictionary)
+
+        let image = try makeImage(red: 255, green: 0, blue: 0)
+        for _ in 0 ..< 2 {
+            CGImageDestinationAddImage(destination, image, [
+                kCGImagePropertyHEICSDictionary: [
+                    kCGImagePropertyHEICSDelayTime: 0.1,
+                    kCGImagePropertyHEICSUnclampedDelayTime: 0.1
+                ]
+            ] as CFDictionary)
+        }
+        guard CGImageDestinationFinalize(destination) else {
+            throw CompressionError.failedToSaveImage
+        }
+
+        let reference = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
+        return ImageFrame.sequenceLoopCount(from: reference)
     }
 
     private func makeImage(red: UInt8, green: UInt8, blue: UInt8) throws -> CGImage {

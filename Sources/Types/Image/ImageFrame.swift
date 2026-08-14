@@ -23,6 +23,9 @@ public struct ImageFrame: Equatable, Hashable {
     public var unclampedDelayTime: Double?
 
     /// The number of times to repeat an animated sequence.
+    /// Warning: ImageIO discards the requested value when writing HEICS and
+    /// stores a platform constant instead - `0` up to iOS 18/macOS 15, `1` on
+    /// the 26 releases - so a HEICS sequence may not round trip its looping.
     public var loopCount: Int?
 
     /// The width of the main image, in pixels
