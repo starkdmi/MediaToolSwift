@@ -45,12 +45,18 @@ jobs:
         include:
           # Compatibility floor: the oldest Swift 6 toolchain still supported.
           - xcode: "16.2"
-            primary: true
+            gates: false
           # What consumers actually build with today. Without this lane a newer
           # compiler's diagnostics can break their builds while CI stays green,
           # because every build here uses -warnings-as-errors.
+          #
+          # `gates` marks the lane that also runs the checks which need to run
+          # exactly once. They live here because Swift 6.0's api-digester dumps
+          # no symbols for this package and then reports every public
+          # declaration as removed, which no allowlist can tell apart from a
+          # real removal.
           - xcode: "26.2"
-            primary: false
+            gates: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,7 +73,7 @@ jobs:
           -Xswiftc -warnings-as-errors
 
       - name: API compatibility with 1.2.0
-        if: matrix.primary
+        if: matrix.gates
         shell: bash
         run: |
           set -uo pipefail
@@ -96,14 +102,14 @@ jobs:
           fi
 
       - name: API compatibility with pull-request base
-        if: matrix.primary && github.event_name == 'pull_request'
+        if: matrix.gates && github.event_name == 'pull_request'
         run: >-
           swift package diagnose-api-breaking-changes
           "${{ github.event.pull_request.base.sha }}"
           --products MediaToolSwift
 
       - name: Whitespace check
-        if: matrix.primary
+        if: matrix.gates
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -113,15 +119,15 @@ jobs:
           fi
 
       - name: Install SwiftLint
-        if: matrix.primary
+        if: matrix.gates
         run: command -v swiftlint || brew install swiftlint
 
       - name: SwiftLint
-        if: matrix.primary
+        if: matrix.gates
         run: swiftlint lint --no-cache
 
       - name: Build DocC documentation
-        if: matrix.primary
+        if: matrix.gates
         run: >-
           swift package --allow-writing-to-directory "$RUNNER_TEMP/docc"
           generate-documentation --target MediaToolSwift --disable-indexing
