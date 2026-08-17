@@ -471,9 +471,12 @@ var configurations: [ConfigList] {
                 hasAlpha: true
             ),
             configs: [
-                // This FFmpeg-authored fixture advertises alpha, but Apple's
-                // decoder exposes opaque samples. Keep it for ProRes resize
-                // coverage; alpha parity is covered from the HEVC fixture.
+                // This FFmpeg-authored fixture advertises alpha, but Apple
+                // decodes its samples as fully opaque. Whether the encoder
+                // then keeps the opaque alpha plane in the output format
+                // description is OS-dependent (macOS 15 keeps it, macOS 26
+                // drops it), so only the resize is asserted here; alpha
+                // parity is covered from the HEVC fixture.
                 Config(
                     videoSettings: CompressionVideoSettings(
                         codec: .proRes4444,
@@ -489,7 +492,7 @@ var configurations: [ConfigList] {
                         bitrate: nil,
                         frameRate: 60,
                         duration: 4.0,
-                        hasAlpha: false
+                        hasAlpha: nil
                     )
                 ),
                 // Keep codec coverage, but do not assert alpha metadata: the
