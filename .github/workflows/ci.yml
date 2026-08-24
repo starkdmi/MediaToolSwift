@@ -5,8 +5,6 @@ on:
   push:
     branches: [main]
     tags: ['[0-9]+.[0-9]+.[0-9]+']
-  schedule:
-    - cron: "17 3 * * 1"
   workflow_dispatch:
     inputs:
       extended_media:
@@ -236,8 +234,8 @@ jobs:
           --filter 'RefactoringVerificationTests/.*Cancellation'
 
   extended-media:
-    name: scheduled extended media suite
-    if: github.event_name == 'schedule' || inputs.extended_media
+    name: Extended media suite
+    if: github.event_name != 'workflow_dispatch' || inputs.extended_media
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
