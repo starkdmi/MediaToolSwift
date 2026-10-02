@@ -54,7 +54,8 @@ let package = Package(
             exclude: [
                 "media",
                 "README.md"
-            ]
+            ],
+            resources: [.copy("ColorFixtures")]
         ),
         .testTarget(
             name: "MediaToolSwiftClientTests",
