@@ -33,8 +33,8 @@ extension VideoTool {
         let analysis = try await trackAnalyzer.analyze(track: videoTrack, asset: asset)
 
         if videoSettings.color != nil {
-            // The current pipeline can preserve source color metadata but has no
-            // color-space, gamut, or transfer-function conversion stage. Merely
+            // Explicit changes can require transfer conversion or tone mapping
+            // beyond the writer-primary compatibility fallback below. Merely
             // retagging decoded samples would corrupt their interpretation.
             throw CompressionError.invalidVideoCodec
         }
@@ -285,6 +285,70 @@ extension VideoTool {
 
         // MARK: - Phase 8: Setup Reader/Writer
 
+        var convertsColorPrimaries = false
+
+        func configureVideoInput() throws {
+            // Set composition profiles before the writer captures its settings.
+            if useVideoComposition, videoSettings.profile == nil {
+                let bitsPerComponent = analysis.bitsPerComponent ?? (analysis.isHDR ? 10 : 8)
+                if let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: bitsPerComponent) {
+                    videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
+                    videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
+                }
+            }
+            try ObjCExceptionCatcher.catchException {
+                variables.videoInput = AVAssetWriterInput(
+                    mediaType: .video,
+                    outputSettings: variables.hasChanges ? videoParameters : nil,
+                    sourceFormatHint: convertsColorPrimaries ? nil : analysis.formatDescription
+                )
+                return variables.videoInput
+            }
+        }
+
+        do {
+            try configureVideoInput()
+        } catch {
+            // Writer support differs by platform. Keep accepted source profiles
+            // and passthrough intact; only retry known decoder-only primaries.
+            // ponytail: three known primaries only; arbitrary profile/transfer
+            // conversion needs its own fidelity coverage.
+            let convertiblePrimaries = [
+                kCMFormatDescriptionColorPrimaries_DCI_P3 as String,
+                kCMFormatDescriptionColorPrimaries_EBU_3213 as String,
+                kCMFormatDescriptionColorPrimaries_P22 as String
+            ]
+            guard variables.hasChanges, let sourceColor = colorInfo,
+                  convertiblePrimaries.contains(sourceColor.colorPrimaries) else {
+                throw error
+            }
+            #if os(visionOS)
+            throw CompressionError.notSupportedOnVisionOS
+            #else
+            let isDCIP3 = sourceColor.colorPrimaries == kCMFormatDescriptionColorPrimaries_DCI_P3 as String
+            let compatibleColor = VideoColorInformation(
+                colorPrimaries: analysis.isHDR ? AVVideoColorPrimaries_ITU_R_2020
+                    : isDCIP3 ? AVVideoColorPrimaries_P3_D65 : AVVideoColorPrimaries_ITU_R_709_2,
+                matrix: analysis.isHDR ? AVVideoYCbCrMatrix_ITU_R_2020 : AVVideoYCbCrMatrix_ITU_R_709_2,
+                transferFunction: analysis.isHDR ? sourceColor.transferFunction : AVVideoTransferFunction_ITU_R_709_2
+            )
+            colorInfo = compatibleColor
+            convertsColorPrimaries = true
+            videoParameters[AVVideoColorPropertiesKey] = [
+                AVVideoColorPrimariesKey: compatibleColor.colorPrimaries,
+                AVVideoYCbCrMatrixKey: compatibleColor.matrix,
+                AVVideoTransferFunctionKey: compatibleColor.transferFunction
+            ]
+            useVideoComposition = true
+            // The compositor bakes in the source orientation. Its dimensions
+            // are the display dimensions calculated before the encoder swap.
+            targetVideoSize = sizeResult.targetSize
+            videoParameters[AVVideoWidthKey] = targetVideoSize.width
+            videoParameters[AVVideoHeightKey] = targetVideoSize.height
+            try configureVideoInput()
+            #endif
+        }
+
         let pixelFormat: OSType
         if requiresHighBitDepth {
             // Keep HDR samples in a 10-bit format through decode, optional
@@ -314,6 +378,9 @@ extension VideoTool {
         var videoReaderSettings: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: pixelFormat
         ]
+        if convertsColorPrimaries {
+            videoReaderSettings[AVVideoAllowWideColorKey] = true
+        }
 
         // If no changes, use passthrough mode
         if !variables.hasChanges {
@@ -326,7 +393,7 @@ extension VideoTool {
 
         // Context for reuse
         var context: CIContext?
-        if frameProcessor?.requireCIContext == true || useVideoComposition {
+        if frameProcessor?.requireCIContext == true || (useVideoComposition && !convertsColorPrimaries) {
             context = CIContext(options: [.highQualityDownsample: true])
         }
 
@@ -344,18 +411,8 @@ extension VideoTool {
                 frameProcessor: frameProcessor,
                 colorInfo: colorInfo,
                 context: context,
-                orientation: analysis.orientation
+                renderContext: convertsColorPrimaries ? nil : context
             )
-
-            // Preserve profile selection for every video composition, not only
-            // HDR, using the encoded component depth to choose the profile.
-            if videoSettings.profile == nil {
-                let bitsPerComponent = analysis.bitsPerComponent ?? (analysis.isHDR ? 10 : 8)
-                if let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: bitsPerComponent) {
-                    videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
-                    videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
-                }
-            }
 
             let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [videoTrack], videoSettings: readerSettings)
             videoOutput.videoComposition = videoComposition
@@ -365,14 +422,8 @@ extension VideoTool {
         }
         #endif
 
-        // Video writer
+        // Pixel-buffer adaptor
         try ObjCExceptionCatcher.catchException {
-            variables.videoInput = AVAssetWriterInput(
-                mediaType: .video,
-                outputSettings: videoParameters.isEmpty ? nil : videoParameters,
-                sourceFormatHint: analysis.formatDescription
-            )
-
             // Init pixel buffer adaptor
             if useVideoAdaptor {
                 let sourcePixelBufferAttributes: [String: Any] = [
@@ -407,9 +458,9 @@ extension VideoTool {
             timeScale: analysis.timeScale,
             range: variables.range,
             videoSize: videoSize,
-            targetVideoSize: targetVideoSize.oriented(analysis.orientation),
-            cropRect: effectiveCropRect,
-            fixedPreferredTransform: analysis.fixedPreferredTransform,
+            targetVideoSize: useVideoComposition ? targetVideoSize : targetVideoSize.oriented(analysis.orientation),
+            cropRect: useVideoComposition ? nil : effectiveCropRect,
+            fixedPreferredTransform: useVideoComposition ? .identity : analysis.fixedPreferredTransform,
             videoInputAdaptor: variables.videoInputAdaptor,
             colorInfo: colorInfo,
             context: context,
@@ -427,6 +478,10 @@ extension VideoTool {
             variables.totalFrames = totalFrames
         }
         variables.size = preservesSourcePixelAspectRatio ? analysis.naturalSize : targetVideoSize
+        if convertsColorPrimaries {
+            variables.size = targetVideoSize
+            variables.orientation = .landscape
+        }
 
         return variables
     }
@@ -443,14 +498,15 @@ extension VideoTool {
         frameProcessor: VideoFrameProcessor?,
         colorInfo: VideoColorInformation?,
         context: CIContext?,
-        orientation: VideoOrientation
+        renderContext: CIContext?
     ) -> AVMutableVideoComposition {
         let renderer = VideoCompositionRenderer(
             cropRect: cropRect,
             videoSize: videoSize,
             targetVideoSize: targetVideoSize,
             frameProcessor: frameProcessor,
-            context: context
+            context: context,
+            renderContext: renderContext
         )
         let videoComposition = AVMutableVideoComposition(asset: asset) { request in
             renderer.render(request)
@@ -630,6 +686,7 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
     private let targetVideoSize: CGSize
     private let frameProcessor: VideoFrameProcessor?
     private let context: CIContext?
+    private let renderContext: CIContext?
     private let scaleFilter: CIFilter?
 
     init(
@@ -637,13 +694,15 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
         videoSize: CompressionVideoSize,
         targetVideoSize: CGSize,
         frameProcessor: VideoFrameProcessor?,
-        context: CIContext?
+        context: CIContext?,
+        renderContext: CIContext?
     ) {
         self.cropRect = cropRect
         self.videoSize = videoSize
         self.targetVideoSize = targetVideoSize
         self.frameProcessor = frameProcessor
         self.context = context
+        self.renderContext = renderContext
 
         switch videoSize {
         case .fit, .scale:
@@ -661,8 +720,9 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
                 image = image.cropping(to: cropRect)
             }
 
+            // The compatibility conversion uses AVFoundation's color-managed render context.
             guard let frameProcessor else {
-                request.finish(with: image, context: context)
+                request.finish(with: image, context: renderContext)
                 return
             }
 
@@ -681,7 +741,7 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
                 }
             }
 
-            request.finish(with: image, context: context)
+            request.finish(with: image, context: renderContext)
         }
     }
 }

@@ -18,6 +18,10 @@ final class VideoColorConversionTests: XCTestCase {
 
     func testDCIP3SDRConversion() async throws {
         try await checkConversion("dci-p3", hdrTransfer: nil)
+        #if !os(macOS)
+        try await checkConversion("dci-p3", hdrTransfer: nil,
+            processor: .imageComposition { image, _, _ in image })
+        #endif
     }
 
     func testDCIP3HLGConversion() async throws {
@@ -26,6 +30,20 @@ final class VideoColorConversionTests: XCTestCase {
 
     func testDCIP3PQConversion() async throws {
         try await checkConversion("dci-p3-pq", hdrTransfer: AVVideoTransferFunction_SMPTE_ST_2084_PQ)
+    }
+
+    func testDCIP3PortraitResizeWithImageProcessor() async throws {
+        let source = try fixture("dci-p3-portrait")
+        let destination = temporaryOutput()
+        defer { try? FileManager.default.removeItem(at: destination) }
+        let result = try await convert(source, to: destination,
+            settings: .init(codec: .hevc, size: .scale(CGSize(width: 48, height: 80)),
+                profile: .hevcMain, edit: [.process(.image { image, _, _ in image })]))
+        let info = try XCTUnwrap(result as? VideoInfo)
+        XCTAssertEqual(info.resolution, CGSize(width: 48, height: 80))
+        let image = try await firstFrame(AVURLAsset(url: destination))
+        XCTAssertEqual(image.width, 48)
+        XCTAssertEqual(image.height, 80)
     }
 
     func testDCIP3VideoPassthroughWhileDroppingAudio() async throws {
@@ -44,7 +62,7 @@ final class VideoColorConversionTests: XCTestCase {
         XCTAssertEqual(audioTracks?.count, 0)
     }
 
-    private func checkConversion(_ name: String, hdrTransfer: String?) async throws {
+    private func checkConversion(_ name: String, hdrTransfer: String?, processor: VideoFrameProcessor? = nil) async throws {
         let source = try fixture(name)
         let destination = temporaryOutput()
         defer { try? FileManager.default.removeItem(at: destination) }
@@ -53,8 +71,11 @@ final class VideoColorConversionTests: XCTestCase {
         metadata.value = "color-conversion-regression" as NSString
         try await convert(
             source, to: destination,
-            settings: .init(codec: .hevc, bitrate: .value(300_000),
-                profile: hdrTransfer == nil ? .hevcMain : .hevcMain10),
+            settings: .init(codec: .hevc,
+                bitrate: hdrTransfer == nil ? .encoder : .value(300_000),
+                quality: hdrTransfer == nil ? 1 : nil,
+                profile: hdrTransfer == nil ? .hevcMain : .hevcMain10,
+                edit: processor.map { [.process($0)] } ?? []),
             metadata: [metadata]
         )
 
@@ -65,7 +86,7 @@ final class VideoColorConversionTests: XCTestCase {
         XCTAssertEqual(description.colorPrimaries, kCMFormatDescriptionColorPrimaries_DCI_P3 as String)
         #else
         XCTAssertEqual(description.colorPrimaries, hdrTransfer == nil
-            ? AVVideoColorPrimaries_ITU_R_709_2 : AVVideoColorPrimaries_ITU_R_2020)
+            ? AVVideoColorPrimaries_P3_D65 : AVVideoColorPrimaries_ITU_R_2020)
         #endif
         XCTAssertEqual(description.transferFunction, hdrTransfer ?? AVVideoTransferFunction_ITU_R_709_2)
         XCTAssertEqual(description.isHDRVideo, hdrTransfer != nil)
@@ -99,9 +120,24 @@ final class VideoColorConversionTests: XCTestCase {
     private func checkSDRPixels(_ original: AVAsset, _ result: AVAsset) async throws {
         let sourceImage = try await firstFrame(original)
         let resultImage = try await firstFrame(result)
-        let bt709 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.itur_709))
-        let incorrectlyRetagged = try XCTUnwrap(sourceImage.copy(colorSpace: bt709))
-        let expected = try linearPixels(sourceImage)
+        #if os(macOS)
+        let retaggingSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.itur_709))
+        #else
+        let retaggingSpace = try XCTUnwrap(resultImage.colorSpace)
+        #endif
+        let incorrectlyRetagged = try XCTUnwrap(sourceImage.copy(colorSpace: retaggingSpace))
+        #if os(macOS)
+        let referenceImage = sourceImage
+        #else
+        // Use Apple's independent basic compositor as the color reference.
+        // CGImage color matching applies a different white-point adaptation.
+        let composition = AVMutableVideoComposition(propertiesOf: original)
+        composition.colorPrimaries = AVVideoColorPrimaries_P3_D65
+        composition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
+        composition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
+        let referenceImage = try await firstFrame(original, composition: composition)
+        #endif
+        let expected = try linearPixels(referenceImage)
         let actual = try linearPixels(resultImage)
         let retagged = try linearPixels(incorrectlyRetagged)
         XCTAssertEqual(actual.count, expected.count)
@@ -116,8 +152,9 @@ final class VideoColorConversionTests: XCTestCase {
             "Changing tags alone must not satisfy the pixel-color check")
     }
 
-    private func firstFrame(_ asset: AVAsset) async throws -> CGImage {
+    private func firstFrame(_ asset: AVAsset, composition: AVVideoComposition? = nil) async throws -> CGImage {
         let generator = AVAssetImageGenerator(asset: asset)
+        generator.videoComposition = composition
         generator.appliesPreferredTrackTransform = true
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
@@ -151,12 +188,13 @@ final class VideoColorConversionTests: XCTestCase {
         FileManager.default.temporaryDirectory.appendingPathComponent("MediaToolColor-\(UUID()).mov")
     }
 
+    @discardableResult
     private func convert(
         _ source: URL, to destination: URL,
         settings: CompressionVideoSettings,
         skipAudio: Bool = false,
         metadata: [AVMetadataItem] = []
-    ) async throws {
+    ) async throws -> MediaInfo {
         let terminal = expectation(description: "Conversion terminal state")
         let state = LockedValue<CompressionState?>(nil)
         _ = await VideoTool.convert(
@@ -173,7 +211,7 @@ final class VideoColorConversionTests: XCTestCase {
         }
         await fulfillment(of: [terminal], timeout: 30)
         switch state.read() {
-        case .completed: break
+        case .completed(let info): return info
         case .failed(let error):
             // The exception catcher's underlying NSException cannot be archived
             // by XCTest on iOS; preserve its reason in a serializable test error.
@@ -182,6 +220,8 @@ final class VideoColorConversionTests: XCTestCase {
         case .cancelled: XCTFail("Unexpected cancellation")
         case .started, .none: XCTFail("No terminal state")
         }
+        throw NSError(domain: "VideoColorConversionTests", code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "No completed conversion"])
     }
 
     private func videoDescription(_ asset: AVAsset) async throws -> CMFormatDescription {
