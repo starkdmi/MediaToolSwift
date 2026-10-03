@@ -444,71 +444,68 @@ struct ContentView: View {
 
         Task {
             reset()
-            task = nil
-            task = await VideoTool.convert(
-                source: url,
-                destination: destination,
-                fileType: fileType,
-                videoSettings: videoSettings,
-                optimizeForNetworkUse: false,
-                skipAudio: skipAudio,
-                audioSettings: audioSettings,
-                // By default XCode remove the metadata from output file, to prevent:
-                // Go to Build Settings tab, Under the "Other C Flags" section, add the following flag: -fno-strip-metadata
-                skipSourceMetadata: false,
-                copyExtendedFileMetadata: true,
-                cacheDirectory: directory,
-                overwrite: overwrite,
-                callback: { state in
-                    switch state {
-                    case .started:
-                        print("Started")
-                    case .completed(let info):
-                        let url = info.url
-                        print("Done: \(url.absoluteString)")
-                        self.outputURL = url
-                        outputFilesize = url.fileSizeInMB
-                        // Preview
-                        tab = 3
-                        self.isPaused = false
-                        sourcePlayer.play()
-                        outputPlayer.play()
-                        #if os(iOS)
-                        // Save to gallery
-                        PHPhotoLibrary.shared().performChanges({
-                            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
-                        }) { saved, error in
-                            // DispatchQueue.main.async {
-                            if saved {
-                                print("Saved to Gallery")
-                            } else {
-                                print("Failed to save to Gallery: \(String(describing: error))")
-                            }
-                            // }
-                        }
-                        #endif
-                    case .failed(let error):
-                        self.task = nil
-                        // encodingProgress = nil
-                        // writingProgress = nil
-                        if let error = error as? CompressionError {
-                            print("Error: \(error.description)")
-                            self.error = error
-                            isErrorAlertPresented = true
-                        } else {
-                            // Objective-C NSException
-                            print("NSError: \(error.localizedDescription)")
-                            self.error = CompressionError(description: error.localizedDescription)
-                            isErrorAlertPresented = true
-                        }
-                    case .cancelled:
-                        print("Cancelled")
-                        self.task = nil
-                        self.error = CompressionError(description: "Cancelled")
-                        isErrorAlertPresented = true
+
+            // The task is created up front so the progress bars and the cancel
+            // button can reach it while the conversion runs.
+            let compressionTask = CompressionTask(destination: destination)
+            task = compressionTask
+
+            do {
+                let info = try await VideoTool.convert(
+                    source: url,
+                    destination: destination,
+                    fileType: fileType,
+                    videoSettings: videoSettings,
+                    optimizeForNetworkUse: false,
+                    skipAudio: skipAudio,
+                    audioSettings: audioSettings,
+                    // By default XCode remove the metadata from output file, to prevent:
+                    // Go to Build Settings tab, Under the "Other C Flags" section, add the following flag: -fno-strip-metadata
+                    skipSourceMetadata: false,
+                    copyExtendedFileMetadata: true,
+                    cacheDirectory: directory,
+                    overwrite: overwrite,
+                    task: compressionTask
+                )
+
+                let url = info.url
+                print("Done: \(url.absoluteString)")
+                self.outputURL = url
+                outputFilesize = url.fileSizeInMB
+                // Preview
+                tab = 3
+                self.isPaused = false
+                sourcePlayer.play()
+                outputPlayer.play()
+                #if os(iOS)
+                // Save to gallery
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+                }) { saved, error in
+                    if saved {
+                        print("Saved to Gallery")
+                    } else {
+                        print("Failed to save to Gallery: \(String(describing: error))")
                     }
                 }
-            )
+                #endif
+            } catch is CancellationError {
+                print("Cancelled")
+                self.task = nil
+                self.error = CompressionError(description: "Cancelled")
+                isErrorAlertPresented = true
+            } catch let error as CompressionError {
+                self.task = nil
+                print("Error: \(error.description)")
+                self.error = error
+                isErrorAlertPresented = true
+            } catch {
+                // Objective-C NSException
+                self.task = nil
+                print("NSError: \(error.localizedDescription)")
+                self.error = CompressionError(description: error.localizedDescription)
+                isErrorAlertPresented = true
+            }
         }
     }
 }
