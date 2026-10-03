@@ -1,0 +1,48 @@
+# Intentional public API breakages, one verbatim `swift package
+# diagnose-api-breaking-changes` message per line (without the leading
+# "API breakage: "). Blank lines and `#` comments are ignored.
+#
+# Both API gates in ci.yml filter their output through this file, so anything
+# not listed here still fails the build. Adding a line is a deliberate act:
+# it belongs in the same commit as the break and should be reviewed as such.
+#
+# Clear this file when a release re-baselines the gate.
+
+# Added publicly on main after 1.2.0.
+enumelement ImageFormat.exr has been added as a new enum case
+enumelement VideoFrameProcessor.sampleBufferToMany has been added as a new enum case
+
+# 2.0.0: `MediaInfo` refines `Sendable` so `CompressionState` can cross an
+# isolation boundary. Conforming types outside the package must be Sendable.
+protocol MediaInfo has generic signature change from  to <Self : Swift.Sendable>
+protocol MediaInfo has added inherited protocol Sendable
+protocol MediaInfo has added inherited protocol SendableMetatype
+
+# 2.0.0: `convert` returns its result instead of delivering it to a callback.
+# `CompressionTask` moves from the return value to an optional parameter used for
+# progress reporting and out-of-band cancellation.
+func AudioTool.convert(source:destination:fileType:settings:edit:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:callback:) has been renamed to func convert(source:destination:fileType:settings:edit:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:task:)
+func AudioTool.convert(source:destination:fileType:settings:edit:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:callback:) has parameter 12 type change from (MediaToolSwift.CompressionState) -> Swift.Void to MediaToolSwift.CompressionTask?
+func AudioTool.convert(source:destination:fileType:settings:edit:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:callback:) has return type change from MediaToolSwift.CompressionTask to MediaToolSwift.AudioInfo
+func AudioTool.convert(source:destination:fileType:settings:edit:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:callback:) is now throwing
+func VideoTool.convert(source:destination:fileType:videoSettings:optimizeForNetworkUse:skipAudio:audioSettings:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:callback:) has been renamed to func convert(source:destination:fileType:videoSettings:optimizeForNetworkUse:skipAudio:audioSettings:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:task:)
+func VideoTool.convert(source:destination:fileType:videoSettings:optimizeForNetworkUse:skipAudio:audioSettings:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:callback:) has parameter 14 type change from (MediaToolSwift.CompressionState) -> Swift.Void to MediaToolSwift.CompressionTask?
+func VideoTool.convert(source:destination:fileType:videoSettings:optimizeForNetworkUse:skipAudio:audioSettings:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:callback:) has return type change from MediaToolSwift.CompressionTask to MediaToolSwift.VideoInfo
+func VideoTool.convert(source:destination:fileType:videoSettings:optimizeForNetworkUse:skipAudio:audioSettings:skipSourceMetadata:customMetadata:copyExtendedFileMetadata:cacheDirectory:overwrite:deleteSourceFile:progressQueue:callback:) is now throwing
+
+# 2.0.0: the thumbnail generators return their result instead of delivering it to
+# a completion. This also removes the last `Sync.wait` semaphore bridge, which
+# blocked a cooperative-pool thread on visionOS.
+#
+# The trailing `completion:` becomes `isolation:`, a defaulted
+# `isolated (any Actor)?`. The digester reports it as a parameter type change,
+# but it is source-compatible: callers never write it. It exists because
+# `AVAsset` is not `Sendable`, so a nonisolated `async` entry point could not be
+# called with an actor-isolated asset at all.
+func VideoTool.thumbnailImages(for:at:size:transfrom:timeToleranceBefore:timeToleranceAfter:completion:) has been renamed to func thumbnailImages(for:at:size:transfrom:timeToleranceBefore:timeToleranceAfter:isolation:)
+func VideoTool.thumbnailImages(for:at:size:transfrom:timeToleranceBefore:timeToleranceAfter:completion:) has parameter 6 type change from ([MediaToolSwift.VideoThumbnail]) -> Swift.Void to (any _Concurrency.Actor)?
+func VideoTool.thumbnailImages(for:at:size:transfrom:timeToleranceBefore:timeToleranceAfter:completion:) has return type change from () to [MediaToolSwift.VideoThumbnail]
+func VideoTool.thumbnailFiles(of:at:settings:transfrom:timeToleranceBefore:timeToleranceAfter:completion:) has been renamed to func thumbnailFiles(of:at:settings:transfrom:timeToleranceBefore:timeToleranceAfter:isolation:)
+func VideoTool.thumbnailFiles(of:at:settings:transfrom:timeToleranceBefore:timeToleranceAfter:completion:) has parameter 6 type change from (Swift.Result<[MediaToolSwift.VideoThumbnailFile], MediaToolSwift.CompressionError>) -> Swift.Void to (any _Concurrency.Actor)?
+func VideoTool.thumbnailFiles(of:at:settings:transfrom:timeToleranceBefore:timeToleranceAfter:completion:) has return type change from () to [MediaToolSwift.VideoThumbnailFile]
+func VideoTool.thumbnailFiles(of:at:settings:transfrom:timeToleranceBefore:timeToleranceAfter:completion:) is now throwing

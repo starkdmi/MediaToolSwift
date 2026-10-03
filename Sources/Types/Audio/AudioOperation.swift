@@ -1,7 +1,7 @@
 import Foundation
 
 /// Audio operations
-public enum AudioOperation: Equatable, Hashable {
+public enum AudioOperation: Equatable, Hashable, Sendable {
     /// Cutting
     case cut(from: Double = 0.0, to: Double = .infinity)
 

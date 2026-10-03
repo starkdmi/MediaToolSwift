@@ -1,5 +1,5 @@
 /// Video color primary
-public enum CompressionColorPrimary {
+public enum CompressionColorPrimary: Sendable {
     /// SD
     case smpteC
 

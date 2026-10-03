@@ -2,34 +2,16 @@ import AVFoundation
 
 /// Extensions on `AVAsset`
 internal extension AVAsset {
-    /// Load duration using the modern property API where available.
+    /// Load duration using the modern property API.
     func getDuration() async -> CMTime {
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            return (try? await load(.duration)) ?? .zero
-        } else {
-            #if os(visionOS)
-            return (try? await load(.duration)) ?? .zero
-            #else
-            return duration
-            #endif
-        }
+        return (try? await load(.duration)) ?? .zero
     }
 
-    /// Load tracks using newer API if possible and the deprecated one otherwise
+    /// Load tracks of a given media type
     /// - Parameter type: Media type
     /// - Returns: List of tracks or nil
     func getTracks(withMediaType type: AVMediaType) async -> [AVAssetTrack]? {
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            return try? await self.loadTracks(withMediaType: type)
-        } else {
-            // Fallback to deprecated sync API
-            #if os(visionOS)
-            // Not supported on visionOS, will never be reached
-            return try? await self.loadTracks(withMediaType: type)
-            #else
-            return self.tracks(withMediaType: type)
-            #endif
-        }
+        return try? await self.loadTracks(withMediaType: type)
     }
 
     /// Get first track shortcut
@@ -44,25 +26,11 @@ internal extension AVAsset {
     /// - Returns: List of metadata items
     func getMetadata() async -> [AVMetadataItem] {
         var metadata: [AVMetadataItem] = []
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            if let formats = try? await self.load(.availableMetadataFormats) {
-                for format in formats {
-                    if let data = try? await self.loadMetadata(for: format) {
-                        metadata.append(contentsOf: data)
-                    }
+        if let formats = try? await self.load(.availableMetadataFormats) {
+            for format in formats {
+                if let data = try? await self.loadMetadata(for: format) {
+                    metadata.append(contentsOf: data)
                 }
-            }
-        } else {
-            // Fallback on earlier versions
-            for format in self.availableMetadataFormats {
-                #if os(visionOS)
-                let data = try? await self.loadMetadata(for: format)
-                guard let data = data else { continue }
-                #else
-                let data = self.metadata(forFormat: format)
-                #endif
-
-                metadata.append(contentsOf: data)
             }
         }
         return metadata
@@ -70,16 +38,8 @@ internal extension AVAsset {
 }
 
 internal extension AVMetadataItem {
-    /// Load metadata values without using visionOS-deprecated accessors.
+    /// Load metadata values without using the deprecated synchronous accessors.
     func getValue() async -> (any NSCopying & NSObjectProtocol)? {
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            return try? await load(.value)
-        } else {
-            #if os(visionOS)
-            return try? await load(.value)
-            #else
-            return value
-            #endif
-        }
+        return try? await load(.value)
     }
 }

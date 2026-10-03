@@ -1,5 +1,5 @@
 /// Video bitrate settings
-public enum CompressionVideoBitrate: Equatable {
+public enum CompressionVideoBitrate: Equatable, Sendable {
     /// Bitrate calculated based on resolution, frame rate and codec
     case auto
 
@@ -17,7 +17,7 @@ public enum CompressionVideoBitrate: Equatable {
     case value(_ bits: Int)
 
     /// Calculate bitrate based on source bitrate value, both input and output is in bits per second
-    case dynamic((_ sourceBitrateInBits: Int) -> Int)
+    case dynamic(@Sendable (_ sourceBitrateInBits: Int) -> Int)
 
     /// Equatable conformation
     public static func == (lhs: CompressionVideoBitrate, rhs: CompressionVideoBitrate) -> Bool {

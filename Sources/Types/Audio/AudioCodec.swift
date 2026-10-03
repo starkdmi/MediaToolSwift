@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// Available audio codecs
-public enum CompressionAudioCodec: Int {
+public enum CompressionAudioCodec: Int, Sendable {
     /// Audio codec set internally by `AVAssetWriter`
     case `default` = 0
 

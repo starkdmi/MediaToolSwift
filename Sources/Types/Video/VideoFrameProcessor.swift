@@ -3,14 +3,14 @@ import CoreImage
 import Accelerate
 
 /// Video frame processors
-public enum VideoFrameProcessor: Equatable, Hashable {
+public enum VideoFrameProcessor: Equatable, Hashable, Sendable {
     /// CIImage processing function using  `CVPixelBuffer` and  `AVAssetWriterInputPixelBufferAdaptor`
     /// By returning `nil` the frame will be dropped
-    case image((_ image: CIImage, _ context: CIContext, _ time: Double) -> CIImage?)
+    case image(@Sendable (_ image: CIImage, _ context: CIContext, _ time: Double) -> CIImage?)
 
     #if !os(visionOS)
     /// CIImage processing function using  `AVVideoComposition`
-    case imageComposition((_ image: CIImage, _ context: CIContext, _ time: Double) -> CIImage)
+    case imageComposition(@Sendable (_ image: CIImage, _ context: CIContext, _ time: Double) -> CIImage)
     // case imageComposition(renderSize: CGSize? = nil, _ handler: (_ image: CIImage, _ context: CIContext, _ time: Double) -> CIImage)
     #endif
 
@@ -25,15 +25,15 @@ public enum VideoFrameProcessor: Equatable, Hashable {
     /// Pixel buffer processing function
     /// Use provided `pool` to create a new `CVPixelBuffer`
     /// By returning `nil` the frame will be dropped
-    case pixelBuffer((_ buffer: CVPixelBuffer, _ pool: CVPixelBufferPool, _ context: CIContext, _ time: Double) -> CVPixelBuffer?)
+    case pixelBuffer(@Sendable (_ buffer: CVPixelBuffer, _ pool: CVPixelBufferPool, _ context: CIContext, _ time: Double) -> CVPixelBuffer?)
 
     /// Sample processing function
     /// By returning `nil` the frame will be dropped
-    case sampleBuffer((_ buffer: CMSampleBuffer) -> CMSampleBuffer?)
+    case sampleBuffer(@Sendable (_ buffer: CMSampleBuffer) -> CMSampleBuffer?)
 
     /// Sample processing function with return of one or multiple samples
     /// By returning an empty array the frame will be dropped
-    case sampleBufferToMany((_ buffer: CMSampleBuffer) -> [CMSampleBuffer])
+    case sampleBufferToMany(@Sendable (_ buffer: CMSampleBuffer) -> [CMSampleBuffer])
 
     /// Indicator of cropping supported by processor
     internal var canCrop: Bool {

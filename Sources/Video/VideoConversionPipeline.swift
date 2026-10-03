@@ -22,9 +22,9 @@ extension VideoTool {
         overwrite: Bool = false,
         deleteSourceFile: Bool = false,
         progressQueue: DispatchQueue = .main,
-        callback: @escaping (CompressionState) -> Void
-    ) async -> CompressionTask {
-        let task = CompressionTask(destination: destination)
+        task: CompressionTask,
+        callback: @escaping @Sendable (CompressionState) -> Void
+    ) async {
         let session = VideoConversionSession(
             task: task,
             source: source,
@@ -49,13 +49,20 @@ extension VideoTool {
         } onCancel: {
             task.cancel()
         }
-        return task
     }
 }
 
 /// Owns every AVFoundation object involved in one conversion. Its state queue is
 /// the only place where readers, writers, inputs, outputs, and sample pumps are
 /// accessed after preparation completes.
+///
+/// This deliberately stays a queue-confined class rather than becoming an actor.
+/// `AVAssetWriterInput.requestMediaDataWhenReady(on:using:)` drives the pipeline
+/// from a serial `DispatchQueue`, and the same queue orders the public frame
+/// processor against terminal delivery. Backing an actor with that queue needs
+/// `DispatchSerialQueue: SerialExecutor`, which is iOS 17 / macOS 14 — above this
+/// package's floor. Hopping into an actor with `Task { await … }` instead would
+/// drop the ordering guarantee and create one task per sample callback.
 private final class VideoConversionSession: @unchecked Sendable {
     private let stateQueue = DispatchQueue(label: "MediaToolSwift.video.conversion.session")
     private let processingQueue: DispatchQueue
@@ -83,7 +90,7 @@ private final class VideoConversionSession: @unchecked Sendable {
     private let overwrite: Bool
     private let deleteSourceFile: Bool
     private let progressQueue: DispatchQueue
-    private let callbackDelivery: LegacyCallbackDelivery<CompressionState>
+    private let callbackDelivery: TerminalStateDelivery<CompressionState>
 
     private var configuration: PreparedVideoConversion?
     private var pumps: [VideoTrackPump] = []
@@ -109,7 +116,7 @@ private final class VideoConversionSession: @unchecked Sendable {
         overwrite: Bool,
         deleteSourceFile: Bool,
         progressQueue: DispatchQueue,
-        callback: @escaping (CompressionState) -> Void
+        callback: @escaping @Sendable (CompressionState) -> Void
     ) {
         let processingQueue = DispatchQueue(label: "MediaToolSwift.video.frame-processing")
         self.processingQueue = processingQueue
@@ -134,10 +141,10 @@ private final class VideoConversionSession: @unchecked Sendable {
         // serial queue is what enforces that. Only `.started` and one terminal
         // state travel this path, both at points where no frame work is pending,
         // so the sharing costs no frame-processing throughput.
-        callbackDelivery = LegacyCallbackDelivery(
+        callbackDelivery = TerminalStateDelivery(
             label: "MediaToolSwift.video.callback",
             queue: processingQueue,
-            callback: callback
+            handler: callback
         )
     }
 
@@ -777,9 +784,10 @@ private final class VideoConversionSession: @unchecked Sendable {
     }
 
     private func finishPreparation(with error: Error) {
-        let failure = VideoConversionFailure(error)
-        stateQueue.async { [weak self, failure] in
-            self?.failOnQueue(failure.error)
+        // `Error` implies `Sendable` in Swift 6, so the error crosses to the
+        // state queue without a transfer box.
+        stateQueue.async { [weak self, error] in
+            self?.failOnQueue(error)
         }
     }
 
@@ -834,14 +842,6 @@ private final class PreparedVideoConversion: @unchecked Sendable {
         self.metadata = metadata
         self.outputTransaction = outputTransaction
         self.sourceFileIdentity = sourceFileIdentity
-    }
-}
-
-private final class VideoConversionFailure: @unchecked Sendable {
-    let error: Error
-
-    init(_ error: Error) {
-        self.error = error
     }
 }
 

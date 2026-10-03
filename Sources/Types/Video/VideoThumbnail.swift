@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// Video thumbnail as `CGImage`
-public struct VideoThumbnail {
+public struct VideoThumbnail: Sendable {
     /// Thumbnail image
     public let image: CGImage
 

@@ -43,7 +43,7 @@ public struct ImageTool {
         if let sourcePathFormat = ImageFormat(source.pathExtension) {
             // Format using source path extension
             sourceFormat = sourcePathFormat
-        } else if #available(macOS 11, iOS 14, tvOS 14, *), let type = sourceType, let utType = UTType(type), let imageFormat = ImageFormat(utType) {
+        } else if let type = sourceType, let utType = UTType(type), let imageFormat = ImageFormat(utType) {
             // Format by getting image source type
             sourceFormat = imageFormat
         }
@@ -709,7 +709,7 @@ public struct ImageTool {
         if let sourcePathFormat = ImageFormat(source.pathExtension) {
             // Format using source path extension
             sourceFormat = sourcePathFormat
-        } else if #available(macOS 11, iOS 14, tvOS 14, *), let type = sourceType, let utType = UTType(type), let imageFormat = ImageFormat(utType) {
+        } else if let type = sourceType, let utType = UTType(type), let imageFormat = ImageFormat(utType) {
             // Format by getting image source type
             sourceFormat = imageFormat
         }
@@ -1305,9 +1305,7 @@ public struct ImageTool {
 
             // Add HDR gain map if present
             if let gainMap = primaryFrame.gainMap {
-                if #available(macOS 11, iOS 14.1, tvOS 14, visionOS 1, *) {
-                    optionsDict[.hdrGainMapImage] = gainMap
-                }
+                optionsDict[.hdrGainMapImage] = gainMap
             }
 
             do {
@@ -1322,14 +1320,8 @@ public struct ImageTool {
 
                     try ciContext.writeHEIFRepresentation(of: ciImage, to: url, format: pixelFormat, colorSpace: colorSpace, options: optionsDict)
                 case .heif10:
-                    if #available(macOS 12, iOS 15, tvOS 15, *) {
-                        let colorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
-                        try ciContext.writeHEIF10Representation(of: ciImage, to: url, colorSpace: colorSpace, options: optionsDict)
-                    } else {
-                        let pixelFormat = CIFormat.RGBA16
-                        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-                        try ciContext.writeHEIFRepresentation(of: ciImage, to: url, format: pixelFormat, colorSpace: colorSpace, options: optionsDict)
-                    }
+                    let colorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
+                    try ciContext.writeHEIF10Representation(of: ciImage, to: url, colorSpace: colorSpace, options: optionsDict)
                 case .png:
                     // Warning: PNG will store up to 16 bit per component
                     let colorSpace = ciImage.depth <= 8 ? getColorSpace() : CGColorSpace(name: CGColorSpace.genericRGBLinear)!
@@ -1652,7 +1644,7 @@ public struct ImageTool {
         // Image format
         var format: ImageFormat?
         let sourceType = CGImageSourceGetType(imageSource) as? String
-        if #available(macOS 11, iOS 14, tvOS 14, *), let type = sourceType, let utType = UTType(type), let imageFormat = ImageFormat(utType) {
+        if let type = sourceType, let utType = UTType(type), let imageFormat = ImageFormat(utType) {
             // Format by getting image source type
             format = imageFormat
         } else if let sourcePathFormat = ImageFormat(source.pathExtension) {
@@ -1708,7 +1700,7 @@ public struct ImageTool {
             } else if let heicsProperties = properties[kCGImagePropertyHEICSDictionary] as? [CFString: Any] {
                 delay = (heicsProperties[kCGImagePropertyHEICSUnclampedDelayTime] as? Double)
                     ?? (heicsProperties[kCGImagePropertyHEICSDelayTime] as? Double)
-            } else if #available(macOS 11, iOS 14, tvOS 14, *), let webPProperties = properties[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
+            } else if let webPProperties = properties[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
                 delay = (webPProperties[kCGImagePropertyWebPUnclampedDelayTime] as? Double)
                     ?? (webPProperties[kCGImagePropertyWebPDelayTime] as? Double)
             } else if let pngProperties = properties[kCGImagePropertyPNGDictionary] as? [CFString: Any] {

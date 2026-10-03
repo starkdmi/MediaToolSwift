@@ -12,6 +12,15 @@ import ObjCExceptionCatcher
 public struct VideoTool {
 
     /// Compress a video file.
+    ///
+    /// Returns when the conversion finishes, throwing the underlying error on
+    /// failure and `CancellationError` when the conversion is cancelled.
+    ///
+    /// Pass a `task` you created yourself to observe `progress` and
+    /// `writingProgress` while the conversion runs, or to cancel it from outside
+    /// the awaiting context. Cancelling the enclosing Swift `Task` cancels the
+    /// conversion too, so a `task` is only needed for progress reporting or for
+    /// cancellation driven by something other than task cancellation.
     public static func convert(
         source: URL,
         destination: URL,
@@ -27,8 +36,16 @@ public struct VideoTool {
         overwrite: Bool = false,
         deleteSourceFile: Bool = false,
         progressQueue: DispatchQueue = .main,
-        callback: @escaping (CompressionState) -> Void
-    ) async -> CompressionTask {
+        task: CompressionTask? = nil
+    ) async throws -> VideoInfo {
+        let task = task ?? CompressionTask(destination: destination)
+        guard task.claimForConversion(destination: destination) else {
+            throw CompressionError.taskAlreadyUsed
+        }
+        let holder = ConversionResultHolder<VideoInfo>()
+
+        // Start before suspending: the pipeline may reach a terminal state
+        // during preparation, and the holder buffers it until `attach`.
         await convertImpl(
             source: source,
             destination: destination,
@@ -44,8 +61,15 @@ public struct VideoTool {
             overwrite: overwrite,
             deleteSourceFile: deleteSourceFile,
             progressQueue: progressQueue,
-            callback: callback
+            task: task,
+            callback: { holder.deliver($0) }
         )
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { holder.attach($0) }
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     public static func getInfo(source: URL) async throws -> VideoInfo {
@@ -129,7 +153,13 @@ public struct VideoTool {
     ///     - transfrom: Apply preferred source video tranformations if `true`
     ///     - timeToleranceBefore: Time tolerance before specified time, in seconds
     ///     - timeToleranceAfter: Time tolerance after specified time, in seconds
-    ///     - completion: The completion callback with an array of thumbnail objects as images
+    /// - Returns: The generated thumbnails. Times that produced no image are omitted.
+    ///
+    /// `AVAsset` is not `Sendable`, so this method inherits the caller's
+    /// isolation instead of hopping to the generic executor. Without that, an
+    /// actor-isolated asset — the common `@MainActor` view-model case — could
+    /// not be passed in at all. The asset is only read here, and the decode
+    /// itself runs on AVFoundation's own threads.
     public static func thumbnailImages(
         for asset: AVAsset,
         at seconds: [Double],
@@ -137,8 +167,8 @@ public struct VideoTool {
         transfrom: Bool = true,
         timeToleranceBefore: Double = .infinity,
         timeToleranceAfter: Double = .infinity,
-        completion: @escaping ([VideoThumbnail]) -> Void
-    ) throws {
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> [VideoThumbnail] {
         guard size?.hasFinitePositiveDimensions ?? true,
               seconds.allSatisfy(\.isFinite),
               isValidThumbnailTolerance(timeToleranceBefore),
@@ -146,38 +176,14 @@ public struct VideoTool {
             throw CompressionError.failedToGenerateThumbnails
         }
 
-        // Get video track
-        #if os(visionOS)
-        let videoTrack = try? Sync.wait {
-            let tracks = await asset.getTracks(withMediaType: .video)
-            return tracks?.first
-        }
-        #else
-        let videoTrack = asset.tracks(withMediaType: .video).first
-        #endif
-        guard let videoTrack = videoTrack else {
+        // Get video track. The async property API is unconditional at the
+        // package's deployment targets, so every platform takes one path.
+        guard let videoTrack = await asset.getFirstTrack(withMediaType: .video) else {
             throw CompressionError.videoTrackNotFound
         }
 
-        #if os(visionOS)
-        let nominalFrameRate = (try? Sync.wait {
-            await videoTrack.getNominalFrameRate()
-        }) ?? 0
-        let videoSize = (try? Sync.wait {
-            await videoTrack.getNaturalSizeWithOrientation()
-        }) ?? .zero
-        #else
-        let nominalFrameRate = videoTrack.nominalFrameRate
-        let transform = videoTrack.preferredTransform
-        let orientation: VideoOrientation
-        if (transform.a == 0 && transform.b == 1.0 && transform.c == -1.0 && transform.d == 0) ||
-            (transform.a == 0 && transform.b == -1.0 && transform.c == 1.0 && transform.d == 0) {
-            orientation = .portrait
-        } else {
-            orientation = .landscape
-        }
-        let videoSize = videoTrack.naturalSize.oriented(orientation)
-        #endif
+        let nominalFrameRate = await videoTrack.getNominalFrameRate()
+        let videoSize = await videoTrack.getNaturalSizeWithOrientation()
 
         guard videoSize.hasFinitePositiveDimensions else {
             throw CompressionError.failedToGenerateThumbnails
@@ -246,19 +252,55 @@ public struct VideoTool {
         }
 
         guard !seconds.isEmpty else {
-            completion([])
-            return
+            return []
         }
 
         let nsSeconds = seconds.map({ NSValue(time: $0) })
-        let collector = VideoThumbnailCollector(requestedTimes: seconds, completion: completion)
-        generator.generateCGImagesAsynchronously(forTimes: nsSeconds, completionHandler: { (requestedTime, image, actualTime, _, _) in
-            collector.receive(
-                image: image,
-                requestedTime: requestedTime,
-                actualTime: actualTime.seconds
-            )
-        })
+
+        // `withTaskCancellationHandler` runs `onCancel` immediately when the
+        // task is already cancelled, which is *before* the operation body
+        // starts generating. Cancelling a generator that has no pending
+        // requests does nothing, so bail out here instead of decoding every
+        // requested time and throwing the result away afterwards.
+        try Task.checkCancellation()
+
+        // `AVAssetImageGenerator` is not `Sendable`, but the cancellation
+        // handler only calls `cancelAllCGImageGeneration()`, which AVFoundation
+        // documents as safe to call from any thread.
+        nonisolated(unsafe) let cancellableGenerator = generator
+
+        let thumbnails = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let collector = VideoThumbnailCollector(requestedTimes: seconds) { thumbnails in
+                    continuation.resume(returning: thumbnails)
+                }
+                generator.generateCGImagesAsynchronously(forTimes: nsSeconds, completionHandler: { (requestedTime, image, actualTime, _, _) in
+                    collector.receive(
+                        image: image,
+                        requestedTime: requestedTime,
+                        actualTime: actualTime.seconds
+                    )
+                })
+
+                // Cancellation landing between the check above and this line
+                // runs `onCancel` while the generator still has nothing queued,
+                // and `cancelAllCGImageGeneration()` only affects pending
+                // requests. Re-checking now that the requests exist closes that
+                // window: either this sees the flag, or `onCancel` ran late
+                // enough for its own call to reach real work.
+                if Task.isCancelled {
+                    cancellableGenerator.cancelAllCGImageGeneration()
+                }
+            }
+        } onCancel: {
+            // Cancelled requests still invoke the completion handler, so the
+            // collector completes and the continuation resumes rather than
+            // leaking.
+            cancellableGenerator.cancelAllCGImageGeneration()
+        }
+
+        try Task.checkCancellation()
+        return thumbnails
     }
 
     /// Generate multiple file thumbnails
@@ -269,7 +311,12 @@ public struct VideoTool {
     ///     - transfrom: Apply preferred source video tranformations if `true`
     ///     - timeToleranceBefore: Time tolerance before specified time, in seconds
     ///     - timeToleranceAfter: Time tolerance after specified time, in seconds
-    ///     - completion: The completion callback with array of file thumbnail objects or an error
+    /// - Returns: The written thumbnail files.
+    ///
+    /// Inherits the caller's isolation so a non-`Sendable` `AVAsset` can be
+    /// passed from an actor — see ``thumbnailImages(for:at:size:transfrom:timeToleranceBefore:timeToleranceAfter:isolation:)``.
+    /// The image editing and encoding is handed to `encodeThumbnails` so it
+    /// does not run on the caller's actor.
     public static func thumbnailFiles(
         of asset: AVAsset,
         at requests: [VideoThumbnailRequest],
@@ -277,11 +324,10 @@ public struct VideoTool {
         transfrom: Bool = true,
         timeToleranceBefore: Double = .infinity,
         timeToleranceAfter: Double = .infinity,
-        completion: @escaping (Result<[VideoThumbnailFile], CompressionError>) -> Void
-    ) {
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> [VideoThumbnailFile] {
         guard settings.hasValidGeometry else {
-            completion(.failure(.failedToGenerateThumbnails))
-            return
+            throw CompressionError.failedToGenerateThumbnails
         }
 
         var thumbSize: CGSize?
@@ -307,126 +353,156 @@ public struct VideoTool {
 
         // Request the images at specific times
         let seconds = requests.map({ $0.time })
-        let configuration = VideoThumbnailFileConfiguration(
-            requests: requests,
+        let items = try await thumbnailImages(
+            for: asset,
+            at: seconds,
+            size: thumbSize,
+            transfrom: transfrom,
+            timeToleranceBefore: timeToleranceBefore,
+            timeToleranceAfter: timeToleranceAfter
+        )
+
+        if items.isEmpty {
+            return []
+        }
+
+        return try await encodeThumbnails(
+            items,
+            for: requests,
             settings: settings,
             crop: crop,
-            shouldResize: shouldResize,
-            completion: completion
+            shouldResize: shouldResize
         )
-        do {
-            try thumbnailImages(for: asset, at: seconds, size: thumbSize, transfrom: transfrom, timeToleranceBefore: timeToleranceBefore, timeToleranceAfter: timeToleranceAfter) { items in
-                let requests = configuration.requests
-                let settings = configuration.settings
-                let crop = configuration.crop
-                let shouldResize = configuration.shouldResize
-                let completion = configuration.completion
+    }
 
-                if items.isEmpty {
-                    completion(.success([]))
-                    return
-                }
+    /// Edits and writes already-decoded thumbnails.
+    ///
+    /// Deliberately `nonisolated`: `thumbnailFiles` inherits the caller's
+    /// isolation for the sake of the non-`Sendable` `AVAsset`, and this is the
+    /// expensive part — vImage/CIImage editing plus a file write per frame.
+    /// Running it on a caller's `@MainActor` would stall their UI. Every value
+    /// crossing the hop is `Sendable`.
+    ///
+    /// `@concurrent` makes that hop explicit rather than relying on the current
+    /// default. Under the `NonisolatedNonsendingByDefault` upcoming feature — the
+    /// Swift 7 default — a plain `nonisolated async` function runs on the
+    /// caller's executor, which would silently move all of this back onto the
+    /// caller's actor. Verified both ways; the attribute is Swift 6.2+, hence
+    /// the guard.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    private static func encodeThumbnails(
+        _ items: [VideoThumbnail],
+        for requests: [VideoThumbnailRequest],
+        settings: ImageSettings,
+        crop: Crop?,
+        shouldResize: Bool
+    ) async throws -> [VideoThumbnailFile] {
+        // `CImage` variables
+        lazy var context = CIContext(options: [.highQualityDownsample: true])
+        // `vImage` variables
+        var format: vImage_CGImageFormat?
+        var tempBuffer: TemporaryBuffer?
+        var converterIn: vImageConverter?, converterOut: vImageConverter?
 
-                // `CImage` variables
-                lazy var context = CIContext(options: [.highQualityDownsample: true])
-                // `vImage` variables
-                var format: vImage_CGImageFormat?
-                var tempBuffer: TemporaryBuffer?
-                var converterIn: vImageConverter?, converterOut: vImageConverter?
+        var thumbnails: [VideoThumbnailFile] = []
+        for item in items {
+            // Outside the `do` below, which swallows encode failures with
+            // `continue` and would discard a `CancellationError` too.
+            try Task.checkCancellation()
 
-                var thumbnails: [VideoThumbnailFile] = []
-                for item in items {
-                    let index = item.requestIndex
-                    guard requests.indices.contains(index) else { continue }
-                    var image = item.image
-                    let url = requests[index].url
+            let index = item.requestIndex
+            guard requests.indices.contains(index) else { continue }
+            var image = item.image
+            let url = requests[index].url
 
-                    var ciImage: CIImage?
-                    // Warning: video thumbnails using generator are always 8 bit per component
-                    let isHDR = image.bitsPerComponent > 8 // || isHDRVideo
-                    let fallbackToCIImage = settings.preferredFramework == .ciImage || isHDR || settings.format == .heif || settings.format == .heif10
+            var ciImage: CIImage?
+            // Warning: video thumbnails using generator are always 8 bit per component
+            let isHDR = image.bitsPerComponent > 8 // || isHDRVideo
+            let fallbackToCIImage = settings.preferredFramework == .ciImage || isHDR || settings.format == .heif || settings.format == .heif10
 
-                    // Process as `CIImage`
-                    if fallbackToCIImage {
-                        // Convert to CIImage
-                        ciImage = CIImage(cgImage: image, options: [.applyOrientationProperty: false])
+            // Process as `CIImage`
+            if fallbackToCIImage {
+                // Convert to CIImage
+                ciImage = CIImage(cgImage: image, options: [.applyOrientationProperty: false])
 
-                        // Apply edits
-                        ciImage = ciImage?.edit(
-                            operations: settings.edit,
-                            size: settings.size,
-                            shouldResize: shouldResize,
-                            hasAlpha: image.hasAlpha,
-                            preserveAlpha: settings.preserveAlphaChannel,
-                            backgroundColor: settings.backgroundColor,
-                            index: index
-                        )
+                // Apply edits
+                ciImage = ciImage?.edit(
+                    operations: settings.edit,
+                    size: settings.size,
+                    shouldResize: shouldResize,
+                    hasAlpha: image.hasAlpha,
+                    preserveAlpha: settings.preserveAlphaChannel,
+                    backgroundColor: settings.backgroundColor,
+                    index: index
+                )
+            }
+
+            // Process as `CGImage` using `vImage`
+            if ciImage == nil || !fallbackToCIImage {
+                if !settings.edit.isEmpty || (!settings.preserveAlphaChannel && image.hasAlpha) || shouldResize {
+                    if format == nil {
+                        format = vImage_CGImageFormat(image)
+                        converterIn = vImageConverter.create(from: format)
+                        converterOut = vImageConverter.create(to: format)
                     }
 
-                    // Process as `CGImage` using `vImage`
-                    if ciImage == nil || !fallbackToCIImage {
-                        if !settings.edit.isEmpty || (!settings.preserveAlphaChannel && image.hasAlpha) || shouldResize {
-                            if format == nil {
-                                format = vImage_CGImageFormat(image)
-                                converterIn = vImageConverter.create(from: format)
-                                converterOut = vImageConverter.create(to: format)
-                            }
-
-                            if let edited = try? vImage.edit(
-                                image: image,
-                                operations: settings.edit,
-                                size: settings.size,
-                                shouldResize: shouldResize,
-                                hasAlpha: image.hasAlpha,
-                                preserveAlpha: settings.preserveAlphaChannel,
-                                backgroundColor: settings.backgroundColor,
-                                index: index,
-                                format: format,
-                                converterIn: converterIn,
-                                converterOut: converterOut,
-                                tempBuffer: &tempBuffer // doesn't support parallel threads, equals to `nil`
-                            ) {
-                                image = edited
-                            }
-                        } else if let options = crop {
-                            // Crop using `CGImage` to prevent conversion to `vImage` just for cropping
-                            if let cropped = image.crop(using: options) {
-                                image = cropped
-                            }
-
-                            // Convert color space for BMP images, as it doesn't support some video codec color spaces
-                            if settings.format == .bmp,
-                                let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-                                let converted = image.convertColorSpace(to: colorSpace) {
-                                image = converted
-                            }
-                        }
+                    if let edited = try? vImage.edit(
+                        image: image,
+                        operations: settings.edit,
+                        size: settings.size,
+                        shouldResize: shouldResize,
+                        hasAlpha: image.hasAlpha,
+                        preserveAlpha: settings.preserveAlphaChannel,
+                        backgroundColor: settings.backgroundColor,
+                        index: index,
+                        format: format,
+                        converterIn: converterIn,
+                        converterOut: converterOut,
+                        tempBuffer: &tempBuffer // doesn't support parallel threads, equals to `nil`
+                    ) {
+                        image = edited
+                    }
+                } else if let options = crop {
+                    // Crop using `CGImage` to prevent conversion to `vImage` just for cropping
+                    if let cropped = image.crop(using: options) {
+                        image = cropped
                     }
 
-                    do {
-                        // Image editing reuses the vImage conversion state above, so
-                        // encode sequentially rather than sharing it across queues.
-                        let frames = [ImageFrame(cgImage: image, ciImage: ciImage)]
-                        try ImageTool.encode(frames, at: url, settings: settings)
-
-                        let size = ciImage?.extent.size ?? image.size
-                        thumbnails.append(VideoThumbnailFile(url: url, format: settings.format, size: size, time: item.actualTime))
-                    } catch {
-                        continue
+                    // Convert color space for BMP images, as it doesn't support some video codec color spaces
+                    if settings.format == .bmp,
+                        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+                        let converted = image.convertColorSpace(to: colorSpace) {
+                        image = converted
                     }
-                }
-
-                if thumbnails.isEmpty {
-                    completion(.failure(CompressionError.failedToGenerateThumbnails))
-                } else {
-                    completion(.success(thumbnails))
                 }
             }
-        } catch let error as CompressionError {
-            completion(.failure(error))
-        } catch {
-            completion(.failure(CompressionError.failedToGenerateThumbnails))
+
+            do {
+                // Image editing reuses the vImage conversion state above, so
+                // encode sequentially rather than sharing it across queues.
+                let frames = [ImageFrame(cgImage: image, ciImage: ciImage)]
+                try ImageTool.encode(frames, at: url, settings: settings)
+
+                let size = ciImage?.extent.size ?? image.size
+                thumbnails.append(VideoThumbnailFile(url: url, format: settings.format, size: size, time: item.actualTime))
+            } catch {
+                continue
+            }
         }
+
+        // The loop checks before each frame, and there is no frame after the
+        // last one, so cancellation arriving while the final image is being
+        // edited or written would otherwise be reported as success. Checked
+        // ahead of the emptiness guard as well, so a cancelled run cannot
+        // surface as a generation failure.
+        try Task.checkCancellation()
+
+        guard !thumbnails.isEmpty else {
+            throw CompressionError.failedToGenerateThumbnails
+        }
+        return thumbnails
     }
 }
 
@@ -438,43 +514,17 @@ private func thumbnailToleranceFits(_ value: Double, maximumSeconds: Double) -> 
     value == .infinity || value <= maximumSeconds
 }
 
-/// Immutable handoff used by the asynchronous thumbnail generator. The image
-/// settings can contain Core Graphics values and a custom processor closure, so
-/// the entire snapshot is transferred as one value and consumed by exactly one
-/// generator completion.
-private final class VideoThumbnailFileConfiguration: @unchecked Sendable {
-    let requests: [VideoThumbnailRequest]
-    let settings: ImageSettings
-    let crop: Crop?
-    let shouldResize: Bool
-    let completion: (Result<[VideoThumbnailFile], CompressionError>) -> Void
-
-    init(
-        requests: [VideoThumbnailRequest],
-        settings: ImageSettings,
-        crop: Crop?,
-        shouldResize: Bool,
-        completion: @escaping (Result<[VideoThumbnailFile], CompressionError>) -> Void
-    ) {
-        self.requests = requests
-        self.settings = settings
-        self.crop = crop
-        self.shouldResize = shouldResize
-        self.completion = completion
-    }
-}
-
 /// Synchronizes callbacks from `AVAssetImageGenerator`.
 internal final class VideoThumbnailCollector: @unchecked Sendable {
     private let lock = NSLock()
     private let requestedTimes: [CMTime]
-    private let completion: ([VideoThumbnail]) -> Void
+    private let completion: @Sendable ([VideoThumbnail]) -> Void
     private var remainingCount: Int
     private var received: [Bool]
     private var thumbnails: [VideoThumbnail?]
     private var completed = false
 
-    init(requestedTimes: [CMTime], completion: @escaping ([VideoThumbnail]) -> Void) {
+    init(requestedTimes: [CMTime], completion: @escaping @Sendable ([VideoThumbnail]) -> Void) {
         self.requestedTimes = requestedTimes
         remainingCount = requestedTimes.count
         received = Array(repeating: false, count: requestedTimes.count)

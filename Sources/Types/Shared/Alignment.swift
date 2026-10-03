@@ -1,5 +1,5 @@
 /// Custom Alignment class to use instead of crossplatform SwiftUI.Alignment
-public enum Alignment {
+public enum Alignment: Sendable {
     case center
     case topLeading
     case top

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Image framework
-public enum ImageFramework {
+public enum ImageFramework: Sendable {
     /// Accelerate
     case vImage
 

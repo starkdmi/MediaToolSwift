@@ -1,5 +1,5 @@
 /// Hardware acceleration 
-public enum CompressionHardwareAcceleration {
+public enum CompressionHardwareAcceleration: Sendable {
   /// Automatically, Hardware accelerated video encoder used if available
   case auto
 

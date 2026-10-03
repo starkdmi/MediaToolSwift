@@ -2,69 +2,29 @@ import AVFoundation
 
 /// Extensions on `AVAssetTrack`
 internal extension AVAssetTrack {
-    /// Load format descriptions using the modern property API where available.
+    /// Load format descriptions using the modern property API.
     func getFormatDescriptions() async -> [CMFormatDescription] {
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            return (try? await load(.formatDescriptions)) ?? []
-        } else {
-            #if os(visionOS)
-            return (try? await load(.formatDescriptions)) ?? []
-            #else
-            return formatDescriptions as! [CMFormatDescription] // swiftlint:disable:this force_cast
-            #endif
-        }
+        return (try? await load(.formatDescriptions)) ?? []
     }
 
-    /// Load estimated data rate using the modern property API where available.
+    /// Load estimated data rate using the modern property API.
     func getEstimatedDataRate() async -> Float {
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            return (try? await load(.estimatedDataRate)) ?? 0
-        } else {
-            #if os(visionOS)
-            return (try? await load(.estimatedDataRate)) ?? 0
-            #else
-            return estimatedDataRate
-            #endif
-        }
+        return (try? await load(.estimatedDataRate)) ?? 0
     }
 
-    /// Load nominal frame rate using the modern property API where available.
+    /// Load nominal frame rate using the modern property API.
     func getNominalFrameRate() async -> Float {
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            return (try? await load(.nominalFrameRate)) ?? 0
-        } else {
-            #if os(visionOS)
-            return (try? await load(.nominalFrameRate)) ?? 0
-            #else
-            return nominalFrameRate
-            #endif
-        }
+        return (try? await load(.nominalFrameRate)) ?? 0
     }
 
-    /// Load natural size using the modern property API where available.
+    /// Load natural size using the modern property API.
     func getNaturalSize() async -> CGSize {
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            return (try? await load(.naturalSize)) ?? .zero
-        } else {
-            #if os(visionOS)
-            return (try? await load(.naturalSize)) ?? .zero
-            #else
-            return naturalSize
-            #endif
-        }
+        return (try? await load(.naturalSize)) ?? .zero
     }
 
-    /// Load preferred transform using the modern property API where available.
+    /// Load preferred transform using the modern property API.
     func getPreferredTransform() async -> CGAffineTransform {
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            return (try? await load(.preferredTransform)) ?? .identity
-        } else {
-            #if os(visionOS)
-            return (try? await load(.preferredTransform)) ?? .identity
-            #else
-            return preferredTransform
-            #endif
-        }
+        return (try? await load(.preferredTransform)) ?? .identity
     }
 
     /// Apply fixes to the rotations or flips.
@@ -125,16 +85,8 @@ internal extension AVAssetTrack {
     func getVideoTimeScale() async -> CMTimeScale {
         guard self.mediaType == .video else { return .zero }
 
-        if #available(macOS 12, iOS 15, tvOS 15, visionOS 1, *) {
-            let scale = try? await self.load(.naturalTimeScale)
-            return scale ?? .zero
-        } else {
-            #if os(visionOS)
-            return (try? await self.load(.naturalTimeScale)) ?? .zero
-            #else
-            return self.naturalTimeScale
-            #endif
-        }
+        let scale = try? await self.load(.naturalTimeScale)
+        return scale ?? .zero
     }
 
     /// Estimated data rate rounded to integer

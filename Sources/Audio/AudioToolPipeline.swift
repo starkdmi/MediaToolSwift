@@ -144,9 +144,9 @@ extension AudioTool {
         overwrite: Bool = false,
         deleteSourceFile: Bool = false,
         progressQueue: DispatchQueue = .main,
-        callback: @escaping (CompressionState) -> Void
-    ) async -> CompressionTask {
-        let task = CompressionTask(destination: destination)
+        task: CompressionTask,
+        callback: @escaping @Sendable (CompressionState) -> Void
+    ) async {
         let request = AudioConversionRequest(
             source: source,
             destination: destination,
@@ -168,6 +168,5 @@ extension AudioTool {
         } onCancel: {
             task.cancel()
         }
-        return task
     }
 }

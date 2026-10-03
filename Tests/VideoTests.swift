@@ -697,25 +697,21 @@ class MediaToolSwiftTests: XCTestCase {
 
     #if os(macOS)
     func testImageThumbnails() async throws {
-        let expectation = XCTestExpectation(description: "Test Video Image Thumbnails")
         let source = try fixture("chromecast.mp4")
         let asset = AVAsset(url: source)
 
-        let thumbnails = LockedValue<[VideoThumbnail]>([])
-        try VideoTool.thumbnailImages(for: asset, at: [4.1], size: CGSize(width: 256, height: 256)) { items in
-            thumbnails.withValue { $0.append(contentsOf: items) }
-            Self.fulfill(expectation)
-        }
+        let thumbnails = try await VideoTool.thumbnailImages(
+            for: asset,
+            at: [4.1],
+            size: CGSize(width: 256, height: 256)
+        )
 
-        await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
-
-        XCTAssertFalse(thumbnails.read().isEmpty, "Empty thumbnails array")
+        XCTAssertFalse(thumbnails.isEmpty, "Empty thumbnails array")
     }
     #endif
 
     #if os(macOS)
     func testFileThumbnails() async throws {
-        let expectation = XCTestExpectation(description: "Test Video File Thumbnails")
         let thumbnailsDirectory = try makeOutputDirectory(named: "thumbnails")
 
         let source = try fixture("chromecast.mp4")
@@ -726,8 +722,7 @@ class MediaToolSwiftTests: XCTestCase {
         ]
         let asset = AVAsset(url: source)
 
-        let resultError = LockedValue<Error?>(nil)
-        VideoTool.thumbnailFiles(
+        _ = try await VideoTool.thumbnailFiles(
             of: asset,
             at: [
                 .init(time: 1.0, url: destinations[0]),
@@ -735,21 +730,8 @@ class MediaToolSwiftTests: XCTestCase {
                 .init(time: 7.5, url: destinations[2])
             ],
             settings: ImageSettings(format: .jpeg)
-        ) { result in
-            switch result {
-            case .failure(let err):
-                resultError.set(err)
-            case .success(_):
-                break
-            }
-            Self.fulfill(expectation)
-        }
+        )
 
-        await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
-
-        if let error = resultError.read() {
-            throw error
-        }
         for destination in destinations {
             XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path), "Missing thumbnail: \(destination.lastPathComponent)")
         }
@@ -776,11 +758,8 @@ class MediaToolSwiftTests: XCTestCase {
             .ico: ".ico"
         ]
 
-        var expectations: [XCTestExpectation] = []
         for (format, ext) in formats {
             let imageUrl = thumbnailsDirectory.appendingPathComponent("thumb\(ext)")
-            let expectation = XCTestExpectation(description: "Thumbnail \(imageUrl.lastPathComponent)")
-            expectations.append(expectation)
 
             let settings = ImageSettings(
                 format: format,
@@ -800,18 +779,18 @@ class MediaToolSwiftTests: XCTestCase {
                 ]
             )
 
-            VideoTool.thumbnailFiles(of: asset, at: [.init(time: 4.1, url: imageUrl)], settings: settings, timeToleranceBefore: .zero, timeToleranceAfter: .zero, completion: { result in
-                switch result {
-                case .success(_):
-                    break
-                case .failure(let error):
-                    XCTFail("Thumbnail generation failed for \(imageUrl.lastPathComponent): \(error)")
-                }
-                Self.fulfill(expectation)
-            })
+            do {
+                _ = try await VideoTool.thumbnailFiles(
+                    of: asset,
+                    at: [.init(time: 4.1, url: imageUrl)],
+                    settings: settings,
+                    timeToleranceBefore: .zero,
+                    timeToleranceAfter: .zero
+                )
+            } catch {
+                XCTFail("Thumbnail generation failed for \(imageUrl.lastPathComponent): \(error)")
+            }
         }
-
-        await fulfillment(of: expectations, timeout: 30 + osAdditionalTimeout)
 
         // Check files exists
         for (_, ext) in formats {
@@ -848,7 +827,6 @@ class MediaToolSwiftTests: XCTestCase {
         typealias Color = UIColor
         #endif
 
-        let expectation = XCTestExpectation(description: "Image Processing Example")
         let source = try extendedFixture("oludeniz.MOV")
         let overlayImageURL = try fixture("starkdev.png")
         let destination = try outputURL("image_processor_oludeniz.MOV")
@@ -1078,7 +1056,7 @@ class MediaToolSwiftTests: XCTestCase {
         @Sendable func dispose() {
             // tempPixelBuffer = nil
         }
-        _ = await VideoTool.convert(
+        _ = try await VideoTool.convert(
             source: source,
             destination: destination,
             fileType: .mov,
@@ -1146,26 +1124,10 @@ class MediaToolSwiftTests: XCTestCase {
                 ]
             ),
             skipAudio: true,
-            overwrite: true,
-            callback: { state in
-                switch state {
-                case .completed:
-                    dispose()
-                    Self.fulfill(expectation)
-                case .failed(let error):
-                    dispose()
-                    XCTFail(error.localizedDescription)
-                    Self.fulfill(expectation)
-                case .cancelled:
-                    dispose()
-                    XCTFail("Image processing conversion was cancelled unexpectedly")
-                    Self.fulfill(expectation)
-                default:
-                    break
-            }
-        })
+            overwrite: true
+        )
+        dispose()
 
-        await fulfillment(of: [expectation], timeout: 30 + osAdditionalTimeout)
         XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
     }
     #endif
@@ -1173,79 +1135,77 @@ class MediaToolSwiftTests: XCTestCase {
     func testVideos() async throws {
         let testConfigurations = configurations
         XCTAssertFalse(testConfigurations.isEmpty, "Default video smoke suite must contain checked-in fixtures")
-        var expectations: [XCTestExpectation] = []
 
-        for file in testConfigurations {
-            let source = try fixture(file.filename)
-
-            #if targetEnvironment(simulator) && !os(visionOS)
-            // ProRes is not available in simulators
-            /*ProRes Decoding & Encoding:
-                MacBook Air M2
-                MacBook Pro M1 Pro, Max, M2
-                iPhone 13 Pro, Pro Max
-                iPhone 14 Pro, Pro Max
-                iPad Pro (12.9-inch, 5th generation)
-                iPad Pro (11-inch, 3rd generation)
-                iPad Air (5th generation)
-
-            ProRes Decoding (Bionic A15+):
-                iPhone 13, Mini, Pro, Pro Max
-                iPhone 14, Plus
-                iPhone SE (3rd generation)
-                iPad Mini (6th generation)
-                Apple TV 4K
-            */
-            if file.input.videoCodec == .proRes4444 {
-                continue
-            }
-            #endif
-
-            #if os(tvOS)
-            // Apple TV doesn't support HEVC with alpha channel decoding
-            if file.input.videoCodec == .hevcWithAlpha {
-                continue
-            }
-            #endif
-
-            for config in file.configs {
-                let destination = try outputURL(config.output.filename)
-                let expectation = XCTestExpectation(description: "Video processing")
-                let inputFilename = file.filename
-                let outputFilename = config.output.filename
+        // A task group keeps the conversions overlapping the way the callback
+        // API did; awaiting each `convert` in turn would serialize the suite.
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for file in testConfigurations {
+                let source = try fixture(file.filename)
 
                 #if targetEnvironment(simulator) && !os(visionOS)
-                if config.videoSettings.codec == .proRes4444 {
+                // ProRes is not available in simulators
+                /*ProRes Decoding & Encoding:
+                    MacBook Air M2
+                    MacBook Pro M1 Pro, Max, M2
+                    iPhone 13 Pro, Pro Max
+                    iPhone 14 Pro, Pro Max
+                    iPad Pro (12.9-inch, 5th generation)
+                    iPad Pro (11-inch, 3rd generation)
+                    iPad Air (5th generation)
+
+                ProRes Decoding (Bionic A15+):
+                    iPhone 13, Mini, Pro, Pro Max
+                    iPhone 14, Plus
+                    iPhone SE (3rd generation)
+                    iPad Mini (6th generation)
+                    Apple TV 4K
+                */
+                if file.input.videoCodec == .proRes4444 {
                     continue
                 }
                 #endif
 
-                _ = await VideoTool.convert(
-                    source: source,
-                    destination: destination,
-                    fileType: config.output.fileType,
-                    videoSettings: config.videoSettings,
-                    audioSettings: nil,
-                    overwrite: true,
-                    callback: { state in
-                        switch state {
-                        case .completed:
-                            Self.fulfill(expectation)
-                        case .failed(let error):
-                            XCTFail("\(error.localizedDescription) while compressing \(inputFilename)->\(outputFilename)")
-                            Self.fulfill(expectation)
-                        case .cancelled:
-                            XCTFail("Conversion was cancelled unexpectedly while compressing \(inputFilename)->\(outputFilename)")
-                            Self.fulfill(expectation)
-                        default:
-                            break
-                        }
-                })
-                expectations.append(expectation)
-            }
-        }
+                #if os(tvOS)
+                // Apple TV doesn't support HEVC with alpha channel decoding
+                if file.input.videoCodec == .hevcWithAlpha {
+                    continue
+                }
+                #endif
 
-        await fulfillment(of: expectations, timeout: 30 + osAdditionalTimeout * Double(expectations.count))
+                for config in file.configs {
+                    let destination = try outputURL(config.output.filename)
+                    let inputFilename = file.filename
+                    let outputFilename = config.output.filename
+
+                    #if targetEnvironment(simulator) && !os(visionOS)
+                    if config.videoSettings.codec == .proRes4444 {
+                        continue
+                    }
+                    #endif
+
+                    let fileType = config.output.fileType
+                    let videoSettings = config.videoSettings
+                    group.addTask {
+                        do {
+                            _ = try await VideoTool.convert(
+                                source: source,
+                                destination: destination,
+                                fileType: fileType,
+                                videoSettings: videoSettings,
+                                audioSettings: nil,
+                                overwrite: true
+                            )
+                        } catch is CancellationError {
+                            XCTFail("Conversion was cancelled unexpectedly while compressing \(inputFilename)->\(outputFilename)")
+                        } catch {
+                            XCTFail("\(error.localizedDescription) while compressing \(inputFilename)->\(outputFilename)")
+                        }
+                    }
+                }
+            }
+
+            try await group.waitForAll()
+        }
 
         for file in testConfigurations {
             #if targetEnvironment(simulator) && !os(visionOS)
@@ -1370,8 +1330,6 @@ class MediaToolSwiftTests: XCTestCase {
     }
 
     func testMetadata() async throws {
-        var expectations: [XCTestExpectation] = []
-
         let source = try fixture("oludeniz.MOV")
 
         let metadataItem = AVMutableMetadataItem()
@@ -1384,90 +1342,54 @@ class MediaToolSwiftTests: XCTestCase {
 
         // Add custom metadata, check existing for correctness
         let destinationOne = try outputURL("exported_oludeniz_metadata.mov")
-        let expectationOne = XCTestExpectation(description: "Compression & metadata")
-        expectations.append(expectationOne)
-        _ = await VideoTool.convert(
+        _ = try await VideoTool.convert(
             source: source,
             destination: destinationOne,
             skipAudio: true,
             customMetadata: customMetadata,
-            overwrite: true,
-            callback: { state in
-                switch state {
-                case .completed:
-                    Task {
-                        let asset = AVAsset(url: destinationOne)
+            overwrite: true
+        )
 
-                        // Timed metadata track exists
-                        let metadataTrack = await asset.getFirstTrack(withMediaType: .metadata)
-                        XCTAssert(metadataTrack != nil)
+        let assetOne = AVAsset(url: destinationOne)
 
-                        // Container metadata
-                        let metadata = await asset.getMetadata()
-                        XCTAssertEqual(metadata.count, 7)
-                        for data in metadata {
-                            let key = data.key as! String
-                            let metadataValue = try await data.testValue()
-                            let value = metadataValue as! String
-                            if key == "com.apple.quicktime.model" {
-                                XCTAssertEqual(value, "iPhone 13")
-                            } else if key == "com.apple.quicktime.displayname" {
-                                XCTAssertEqual(value, "Custom Title")
-                            }
-                        }
+        // Timed metadata track exists
+        let metadataTrack = await assetOne.getFirstTrack(withMediaType: .metadata)
+        XCTAssert(metadataTrack != nil)
 
-                        Self.fulfill(expectationOne)
-                    }
-                case .failed(let error):
-                    XCTFail(error.localizedDescription)
-                    Self.fulfill(expectationOne)
-                case .cancelled:
-                    XCTFail("Metadata conversion was cancelled unexpectedly")
-                    Self.fulfill(expectationOne)
-                default:
-                    break
+        // Container metadata
+        let metadata = await assetOne.getMetadata()
+        XCTAssertEqual(metadata.count, 7)
+        for data in metadata {
+            let key = data.key as! String
+            let metadataValue = try await data.testValue()
+            let value = metadataValue as! String
+            if key == "com.apple.quicktime.model" {
+                XCTAssertEqual(value, "iPhone 13")
+            } else if key == "com.apple.quicktime.displayname" {
+                XCTAssertEqual(value, "Custom Title")
             }
-        })
+        }
 
         // Test no metadata saved
         let destinationTwo = try outputURL("exported_oludeniz_no_metadata.mov")
-        let expectationTwo = XCTestExpectation(description: "Compression & no metadata")
-        expectations.append(expectationTwo)
-        _ = await VideoTool.convert(
+        _ = try await VideoTool.convert(
             source: source,
             destination: destinationTwo,
             skipAudio: true,
             skipSourceMetadata: true,
             copyExtendedFileMetadata: false,
-            overwrite: true,
-            callback: { state in
-                switch state {
-                case .completed:
-                    Task {
-                        let asset = AVAsset(url: destinationTwo)
+            overwrite: true
+        )
 
-                        // Check timed metadata track obsence
-                        let metadataTrack = await asset.getFirstTrack(withMediaType: .metadata)
-                        XCTAssertEqual(metadataTrack, nil)
+        let assetTwo = AVAsset(url: destinationTwo)
 
-                        // Empty container metadata
-                        let metadata = await asset.getMetadata()
-                        XCTAssertEqual(metadata.count, 0)
+        // Check timed metadata track obsence
+        let strippedTrack = await assetTwo.getFirstTrack(withMediaType: .metadata)
+        XCTAssertEqual(strippedTrack, nil)
 
-                        Self.fulfill(expectationTwo)
-                    }
-                case .failed(let error):
-                    XCTFail(error.localizedDescription)
-                    Self.fulfill(expectationTwo)
-                case .cancelled:
-                    XCTFail("Metadata-stripping conversion was cancelled unexpectedly")
-                    Self.fulfill(expectationTwo)
-                default:
-                    break
-            }
-        })
-
-        await fulfillment(of: expectations, timeout: 20 + osAdditionalTimeout)
+        // Empty container metadata
+        let strippedMetadata = await assetTwo.getMetadata()
+        XCTAssertEqual(strippedMetadata.count, 0)
     }
 
     func testExtendedFileMetadata() async throws {
@@ -1476,23 +1398,13 @@ class MediaToolSwiftTests: XCTestCase {
         try addExtendedFileMetadata(to: source)
 
         let copiedDestination = try outputURL("exported_oludeniz_extended_metadata.mov")
-        let copiedTerminal = expectation(description: "Extended metadata copied")
-        let copiedState = LockedValue<CompressionState?>(nil)
-        _ = await VideoTool.convert(
+        _ = try await VideoTool.convert(
             source: source,
             destination: copiedDestination,
             skipAudio: true,
             copyExtendedFileMetadata: true,
             overwrite: true
-        ) { state in
-            guard state != .started else { return }
-            copiedState.set(state)
-            copiedTerminal.fulfill()
-        }
-        await fulfillment(of: [copiedTerminal], timeout: 20 + osAdditionalTimeout)
-        guard case .completed = copiedState.read() else {
-            return XCTFail("Extended-metadata conversion failed: \(String(describing: copiedState.read()))")
-        }
+        )
 
         let copiedAttributes = try FileManager.default.attributesOfItem(atPath: copiedDestination.path)
         let copiedExtendedAttributes = try XCTUnwrap(
@@ -1520,23 +1432,13 @@ class MediaToolSwiftTests: XCTestCase {
         XCTAssertEqual(String(data: originalFilenameData, encoding: .utf8), "IMG_3754.MOV")
 
         let strippedDestination = try outputURL("exported_oludeniz_stripped_extended_metadata.mov")
-        let strippedTerminal = expectation(description: "Extended metadata stripped")
-        let strippedState = LockedValue<CompressionState?>(nil)
-        _ = await VideoTool.convert(
+        _ = try await VideoTool.convert(
             source: source,
             destination: strippedDestination,
             skipAudio: true,
             copyExtendedFileMetadata: false,
             overwrite: true
-        ) { state in
-            guard state != .started else { return }
-            strippedState.set(state)
-            strippedTerminal.fulfill()
-        }
-        await fulfillment(of: [strippedTerminal], timeout: 20 + osAdditionalTimeout)
-        guard case .completed = strippedState.read() else {
-            return XCTFail("Metadata-stripping conversion failed: \(String(describing: strippedState.read()))")
-        }
+        )
 
         let strippedAttributes = try FileManager.default.attributesOfItem(atPath: strippedDestination.path)
         let strippedExtendedAttributes = NSDictionary(dictionary: strippedAttributes)["NSFileExtendedAttributes"] as? [String: Any]
@@ -1549,9 +1451,9 @@ class MediaToolSwiftTests: XCTestCase {
         let source = try fixture("oludeniz.MOV")
 
         let destination = try outputURL("exported_oludeniz_cancel.mov")
-        let expectation = XCTestExpectation(description: "Compression & cancellation")
-        let status = LockedValue<CompressionState?>(nil)
-        let task = await VideoTool.convert(
+        let task = CompressionTask(destination: destination)
+
+        async let conversion: VideoInfo = VideoTool.convert(
             source: source,
             destination: destination,
             videoSettings: CompressionVideoSettings(
@@ -1561,35 +1463,62 @@ class MediaToolSwiftTests: XCTestCase {
             skipAudio: true,
             overwrite: true,
             deleteSourceFile: false,
-            callback: { state in
-                status.set(state)
-                switch state {
-                case .cancelled:
-                    Self.fulfill(expectation)
-                case .completed:
-                    XCTFail("Cancellation test completed before cancellation was observed")
-                    Self.fulfill(expectation)
-                case .failed(let error):
-                    XCTFail(error.localizedDescription)
-                    Self.fulfill(expectation)
-                default:
-                    break
-                }
-        })
+            task: task
+        )
 
-        // Cancel immediately after the public task becomes controllable. The
-        // fixture is intentionally short enough that a fixed delay can race a
-        // valid completion on fast machines.
+        // Cancel through the caller-supplied task. The fixture is intentionally
+        // short enough that a fixed delay could race a valid completion, so the
+        // request goes in immediately; a conversion cancelled before it starts
+        // must still report cancellation.
         task.cancel()
 
-        await fulfillment(of: [expectation], timeout: 20)
+        do {
+            _ = try await conversion
+            XCTFail("Cancellation test completed before cancellation was observed")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail(error.localizedDescription)
+        }
 
-        // Check the state
-        XCTAssertEqual(status.read(), .cancelled)
+        XCTAssertTrue(task.isCancelled)
 
         // Check no files created
         let exists = FileManager.default.fileExists(atPath: destination.path)
         XCTAssertEqual(exists, false)
+    }
+
+    /// The 2.0 counterpart of `testCancellation`: cancelling the enclosing Swift
+    /// `Task` must reach the conversion through `withTaskCancellationHandler`,
+    /// with no `CompressionTask` involved.
+    func testCancellationThroughEnclosingTask() async throws {
+        let source = try fixture("oludeniz.MOV")
+        let destination = try outputURL("exported_oludeniz_task_cancel.mov")
+
+        let conversion = Task {
+            try await VideoTool.convert(
+                source: source,
+                destination: destination,
+                videoSettings: CompressionVideoSettings(
+                    codec: .hevc,
+                    bitrate: .encoder
+                ),
+                skipAudio: true,
+                overwrite: true
+            )
+        }
+        conversion.cancel()
+
+        do {
+            _ = try await conversion.value
+            XCTFail("Conversion completed before task cancellation was observed")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail(error.localizedDescription)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
     func testFileOptions() async throws {
@@ -1597,52 +1526,29 @@ class MediaToolSwiftTests: XCTestCase {
         let destinationOne = try outputURL("exported_oludeniz_overwrite.mov")
         try FileManager.default.copyItem(at: sourceOne, to: destinationOne)
 
-        let overwriteExpectation = XCTestExpectation(description: "Compression rejects an existing destination")
-        let overwriteError = LockedValue<CompressionError?>(nil)
-        _ = await VideoTool.convert(
-            source: sourceOne,
-            destination: destinationOne,
-            overwrite: false,
-            callback: { state in
-                switch state {
-                case .failed(let error):
-                    overwriteError.set(error as? CompressionError)
-                    Self.fulfill(overwriteExpectation)
-                case .completed, .cancelled:
-                    XCTFail("Overwrite=false conversion reached an unexpected terminal state: \(state)")
-                    Self.fulfill(overwriteExpectation)
-                case .started:
-                    break
-                }
-        })
-        await fulfillment(of: [overwriteExpectation], timeout: 10 + osAdditionalTimeout)
-        XCTAssertEqual(overwriteError.read(), .destinationFileExists)
+        do {
+            _ = try await VideoTool.convert(
+                source: sourceOne,
+                destination: destinationOne,
+                overwrite: false
+            )
+            XCTFail("Overwrite=false conversion unexpectedly succeeded")
+        } catch let error as CompressionError {
+            XCTAssertEqual(error, .destinationFileExists)
+        } catch {
+            XCTFail("Overwrite=false conversion reached an unexpected terminal state: \(error)")
+        }
 
         let sourceTwo = try outputURL("oludeniz.MOV")
         try FileManager.default.copyItem(at: sourceOne, to: sourceTwo)
         let destinationTwo = try outputURL("exported_oludeniz_delete.mov")
-        let deleteExpectation = XCTestExpectation(description: "Compression deletes source on success")
-        _ = await VideoTool.convert(
+        _ = try await VideoTool.convert(
             source: sourceTwo,
             destination: destinationTwo,
             skipAudio: true,
             overwrite: true,
-            deleteSourceFile: true,
-            callback: { state in
-                switch state {
-                case .completed:
-                    Self.fulfill(deleteExpectation)
-                case .failed(let error):
-                    XCTFail(error.localizedDescription)
-                    Self.fulfill(deleteExpectation)
-                case .cancelled:
-                    XCTFail("Delete-source conversion was cancelled unexpectedly")
-                    Self.fulfill(deleteExpectation)
-                case .started:
-                    break
-                }
-        })
-        await fulfillment(of: [deleteExpectation], timeout: 10 + osAdditionalTimeout)
+            deleteSourceFile: true
+        )
         XCTAssertFalse(FileManager.default.fileExists(atPath: sourceTwo.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: destinationTwo.path))
     }
@@ -1714,30 +1620,14 @@ class MediaToolSwiftTests: XCTestCase {
         let source = try fixture(filename)
 
         let destination = try outputURL("exported_\(filename)_\(uid)_audio.mov")
-        let expectation = XCTestExpectation(description: "Compression & Audio")
-        _ = await VideoTool.convert(
+        _ = try await VideoTool.convert(
             source: source,
             destination: destination,
             videoSettings: CompressionVideoSettings(bitrate: .value(1_000_000)),
             skipAudio: skipAudio,
             audioSettings: settings,
-            overwrite: true,
-            callback: { state in
-                switch state {
-                case .completed:
-                    Self.fulfill(expectation)
-                case .failed(let error):
-                    XCTFail(error.localizedDescription)
-                    Self.fulfill(expectation)
-                case .cancelled:
-                    XCTFail("Audio conversion was cancelled unexpectedly")
-                    Self.fulfill(expectation)
-                default:
-                    break
-                }
-        })
-
-        await fulfillment(of: [expectation], timeout: 10 + osAdditionalTimeout)
+            overwrite: true
+        )
 
         // Compare resulting file with provided data
         let asset = AVAsset(url: destination)

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Cropping interface
-public struct Crop: Equatable, Hashable {
+public struct Crop: Equatable, Hashable, Sendable {
     private var size: CGSize?
     private var alignment: Alignment?
     private var rect: CGRect?

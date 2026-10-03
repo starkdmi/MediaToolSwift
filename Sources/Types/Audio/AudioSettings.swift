@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// All-in-one audio settings
-public struct CompressionAudioSettings {
+public struct CompressionAudioSettings: Sendable {
     /// Public initializer with default settings
     public init(
         codec: CompressionAudioCodec = .default,

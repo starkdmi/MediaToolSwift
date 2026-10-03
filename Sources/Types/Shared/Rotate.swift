@@ -1,5 +1,5 @@
 /// Rotation enumeration
-public enum Rotate: Equatable, Hashable {
+public enum Rotate: Equatable, Hashable, Sendable {
     /// Rotate in a rightward direction
     case clockwise
 

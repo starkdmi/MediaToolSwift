@@ -8,9 +8,9 @@ import ObjCExceptionCatcher
 
 /// The immutable request data retained by a single audio conversion.
 ///
-/// This type intentionally remains internal. `AVMetadataItem` and the legacy callback
-/// are not safe general-purpose concurrency values, so they are kept within the
-/// serial conversion session rather than being published as `Sendable` data.
+/// This type intentionally remains internal. `AVMetadataItem` is not a safe
+/// general-purpose concurrency value, so it is kept within the serial conversion
+/// session rather than being published as `Sendable` data.
 internal struct AudioConversionRequest {
     let source: URL
     let destination: URL
@@ -24,7 +24,7 @@ internal struct AudioConversionRequest {
     let overwrite: Bool
     let deleteSourceFile: Bool
     let progressQueue: DispatchQueue
-    let callback: (CompressionState) -> Void
+    let callback: @Sendable (CompressionState) -> Void
 }
 
 private struct AudioProgressSnapshot {
@@ -101,6 +101,10 @@ private final class AudioProgressDelivery: @unchecked Sendable {
 /// `@unchecked Sendable` solely so cancellation and AVFoundation callbacks can
 /// enqueue work back onto that serial queue; those callbacks never capture an AV
 /// object or `CompressionTask` independently.
+///
+/// Like `VideoConversionSession`, this cannot become an actor at the package's
+/// deployment targets: `requestMediaDataWhenReady(on:using:)` needs a serial
+/// `DispatchQueue`, and adopting one as an actor executor requires iOS 17.
 internal final class AudioConversionSession: @unchecked Sendable {
     private enum TerminalEvent {
         case completed(AudioInfo)
@@ -126,7 +130,7 @@ internal final class AudioConversionSession: @unchecked Sendable {
     private let task: CompressionTask
     private let queue = DispatchQueue(label: "MediaToolSwift.audio.conversion")
     private let progressDelivery: AudioProgressDelivery
-    private let callbackDelivery: LegacyCallbackDelivery<CompressionState>
+    private let callbackDelivery: TerminalStateDelivery<CompressionState>
 
     // These values are installed before `queue` first receives work, then owned by
     // that queue for the rest of the conversion.
@@ -158,9 +162,9 @@ internal final class AudioConversionSession: @unchecked Sendable {
             task: task,
             targetQueue: request.progressQueue
         )
-        callbackDelivery = LegacyCallbackDelivery(
+        callbackDelivery = TerminalStateDelivery(
             label: "MediaToolSwift.audio.callback",
-            callback: request.callback
+            handler: request.callback
         )
     }
 

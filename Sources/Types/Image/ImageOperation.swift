@@ -2,7 +2,7 @@ import Foundation
 import CoreImage
 
 /// Image rotation fill options
-public enum RotationFill {
+public enum RotationFill: Sendable {
     /// Crop and zoom to fill rectangular shape while preserving aspect ratio
     case crop
 
@@ -30,10 +30,10 @@ public enum RotationFill {
 /// Only one image passed in based on `preferredFramework` and internal framework support (`CIImage` doesn't support animations)
 /// Return image of the same type to be written - when `CGImage` is not `nil`, modify and return `CGImage` while passing `nil` for `CIImage`
 /// Index used as a frame number (starts with zero), `0` for static images
-public typealias ImageProcessor = (_ ciImage: CIImage?, _ cgImage: CGImage?, _ orientation: CGImagePropertyOrientation?, _ index: Int) -> (ciImage: CIImage?, cgImage: CGImage?)
+public typealias ImageProcessor = @Sendable (_ ciImage: CIImage?, _ cgImage: CGImage?, _ orientation: CGImagePropertyOrientation?, _ index: Int) -> (ciImage: CIImage?, cgImage: CGImage?)
 
 /// Image operations
-public enum ImageOperation: Equatable, Hashable, Comparable {
+public enum ImageOperation: Equatable, Hashable, Comparable, Sendable {
     /// Rotation
     /// Angle precision may wary between devices and methods (`vImage`, `CIImage`)
     /// The resulting images may have different dimension depending on destination format and device

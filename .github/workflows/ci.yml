@@ -24,8 +24,10 @@ jobs:
     #
     # Xcode 15.2 (Swift 5.9) shipped only on the macOS 13 and macOS 14 images,
     # both of which GitHub has retired, so the oldest toolchain reachable on a
-    # supported runner is Xcode 16. `swift-tools-version: 5.9` in Package.swift
-    # is what actually keeps the package resolvable by older Xcode.
+    # supported runner is Xcode 16. `swift-tools-version: 6.0` in Package.swift
+    # sets Xcode 16 as the hard floor for resolving the package at all; this
+    # lane additionally proves consumers still pinned to the Swift 5 language
+    # mode can build against it.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -53,7 +55,7 @@ jobs:
           # no symbols for this package and then reports every public
           # declaration as removed, which no allowlist can tell apart from a
           # real removal.
-          - xcode: "26.2"
+          - xcode: "26.3"
             gates: true
     steps:
       - uses: actions/checkout@v4
@@ -70,41 +72,23 @@ jobs:
           -Xswiftc -strict-concurrency=complete
           -Xswiftc -warnings-as-errors
 
+      # Both gates below filter their output through
+      # .github/expected-api-breakages.txt. Intentional breaks are declared
+      # there once, in the commit that makes them; everything else fails.
+      #
+      # Note that the digester does not see every source break. Adding
+      # `@Sendable` to a public closure payload, for example, is reported by
+      # neither gate but does break clients, so it still needs a ClientTests
+      # case and a release note.
       - name: API compatibility with 1.2.0
         if: matrix.gates
-        shell: bash
-        run: |
-          set -uo pipefail
-          set +e
-          swift package diagnose-api-breaking-changes 1.2.0 --products MediaToolSwift 2>&1 | tee api-diff.log
-          diagnose_status="${PIPESTATUS[0]}"
-          set -e
-
-          # SwiftPM exits nonzero when it finds a source-breaking API change.
-          # Treat other failures (for example, a failed build) as gate failures.
-          if [[ "$diagnose_status" -ne 0 ]] && ! grep -Fq "API breakage:" api-diff.log; then
-            exit "$diagnose_status"
-          fi
-
-          # OpenEXR and multi-sample processing were added publicly on main
-          # after 1.2.0. Preserve those APIs while rejecting every other
-          # difference from the tag.
-          unexpected_breakages="$(
-            grep -F "API breakage:" api-diff.log |
-              grep -Fv "ImageFormat.exr has been added as a new enum case" |
-              grep -Fv "VideoFrameProcessor.sampleBufferToMany has been added as a new enum case" || true
-          )"
-          if [[ -n "$unexpected_breakages" ]]; then
-            echo "$unexpected_breakages"
-            exit 1
-          fi
+        run: .github/scripts/check-api-breakage.sh 1.2.0
 
       - name: API compatibility with pull-request base
         if: matrix.gates && github.event_name == 'pull_request'
         run: >-
-          swift package diagnose-api-breaking-changes
+          .github/scripts/check-api-breakage.sh
           "${{ github.event.pull_request.base.sha }}"
-          --products MediaToolSwift
 
       - name: Whitespace check
         if: matrix.gates
@@ -140,7 +124,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        xcode: ["16.2", "26.2"]
+        xcode: ["16.2", "26.3"]
         # `platform` has to stay a real axis. Each `include` entry below then
         # matches the combinations naming its platform and only fills in the
         # missing metadata. As include-only entries they would instead merge
@@ -149,15 +133,15 @@ jobs:
         platform: ["iOS", "tvOS", "Mac Catalyst", "visionOS"]
         include:
           - platform: iOS
-            triple: arm64-apple-ios13.0
+            triple: arm64-apple-ios15.0
             sdk: iphoneos
             destination: generic/platform=iOS
           - platform: tvOS
-            triple: arm64-apple-tvos13.0
+            triple: arm64-apple-tvos15.0
             sdk: appletvos
             destination: generic/platform=tvOS
           - platform: Mac Catalyst
-            triple: arm64-apple-ios13.1-macabi
+            triple: arm64-apple-ios15.0-macabi
             sdk: macosx
           # No `destination` here: visionOS 1.0 predates none of the APIs the
           # tests use, and the visionOS platform is not always installed
@@ -189,7 +173,7 @@ jobs:
       # there. The deployment targets are still guarded on both toolchains by
       # the library build.
       - name: Build tests
-        if: matrix.destination != '' && matrix.xcode == '26.2'
+        if: matrix.destination != '' && matrix.xcode == '26.3'
         run: >-
           xcodebuild build-for-testing
           -scheme MediaToolSwift
@@ -204,7 +188,7 @@ jobs:
       # The podspec declares iOS and tvOS, and lint builds every declared
       # platform. Xcode 16.2 on this image has no iOS or tvOS platform
       # installed, so lint cannot resolve their destinations.
-      - run: sudo xcode-select -s /Applications/Xcode_26.2.app
+      - run: sudo xcode-select -s /Applications/Xcode_26.3.app
       - name: Validate release tag and podspec version
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
@@ -220,6 +204,36 @@ jobs:
       - name: Lint tagged source artifact
         if: github.ref_type == 'tag'
         run: pod spec lint MediaToolSwift.podspec --allow-warnings
+
+  # The example app is a real consumer of the public API and the only place a
+  # source-breaking change shows up as a compile error rather than a silent
+  # allowlist entry. Without this lane it drifted out of date unnoticed.
+  example-app:
+    name: Example app (${{ matrix.destination }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        # One target, one shared scheme, two destinations. The project sets
+        # `SDKROOT = auto`, so the same scheme builds both. A separate
+        # `MediaToolSwiftExampleMacOS` scheme exists only in a local
+        # `xcuserdata` directory, which is not committed, so naming it here
+        # would pass locally and fail on every fresh checkout.
+        destination: ["platform=macOS", "generic/platform=iOS"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      # The target uses automatic signing with a development team and an
+      # entitlements file. A hosted runner has neither a certificate nor a
+      # provisioning profile, so signing has to be off for the build to reach
+      # the API-drift check this lane exists for.
+      - run: >-
+          xcodebuild build
+          -project Example/MediaToolSwiftExample.xcodeproj
+          -scheme MediaToolSwiftExample
+          -destination '${{ matrix.destination }}'
+          CODE_SIGNING_ALLOWED=NO
+          -quiet
 
   thread-sanitizer:
     name: Thread Sanitizer cancellation stress

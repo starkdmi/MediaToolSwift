@@ -19,6 +19,7 @@ public final class CompressionTask: NSObject, ProgressReporting, @unchecked Send
     private let lock = NSLock()
     private var _isCancelled = false
     private var hasTerminalOutcome = false
+    private var isClaimed = false
     private var cancellationHandlers: [UUID: @Sendable () -> Void] = [:]
     private let cancellationRelay = CompressionTaskCancellationRelay()
     private var progressCancellationID = UUID()
@@ -64,6 +65,41 @@ public final class CompressionTask: NSObject, ProgressReporting, @unchecked Send
         handlers.forEach { $0() }
         cancel(progress)
         cancel(writingProgress)
+    }
+
+    /// Reserves the task for a single conversion and points `writingProgress`
+    /// at the file that conversion actually writes.
+    ///
+    /// `hasTerminalOutcome` latches for the task's lifetime, so a second
+    /// conversion sharing one task would have every terminal claim refused and
+    /// would never report a result. Reuse is rejected up front instead.
+    ///
+    /// A task cancelled before it is handed over is still claimable: that only
+    /// sets `_isCancelled`, and the conversion reports `.cancelled` normally.
+    ///
+    /// Rebinding `fileURL` matters because `init(destination:)` records the URL
+    /// the caller *expected* to write, while `task:` accepts a task built for
+    /// any destination. `VideoProgress` corrects the URL itself, but only on
+    /// the branch that tracks file size — outputs below
+    /// `FileObserverConfig.minimalFileLenght`, a non-`.matching` observer
+    /// config, and every audio conversion skip it, and would otherwise keep
+    /// reporting the task's original destination.
+    internal func claimForConversion(destination: URL) -> Bool {
+        let writingProgress: Progress
+
+        lock.lock()
+        guard !isClaimed, !hasTerminalOutcome else {
+            lock.unlock()
+            return false
+        }
+        isClaimed = true
+        writingProgress = _writingProgress
+        lock.unlock()
+
+        // Outside the lock: Foundation mutations can synchronously invoke KVO
+        // observers installed by the caller.
+        writingProgress.fileURL = destination
+        return true
     }
 
     /// Register work that should be notified when cancellation is requested.

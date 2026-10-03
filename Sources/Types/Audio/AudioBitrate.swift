@@ -1,5 +1,5 @@
 /// Audio bitrate settings
-public enum CompressionAudioBitrate: Equatable {
+public enum CompressionAudioBitrate: Equatable, Sendable {
     /// Bitrate automatically set by `AVAssetWriter` internally
     case auto
 

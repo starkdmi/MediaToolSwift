@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// Audio file container
-public enum AudioFileType: String {
+public enum AudioFileType: String, Sendable {
     /// MPEG-4
     case m4a
 

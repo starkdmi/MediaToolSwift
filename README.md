@@ -2,11 +2,12 @@
 > Advanced media converter for Apple devices
 
 ## Requirements
-* macOS 11.0+
-* iOS 13.0+
-* tvOS 13.0+
-* Mac Catalyst 13.1+
+* macOS 12.0+
+* iOS 15.0+
+* tvOS 15.0+
+* Mac Catalyst 15.0+
 * visionOS 1.0+
+* Xcode 16.0+
 
 ## Installation
 ### Swift Package Manager
@@ -25,12 +26,33 @@ pod 'MediaToolSwift'
 
 ### Swift 6 concurrency
 
-The 1.x callback, dynamic-setting, and frame/image processor signatures remain
-source-compatible with earlier releases and may run on MediaToolSwift-managed
-queues. Protect mutable captures and explicitly hop to the required actor before
-touching actor-isolated state. `@preconcurrency import MediaToolSwift` is
-available as a migration aid for older clients, but does not make unsynchronized
-captures safe.
+Closures you hand to MediaToolSwift run on library-managed queues, not on your
+caller's actor. All of them are now `@Sendable` and reject unsynchronized
+captures at compile time:
+
+* `VideoFrameProcessor` (every case)
+* `CompressionVideoBitrate.dynamic`
+* `CompressionVideoSize.dynamic`
+* `ImageProcessor`
+
+This is a source-breaking change from 1.x, and `@preconcurrency import` does not
+soften it — `@Sendable` is part of the function type rather than a conformance.
+Move captured state into a synchronized box or an actor, and hop explicitly
+before touching actor-isolated state.
+
+The terminal `callback:` on `VideoTool.convert` and `AudioTool.convert` is gone,
+as are the `thumbnailImages` and `thumbnailFiles` completions: all four now
+return their result and throw on failure, so there is no state closure left to
+constrain.
+
+A `CompressionTask` tracks one conversion. Passing a task that is already in
+flight or finished throws `CompressionError.taskAlreadyUsed` — create a new task
+per conversion.
+
+`thumbnailImages` and `thumbnailFiles` inherit the caller's isolation, so an
+`AVAsset` held by a `@MainActor` view model can be passed directly even though
+`AVAsset` is not `Sendable`. Thumbnail decoding and encoding still run off your
+actor.
 
 ## VideoTool
 __Video compressor focused on:__
@@ -74,8 +96,17 @@ __Supported audio codecs:__
 
 __Example:__
 ```Swift
+// A task is optional - pass one to report progress or to cancel the
+// conversion from outside the awaiting context.
+let task = CompressionTask(destination: URL(fileURLWithPath: "output.mov"))
+
+// Observe progress
+task.progress.observe(\.fractionCompleted) { progress, _ in
+    print("Progress", progress.fractionCompleted)
+}
+
 // Run video compression
-let task = await VideoTool.convert(
+let info = try await VideoTool.convert(
     source: URL(fileURLWithPath: "input.mp4"),
     destination: URL(fileURLWithPath: "output.mov"),
     // Video
@@ -111,26 +142,12 @@ let task = await VideoTool.convert(
     // File options
     overwrite: false,
     deleteSourceFile: false,
-    // State notifier
-    callback: { state in
-        switch state {
-        case .started:
-            print("Started")
-        case .completed(let info):
-            print("Done: \(info.url.path)")
-        case .failed(let error):
-            print("Error: \(error.localizedDescription)")
-        case .cancelled:
-            print("Cancelled")
-        }
-})
+    task: task
+)
+print("Done: \(info.url.path)")
 
-// Observe progress
-task.progress.observe(\.fractionCompleted) { progress, _ in
-    print("Progress", progress.fractionCompleted)
-}
-
-// Cancel compression
+// Cancel compression - from anywhere holding the task, or by cancelling
+// the enclosing Swift `Task`
 task.cancel()
 ```
 Complex example can be found in [this](Example/) directory.
@@ -220,8 +237,15 @@ __Supported audio formats:__
 
 __Example:__
 ```Swift
+let task = CompressionTask(destination: URL(fileURLWithPath: "output.m4a"))
+
+// Observe progress
+task.progress.observe(\.fractionCompleted) { progress, _ in
+    print("Progress", progress.fractionCompleted)
+}
+
 // Run audio conversion
-let task = await AudioTool.convert(
+let info = try await AudioTool.convert(
     source: URL(fileURLWithPath: "input.mp3"),
     destination: URL(fileURLWithPath: "output.m4a"),
     // Audio
@@ -241,24 +265,9 @@ let task = await AudioTool.convert(
     // File options
     overwrite: false,
     deleteSourceFile: false,
-    // State notifier
-    callback: { state in
-        switch state {
-        case .started:
-            print("Started")
-        case .completed(let info):
-            print("Done: \(info.url.path)")
-        case .failed(let error):
-            print("Error: \(error.localizedDescription)")
-        case .cancelled:
-            print("Cancelled")
-        }
-})
-
-// Observe progress
-task.progress.observe(\.fractionCompleted) { progress, _ in
-    print("Progress", progress.fractionCompleted)
-}
+    task: task
+)
+print("Done: \(info.url.path)")
 
 // Cancel conversion
 task.cancel()

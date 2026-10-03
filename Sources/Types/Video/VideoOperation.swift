@@ -1,7 +1,7 @@
 import CoreMedia
 
 /// Video operations
-public enum VideoOperation: Equatable, Hashable {
+public enum VideoOperation: Equatable, Hashable, Sendable {
     /// Cutting
     case cut(from: Double = 0.0, to: Double = .infinity)
 

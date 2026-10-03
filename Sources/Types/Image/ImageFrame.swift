@@ -70,8 +70,6 @@ public struct ImageFrame: Equatable, Hashable {
 
     /// Load and resize gain map to match loaded image dimensions
     func loadGainMap(url: URL, properties: [CFString: Any]?) -> CIImage? {
-        guard #available(macOS 11, iOS 14.1, tvOS 14, visionOS 1, *) else { return nil }
-
         guard let gainMap = CIImage(contentsOf: url, options: [.auxiliaryHDRGainMap: true]) else {
             return nil
         }
@@ -169,7 +167,7 @@ public struct ImageFrame: Equatable, Hashable {
                 frame.frameInfoArray = heicsProperties[kCGImagePropertyHEICSFrameInfoArray] as? [CFDictionary]
                 frame.canvasWidth = heicsProperties[kCGImagePropertyHEICSCanvasPixelWidth] as? Double
                 frame.canvasHeight = heicsProperties[kCGImagePropertyHEICSCanvasPixelHeight] as? Double
-            } else if #available(macOS 11, iOS 14, tvOS 14, *), let webPProperties = properties[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
+            } else if let webPProperties = properties[kCGImagePropertyWebPDictionary] as? [CFString: Any] {
                 frame.delayTime = webPProperties[kCGImagePropertyWebPDelayTime] as? Double
                 frame.unclampedDelayTime = webPProperties[kCGImagePropertyWebPUnclampedDelayTime]  as? Double
                 frame.loopCount = webPProperties[kCGImagePropertyWebPLoopCount] as? Int
@@ -226,11 +224,10 @@ public struct ImageFrame: Equatable, Hashable {
         ) {
             return value
         }
-        if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *),
-           let value = loopCount(
-               dictionaryKey: kCGImagePropertyWebPDictionary,
-               valueKey: kCGImagePropertyWebPLoopCount
-           ) {
+        if let value = loopCount(
+            dictionaryKey: kCGImagePropertyWebPDictionary,
+            valueKey: kCGImagePropertyWebPLoopCount
+        ) {
             return value
         }
         return loopCount(
