@@ -1,15 +1,16 @@
 import Foundation
 
 /// Enum represents state of compression process 
-public enum CompressionState: Equatable {
+public enum CompressionState: Equatable, Sendable {
     /// Indicates the preparation is finished and the compression process has started
     case started
 
     /// Compression finished with success, contains the destination file url
-    case completed(MediaInfo)
+    case completed(any MediaInfo)
 
     /// Compression failed with error
-    case failed(Error)
+    /// Note: `Error` implies `Sendable` in Swift 6, so no extra constraint is needed here.
+    case failed(any Error)
 
     /// Compression was cancelled
     case cancelled

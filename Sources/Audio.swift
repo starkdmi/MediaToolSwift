@@ -4,6 +4,13 @@ import AVFoundation
 public struct AudioTool {
 
     /// Compress an audio file.
+    ///
+    /// Returns when the conversion finishes, throwing the underlying error on
+    /// failure and `CancellationError` when the conversion is cancelled.
+    ///
+    /// Pass a `task` you created yourself to observe `progress` while the
+    /// conversion runs, or to cancel it from outside the awaiting context.
+    /// Cancelling the enclosing Swift `Task` cancels the conversion too.
     public static func convert(
         source: URL,
         destination: URL,
@@ -17,8 +24,16 @@ public struct AudioTool {
         overwrite: Bool = false,
         deleteSourceFile: Bool = false,
         progressQueue: DispatchQueue = .main,
-        callback: @escaping (CompressionState) -> Void
-    ) async -> CompressionTask {
+        task: CompressionTask? = nil
+    ) async throws -> AudioInfo {
+        let task = task ?? CompressionTask(destination: destination)
+        guard task.claimForConversion(destination: destination) else {
+            throw CompressionError.taskAlreadyUsed
+        }
+        let holder = ConversionResultHolder<AudioInfo>()
+
+        // Start before suspending: the pipeline may reach a terminal state
+        // during preparation, and the holder buffers it until `attach`.
         await convertImpl(
             source: source,
             destination: destination,
@@ -32,8 +47,15 @@ public struct AudioTool {
             overwrite: overwrite,
             deleteSourceFile: deleteSourceFile,
             progressQueue: progressQueue,
-            callback: callback
+            task: task,
+            callback: { holder.deliver($0) }
         )
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { holder.attach($0) }
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     /// Retrieve audio file information.

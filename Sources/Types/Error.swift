@@ -1,7 +1,7 @@
 import Foundation
 
 /// Custom compression error
-public struct CompressionError: LocalizedError, Equatable {
+public struct CompressionError: LocalizedError, Equatable, Sendable {
     /// Error description
     public let description: String
 
@@ -41,6 +41,13 @@ public struct CompressionError: LocalizedError, Equatable {
     public static let croppingNotAllowed = CompressionError(description: "Cropping is not allowed while the video size is set")
     public static let croppingOutOfBounds = CompressionError(description: "Cropping area is larger than source video bounds")
     public static let notSupportedOnVisionOS = CompressionError(description: "Operation is not supported on Vision Pro")
+    public static let taskAlreadyUsed = CompressionError(description: "A CompressionTask tracks one conversion and cannot be reused, create a new one")
+
+    /// Guards the `MediaInfo` downcast in `ConversionResultHolder`. A video
+    /// conversion always reports `VideoInfo` and an audio one `AudioInfo`, so
+    /// this is unreachable; it exists so a future pipeline change surfaces as an
+    /// error rather than a hung continuation.
+    internal static let unexpectedConversionResult = CompressionError(description: "Conversion reported an unexpected result type")
 
     // MARK: Image related errors
 
