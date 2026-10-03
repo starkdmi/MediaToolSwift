@@ -17,33 +17,39 @@ final class VideoColorConversionTests: XCTestCase {
     }
 
     func testDCIP3SDRConversion() async throws {
-        try await checkConversion("dci-p3", hdrTransfer: nil)
+        // Maximum SDR quality keeps quantization below the color-error budget.
+        try await checkConversion("dci-p3", hdrTransfer: nil,
+            settings: .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: .hevcMain))
         #if !os(macOS)
         try await checkConversion("dci-p3", hdrTransfer: nil,
-            processor: .imageComposition { image, _, _ in image })
+            settings: .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: .hevcMain,
+                edit: [.process(.imageComposition { image, _, _ in image })]))
         #endif
     }
 
     func testDCIP3HLGConversion() async throws {
-        try await checkConversion("dci-p3-hlg", hdrTransfer: AVVideoTransferFunction_ITU_R_2100_HLG)
+        try await checkConversion("dci-p3-hlg", hdrTransfer: AVVideoTransferFunction_ITU_R_2100_HLG,
+            settings: .init(codec: .hevc, bitrate: .encoder, profile: .hevcMain10))
     }
 
     func testDCIP3PQConversion() async throws {
-        try await checkConversion("dci-p3-pq", hdrTransfer: AVVideoTransferFunction_SMPTE_ST_2084_PQ)
+        try await checkConversion("dci-p3-pq", hdrTransfer: AVVideoTransferFunction_SMPTE_ST_2084_PQ,
+            settings: .init(codec: .hevc, bitrate: .encoder, profile: .hevcMain10))
     }
 
     func testDCIP3PortraitResizeWithImageProcessor() async throws {
         let source = try fixture("dci-p3-portrait")
+        let targetSize = CGSize(width: 48, height: 80)
         let destination = temporaryOutput()
         defer { try? FileManager.default.removeItem(at: destination) }
         let result = try await convert(source, to: destination,
-            settings: .init(codec: .hevc, size: .scale(CGSize(width: 48, height: 80)),
+            settings: .init(codec: .hevc, size: .scale(targetSize),
                 profile: .hevcMain, edit: [.process(.image { image, _, _ in image })]))
         let info = try XCTUnwrap(result as? VideoInfo)
-        XCTAssertEqual(info.resolution, CGSize(width: 48, height: 80))
+        XCTAssertEqual(info.resolution, targetSize)
         let image = try await firstFrame(AVURLAsset(url: destination))
-        XCTAssertEqual(image.width, 48)
-        XCTAssertEqual(image.height, 80)
+        XCTAssertEqual(image.width, Int(targetSize.width))
+        XCTAssertEqual(image.height, Int(targetSize.height))
     }
 
     func testDCIP3VideoPassthroughWhileDroppingAudio() async throws {
@@ -62,7 +68,7 @@ final class VideoColorConversionTests: XCTestCase {
         XCTAssertEqual(audioTracks?.count, 0)
     }
 
-    private func checkConversion(_ name: String, hdrTransfer: String?, processor: VideoFrameProcessor? = nil) async throws {
+    private func checkConversion(_ name: String, hdrTransfer: String?, settings: CompressionVideoSettings) async throws {
         let source = try fixture(name)
         let destination = temporaryOutput()
         defer { try? FileManager.default.removeItem(at: destination) }
@@ -71,11 +77,7 @@ final class VideoColorConversionTests: XCTestCase {
         metadata.value = "color-conversion-regression" as NSString
         try await convert(
             source, to: destination,
-            settings: .init(codec: .hevc,
-                bitrate: hdrTransfer == nil ? .encoder : .value(300_000),
-                quality: hdrTransfer == nil ? 1 : nil,
-                profile: hdrTransfer == nil ? .hevcMain : .hevcMain10,
-                edit: processor.map { [.process($0)] } ?? []),
+            settings: settings,
             metadata: [metadata]
         )
 
@@ -91,20 +93,18 @@ final class VideoColorConversionTests: XCTestCase {
         XCTAssertEqual(description.transferFunction, hdrTransfer ?? AVVideoTransferFunction_ITU_R_709_2)
         XCTAssertEqual(description.isHDRVideo, hdrTransfer != nil)
         if hdrTransfer != nil {
-            // Apple-created HEVC descriptions may omit BitsPerComponent.
-            // hvcC records the actual encoded luma/chroma depths on every platform.
-            let atoms = CMFormatDescriptionGetExtension(description,
-                extensionKey: kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms) as? [String: Data]
-            let hevc = try XCTUnwrap(atoms?["hvcC"])
-            XCTAssertGreaterThan(hevc.count, 18)
-            XCTAssertEqual(Int(hevc[17] & 7) + 8, 10)
-            XCTAssertEqual(Int(hevc[18] & 7) + 8, 10)
+            try checkHEVCBitDepth(description, expected: 10)
         }
+        let sourceDescription = try await videoDescription(original)
+        let sourceDimensions = CMVideoFormatDescriptionGetDimensions(sourceDescription)
         let dimensions = CMVideoFormatDescriptionGetDimensions(description)
-        XCTAssertEqual(dimensions.width, 160)
-        XCTAssertEqual(dimensions.height, 96)
+        XCTAssertEqual(dimensions.width, sourceDimensions.width)
+        XCTAssertEqual(dimensions.height, sourceDimensions.height)
+        // AAC uses 1,024 samples per packet; allow two packets of container padding.
+        let aacPacketDuration = 1_024.0 / 44_100 // Fixture sample rate, in Hz.
         let duration = await result.getDuration().seconds
-        XCTAssertEqual(duration, 1, accuracy: 0.05)
+        let sourceDuration = await original.getDuration().seconds
+        XCTAssertEqual(duration, sourceDuration, accuracy: 2 * aacPacketDuration)
         let originalAudio = try await payload(original, type: .audio)
         let resultAudio = try await payload(result, type: .audio)
         XCTAssertEqual(resultAudio, originalAudio, "Audio must not be re-encoded")
@@ -114,6 +114,22 @@ final class VideoColorConversionTests: XCTestCase {
         XCTAssertEqual(descriptionValue, "color-conversion-regression")
         if hdrTransfer == nil {
             try await checkSDRPixels(original, result)
+        }
+    }
+
+    private func checkHEVCBitDepth(_ description: CMFormatDescription, expected: Int) throws {
+        // BitsPerComponent is optional in Apple-created HEVC descriptions.
+        // ISO/IEC 14496-15 hvcC stores bitDepthLumaMinus8 and bitDepthChromaMinus8
+        // in the low three bits of bytes 17 and 18, respectively.
+        let componentOffsets = [("luma", 17), ("chroma", 18)]
+        let depthMask: UInt8 = 0b0000_0111
+        let baseDepth = 8
+        let atoms = CMFormatDescriptionGetExtension(description,
+            extensionKey: kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms) as? [String: Data]
+        let hevc = try XCTUnwrap(atoms?["hvcC"])
+        for (component, offset) in componentOffsets {
+            let field = try XCTUnwrap(hevc.dropFirst(offset).first, "Missing hvcC \(component) depth")
+            XCTAssertEqual(Int(field & depthMask) + baseDepth, expected, "Encoded \(component) depth")
         }
     }
 
@@ -146,9 +162,13 @@ final class VideoColorConversionTests: XCTestCase {
         }
         let conversionError = meanError(actual)
         let retaggingError = meanError(retagged)
+        // At most one normalized 8-bit level of mean linear-RGB error, and
+        // at least twice as close to the reference as the retag-only control.
+        let maximumMeanError = 1 / Float(UInt8.max)
+        let minimumImprovementFactor: Float = 2
         print("DCI-P3 linear-RGB mean error: export=\(conversionError), retag-only=\(retaggingError)")
-        XCTAssertLessThan(conversionError, 0.035)
-        XCTAssertLessThan(conversionError, retaggingError * 0.5,
+        XCTAssertLessThan(conversionError, maximumMeanError)
+        XCTAssertLessThan(conversionError * minimumImprovementFactor, retaggingError,
             "Changing tags alone must not satisfy the pixel-color check")
     }
 
@@ -167,17 +187,16 @@ final class VideoColorConversionTests: XCTestCase {
 
     private func linearPixels(_ image: CGImage) throws -> [Float] {
         let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.linearSRGB))
-        var rgba = [Float](repeating: 0, count: image.width * image.height * 4)
+        var rgba = [SIMD4<Float>](repeating: .zero, count: image.width * image.height)
         rgba.withUnsafeMutableBytes {
             CIContext().render(CIImage(cgImage: image), toBitmap: $0.baseAddress!,
-                rowBytes: image.width * 4 * MemoryLayout<Float>.size,
+                rowBytes: image.width * MemoryLayout<SIMD4<Float>>.stride,
                 bounds: CGRect(x: 0, y: 0, width: image.width, height: image.height),
                 format: .RGBAf, colorSpace: colorSpace)
         }
-        XCTAssertTrue(rgba.allSatisfy(\.isFinite))
-        return rgba.enumerated().compactMap { index, value in
-            index % 4 == 3 ? nil : min(max(value, 0), 1)
-        }
+        let rgb = rgba.flatMap { [$0.x, $0.y, $0.z] } // Alpha is not part of the color comparison.
+        XCTAssertTrue(rgb.allSatisfy(\.isFinite))
+        return rgb.map { min(max($0, 0), 1) }
     }
 
     private func fixture(_ name: String) throws -> URL {
@@ -215,13 +234,10 @@ final class VideoColorConversionTests: XCTestCase {
         case .failed(let error):
             // The exception catcher's underlying NSException cannot be archived
             // by XCTest on iOS; preserve its reason in a serializable test error.
-            throw NSError(domain: "VideoColorConversionTests", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: error.localizedDescription])
-        case .cancelled: XCTFail("Unexpected cancellation")
-        case .started, .none: XCTFail("No terminal state")
+            throw ConversionFailure(errorDescription: error.localizedDescription)
+        case .cancelled: throw ConversionFailure(errorDescription: "Unexpected cancellation")
+        case .started, .none: throw ConversionFailure(errorDescription: "No terminal state")
         }
-        throw NSError(domain: "VideoColorConversionTests", code: 2,
-            userInfo: [NSLocalizedDescriptionKey: "No completed conversion"])
     }
 
     private func videoDescription(_ asset: AVAsset) async throws -> CMFormatDescription {
@@ -252,5 +268,9 @@ final class VideoColorConversionTests: XCTestCase {
         XCTAssertFalse(payload.isEmpty)
         return payload
     }
+}
+
+private struct ConversionFailure: LocalizedError {
+    let errorDescription: String?
 }
 #endif

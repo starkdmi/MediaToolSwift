@@ -48,29 +48,19 @@ AAC payloads, portrait resize with an image processor, and compressed video
 passthrough. The SDR pixel test uses an independent Apple basic compositor as
 its conversion reference on iOS; macOS accepts DCI-P3 and compares against the
 source. High-quality SDR encoding isolates color conversion from quantization.
-A negative control reinterprets unchanged RGB values in the output color space;
-the export must have less than half that control's mean linear-RGB error.
+Mean error must stay below one normalized 8-bit level (1/255). A negative control
+reinterprets unchanged RGB values in the output color space; the export must
+have less than half that control's mean linear-RGB error.
 These synthetic controls prove the writer failure class and the tested export
 contracts; they do not establish camera HDR quality or dynamic HDR preservation.
-
-Local evidence (2026-10-02, Swift 6.4 / macOS 27.2): the unchanged writer setup
-failed on iOS Simulator 26.5 with the exception above. After the fix, all six
-regressions passed on that simulator and macOS. The complete default suite in
-Swift 6 strict-concurrency mode passed 73 tests, skipped its two opt-in extended
-media tests, and had no failures. The iOS SDR pixel error against the independent
-native reference was 0.0, versus 0.005241061 for the retag-only control.
-With an image-composition callback, it was 0.0007348501 versus the same control.
-`-warnings-as-errors` on this SDK stops at the existing deprecated
-`kUTTypeJPEG2000` reference in `ImageFormat.swift`; this change adds no compiler
-warnings. HDR controls use bitrate settings: a separate maximum-quality HDR
-probe crashed inside the simulator's `VCPHEVC` encoder.
 
 Run the six regressions:
 
 ```sh
 swift test --disable-sandbox --filter VideoColorConversionTests
+# Replace SIMULATOR_UDID with an available device from `xcrun simctl list devices`.
 xcodebuild test -scheme MediaToolSwift \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -destination "platform=iOS Simulator,id=SIMULATOR_UDID" \
   -only-testing:MediaToolSwiftTests/VideoColorConversionTests \
   -parallel-testing-enabled NO
 ```

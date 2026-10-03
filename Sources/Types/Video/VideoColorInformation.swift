@@ -11,6 +11,35 @@ internal struct VideoColorInformation {
     /// Transfer Function
     let transferFunction: String
 
+    /// Color properties used by AVAssetWriterInput.
+    var writerProperties: [String: String] {
+        [
+            AVVideoColorPrimariesKey: colorPrimaries,
+            AVVideoYCbCrMatrixKey: matrix,
+            AVVideoTransferFunctionKey: transferFunction
+        ]
+    }
+
+    /// A conversion target for DCI-P3 when the writer rejects its primaries.
+    /// Keep the transfer function; other profiles need separate fidelity coverage.
+    var writerCompatibleColor: VideoColorInformation? {
+        guard colorPrimaries == kCMFormatDescriptionColorPrimaries_DCI_P3 as String else {
+            return nil
+        }
+        let primary: CompressionColorPrimary
+        switch transferFunction {
+        case AVVideoTransferFunction_ITU_R_709_2:
+            primary = .p3D65
+        case AVVideoTransferFunction_ITU_R_2100_HLG:
+            primary = .itu2020_hlg
+        case AVVideoTransferFunction_SMPTE_ST_2084_PQ:
+            primary = .itu2020_pq
+        default:
+            return nil
+        }
+        return VideoColorInformation(for: primary)
+    }
+
     /// Default initializer
     init(colorPrimaries: String, matrix: String, transferFunction: String) {
         self.colorPrimaries = colorPrimaries

@@ -244,11 +244,7 @@ extension VideoTool {
             colorInfo = VideoColorInformation(colorPrimaries: colorPrimaries, matrix: matrix, transferFunction: transferFunction)
         }
         if let colorInfo = colorInfo {
-            videoParameters[AVVideoColorPropertiesKey] = [
-                AVVideoColorPrimariesKey: colorInfo.colorPrimaries,
-                AVVideoYCbCrMatrixKey: colorInfo.matrix,
-                AVVideoTransferFunctionKey: colorInfo.transferFunction
-            ]
+            videoParameters[AVVideoColorPropertiesKey] = colorInfo.writerProperties
         }
 
         if preservesSourcePixelAspectRatio,
@@ -289,12 +285,11 @@ extension VideoTool {
 
         func configureVideoInput() throws {
             // Set composition profiles before the writer captures its settings.
-            if useVideoComposition, videoSettings.profile == nil {
-                let bitsPerComponent = analysis.bitsPerComponent ?? (analysis.isHDR ? 10 : 8)
-                if let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: bitsPerComponent) {
-                    videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
-                    videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
-                }
+            let bitsPerComponent = analysis.bitsPerComponent ?? (analysis.isHDR ? 10 : 8)
+            if useVideoComposition, videoSettings.profile == nil,
+               let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: bitsPerComponent) {
+                videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
+                videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
             }
             try ObjCExceptionCatcher.catchException {
                 variables.videoInput = AVAssetWriterInput(
@@ -310,35 +305,17 @@ extension VideoTool {
             try configureVideoInput()
         } catch {
             // Writer support differs by platform. Keep accepted source profiles
-            // and passthrough intact; only retry known decoder-only primaries.
-            // ponytail: three known primaries only; arbitrary profile/transfer
-            // conversion needs its own fidelity coverage.
-            let convertiblePrimaries = [
-                kCMFormatDescriptionColorPrimaries_DCI_P3 as String,
-                kCMFormatDescriptionColorPrimaries_EBU_3213 as String,
-                kCMFormatDescriptionColorPrimaries_P22 as String
-            ]
-            guard variables.hasChanges, let sourceColor = colorInfo,
-                  convertiblePrimaries.contains(sourceColor.colorPrimaries) else {
+            // and passthrough intact; retry only a tested conversion target.
+            guard variables.hasChanges,
+                  let compatibleColor = colorInfo?.writerCompatibleColor else {
                 throw error
             }
             #if os(visionOS)
             throw CompressionError.notSupportedOnVisionOS
             #else
-            let isDCIP3 = sourceColor.colorPrimaries == kCMFormatDescriptionColorPrimaries_DCI_P3 as String
-            let compatibleColor = VideoColorInformation(
-                colorPrimaries: analysis.isHDR ? AVVideoColorPrimaries_ITU_R_2020
-                    : isDCIP3 ? AVVideoColorPrimaries_P3_D65 : AVVideoColorPrimaries_ITU_R_709_2,
-                matrix: analysis.isHDR ? AVVideoYCbCrMatrix_ITU_R_2020 : AVVideoYCbCrMatrix_ITU_R_709_2,
-                transferFunction: analysis.isHDR ? sourceColor.transferFunction : AVVideoTransferFunction_ITU_R_709_2
-            )
             colorInfo = compatibleColor
             convertsColorPrimaries = true
-            videoParameters[AVVideoColorPropertiesKey] = [
-                AVVideoColorPrimariesKey: compatibleColor.colorPrimaries,
-                AVVideoYCbCrMatrixKey: compatibleColor.matrix,
-                AVVideoTransferFunctionKey: compatibleColor.transferFunction
-            ]
+            videoParameters[AVVideoColorPropertiesKey] = compatibleColor.writerProperties
             useVideoComposition = true
             // The compositor bakes in the source orientation. Its dimensions
             // are the display dimensions calculated before the encoder swap.
@@ -458,9 +435,9 @@ extension VideoTool {
             timeScale: analysis.timeScale,
             range: variables.range,
             videoSize: videoSize,
-            targetVideoSize: useVideoComposition ? targetVideoSize : targetVideoSize.oriented(analysis.orientation),
-            cropRect: useVideoComposition ? nil : effectiveCropRect,
-            fixedPreferredTransform: useVideoComposition ? .identity : analysis.fixedPreferredTransform,
+            targetVideoSize: convertsColorPrimaries ? targetVideoSize : targetVideoSize.oriented(analysis.orientation),
+            cropRect: convertsColorPrimaries ? nil : effectiveCropRect,
+            fixedPreferredTransform: convertsColorPrimaries ? .identity : analysis.fixedPreferredTransform,
             videoInputAdaptor: variables.videoInputAdaptor,
             colorInfo: colorInfo,
             context: context,

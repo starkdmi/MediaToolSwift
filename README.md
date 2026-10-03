@@ -71,12 +71,11 @@ Transcoding preserves static HDR color tags, but codec-private dynamic HDR and
 Dolby Vision metadata may not survive an AVFoundation re-encode. Use passthrough
 settings when exact dynamic-metadata preservation is required. Explicit color
 space or transfer-function overrides remain unsupported. On platforms with
-video-composition support, a writer rejecting DCI-P3, EBU 3213, or P22 source
-primaries uses Apple's native compositor to convert the pixels into supported
-primaries in the same encode.
-DCI-P3 SDR retains wide color in P3-D65; HLG/PQ retain their transfer function and
-10-bit depth in BT.2020. Accepted source profiles and video passthrough retain
-their original color tags.
+video-composition support, a writer rejecting DCI-P3 uses Apple's native
+compositor to convert the pixels in the same encode. BT.709 SDR retains wide
+color in P3-D65; HLG/PQ retain their transfer function and 10-bit depth in
+BT.2020. Accepted source profiles and video passthrough retain their original
+color tags. Other rejected color profiles remain unsupported.
 
 | Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Frame Processing[\*](Files/VIDEO.md#frame-processing) | FPS | Thumbnail | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
