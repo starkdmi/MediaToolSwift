@@ -24,8 +24,10 @@ jobs:
     #
     # Xcode 15.2 (Swift 5.9) shipped only on the macOS 13 and macOS 14 images,
     # both of which GitHub has retired, so the oldest toolchain reachable on a
-    # supported runner is Xcode 16. `swift-tools-version: 5.9` in Package.swift
-    # is what actually keeps the package resolvable by older Xcode.
+    # supported runner is Xcode 16. `swift-tools-version: 6.0` in Package.swift
+    # sets Xcode 16 as the hard floor for resolving the package at all; this
+    # lane additionally proves consumers still pinned to the Swift 5 language
+    # mode can build against it.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -149,15 +151,15 @@ jobs:
         platform: ["iOS", "tvOS", "Mac Catalyst", "visionOS"]
         include:
           - platform: iOS
-            triple: arm64-apple-ios13.0
+            triple: arm64-apple-ios15.0
             sdk: iphoneos
             destination: generic/platform=iOS
           - platform: tvOS
-            triple: arm64-apple-tvos13.0
+            triple: arm64-apple-tvos15.0
             sdk: appletvos
             destination: generic/platform=tvOS
           - platform: Mac Catalyst
-            triple: arm64-apple-ios13.1-macabi
+            triple: arm64-apple-ios15.0-macabi
             sdk: macosx
           # No `destination` here: visionOS 1.0 predates none of the APIs the
           # tests use, and the visionOS platform is not always installed
