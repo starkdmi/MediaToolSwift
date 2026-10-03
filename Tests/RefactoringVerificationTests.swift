@@ -2,33 +2,51 @@ import AVFoundation
 import XCTest
 @testable import MediaToolSwift
 
-private final class TerminalStateRecorder: @unchecked Sendable {
+/// Captures the outcome of a conversion running in a child task.
+///
+/// The 2.0 API reports its terminal state by resuming the caller, so a test that
+/// needs to assert "no terminal state yet" observes this probe instead of a
+/// callback recorder.
+private final class ConversionProbe<Info: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
-    private let terminalExpectation: XCTestExpectation
-    private var states: [CompressionState] = []
+    private var result: Result<Info, any Error>?
 
-    init(_ terminalExpectation: XCTestExpectation) {
-        self.terminalExpectation = terminalExpectation
-    }
-
-    func record(_ state: CompressionState) {
-        guard state != .started else { return }
-
+    func store(_ result: Result<Info, any Error>) {
         lock.lock()
-        states.append(state)
-        let isFirstTerminalState = states.count == 1
+        self.result = result
         lock.unlock()
-
-        if isFirstTerminalState {
-            terminalExpectation.fulfill()
-        }
     }
 
-    func terminalStates() -> [CompressionState] {
+    var hasFinished: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return states
+        return result != nil
     }
+
+    var isCancellation: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard case .failure(let error) = result else { return false }
+        return error is CancellationError
+    }
+}
+
+/// Waits until a conversion leaves preparation.
+///
+/// `.started` is no longer observable through the public API, but the pipeline
+/// publishes a real unit count on `task.progress` immediately before the sample
+/// pumps run, so polling for it puts a subsequent cancellation in the reading
+/// phase rather than in preparation. Returns `false` on timeout.
+private func waitForConversionStart(
+    _ task: CompressionTask,
+    timeout: TimeInterval = 30
+) async throws -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while task.progress.totalUnitCount <= 0 {
+        guard Date() < deadline else { return false }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    return true
 }
 
 private final class LifetimeProbe: @unchecked Sendable {
@@ -203,22 +221,13 @@ final class RefactoringVerificationTests: XCTestCase {
         XCTAssertEqual(processor, processor)
         XCTAssertEqual(processor.hashValue, processor.hashValue)
 
-        let terminal = expectation(description: "multi-sample conversion")
-        let recorder = TerminalStateRecorder(terminal)
-        _ = await VideoTool.convert(
+        _ = try await VideoTool.convert(
             source: source,
             destination: destination,
             videoSettings: settings,
             skipAudio: true,
-            overwrite: true,
-            callback: { recorder.record($0) }
+            overwrite: true
         )
-
-        await fulfillment(of: [terminal], timeout: 30)
-        XCTAssertEqual(recorder.terminalStates().count, 1)
-        guard case .completed = recorder.terminalStates().first else {
-            return XCTFail("Expected multi-sample conversion to complete")
-        }
 
         let outputAsset = AVAsset(url: destination)
         let loadedOutputTrack = await outputAsset.getFirstTrack(withMediaType: .video)
@@ -237,14 +246,12 @@ final class RefactoringVerificationTests: XCTestCase {
         XCTAssertGreaterThan(outputSamples, Int(configured.totalFrames))
     }
 
-    func testVideoTerminalCallbackWaitsForInFlightProcessor() async throws {
+    func testVideoTerminalResultWaitsForInFlightProcessor() async throws {
         let source = try fixture("chromecast.mp4")
         let destination = try outputURL("processor-cancellation-order.mov")
         let processorEntered = expectation(description: "processor entered")
-        let terminal = expectation(description: "terminal callback")
         let releaseProcessor = DispatchSemaphore(value: 0)
         defer { releaseProcessor.signal() }
-        let recorder = TerminalStateRecorder(terminal)
         let processor = VideoFrameProcessor.sampleBuffer { sample in
             processorEntered.fulfill()
             releaseProcessor.wait()
@@ -258,26 +265,34 @@ final class RefactoringVerificationTests: XCTestCase {
             ]
         )
 
-        let task = await VideoTool.convert(
-            source: source,
-            destination: destination,
-            videoSettings: settings,
-            skipAudio: true,
-            overwrite: true,
-            callback: { recorder.record($0) }
-        )
+        let task = CompressionTask(destination: destination)
+        let probe = ConversionProbe<VideoInfo>()
+        let conversion = Task {
+            do {
+                probe.store(.success(try await VideoTool.convert(
+                    source: source,
+                    destination: destination,
+                    videoSettings: settings,
+                    skipAudio: true,
+                    overwrite: true,
+                    task: task
+                )))
+            } catch {
+                probe.store(.failure(error))
+            }
+        }
 
         await fulfillment(of: [processorEntered], timeout: 10)
         task.cancel()
         try await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertTrue(
-            recorder.terminalStates().isEmpty,
-            "Terminal delivery must not overlap an in-flight public processor"
+        XCTAssertFalse(
+            probe.hasFinished,
+            "The conversion must not resume its caller while a public processor is in flight"
         )
 
         releaseProcessor.signal()
-        await fulfillment(of: [terminal], timeout: 10)
-        XCTAssertEqual(recorder.terminalStates(), [.cancelled])
+        await conversion.value
+        XCTAssertTrue(probe.isCancellation, "Expected the cancelled conversion to throw CancellationError")
     }
 
     // visionOS reads through `AVAssetReaderTrackOutput` and rejects video
@@ -308,33 +323,31 @@ final class RefactoringVerificationTests: XCTestCase {
         // across startup and steady-state reading.
         for iteration in 0 ..< 8 {
             let destination = try outputURL("composition-cancellation-\(iteration).mov")
-            let started = expectation(description: "started \(iteration)")
-            let terminal = expectation(description: "terminal callback \(iteration)")
-            let recorder = TerminalStateRecorder(terminal)
+            let task = CompressionTask(destination: destination)
+            let probe = ConversionProbe<VideoInfo>()
 
-            let task = await VideoTool.convert(
-                source: source,
-                destination: destination,
-                videoSettings: settings,
-                skipAudio: true,
-                overwrite: true,
-                callback: { state in
-                    if state == .started {
-                        started.fulfill()
-                    }
-                    recorder.record(state)
+            let conversion = Task {
+                do {
+                    probe.store(.success(try await VideoTool.convert(
+                        source: source,
+                        destination: destination,
+                        videoSettings: settings,
+                        skipAudio: true,
+                        overwrite: true,
+                        task: task
+                    )))
+                } catch {
+                    probe.store(.failure(error))
                 }
-            )
+            }
 
-            // `.started` is delivered immediately before the pumps run, so
-            // waiting for it puts cancellation inside the reading phase rather
-            // than in preparation.
-            await fulfillment(of: [started], timeout: 30)
+            let started = try await waitForConversionStart(task)
+            XCTAssertTrue(started, "Conversion \(iteration) never left preparation")
             try await Task.sleep(nanoseconds: UInt64(iteration + 1) * 5_000_000)
             task.cancel()
 
-            await fulfillment(of: [terminal], timeout: 30)
-            XCTAssertEqual(recorder.terminalStates(), [.cancelled])
+            await conversion.value
+            XCTAssertTrue(probe.isCancellation, "Expected conversion \(iteration) to report cancellation")
             XCTAssertFalse(
                 FileManager.default.fileExists(atPath: destination.path),
                 "A cancelled conversion must not publish its destination"
@@ -817,37 +830,15 @@ final class RefactoringVerificationTests: XCTestCase {
         try FileManager.default.copyItem(at: fixture, to: source)
         try sentinelData.write(to: destination)
 
-        let completed = expectation(description: "conversion completed")
-        let terminalState = LockedValue<CompressionState?>(nil)
-        _ = await AudioTool.convert(
+        _ = try await AudioTool.convert(
             source: source,
             destination: destination,
             settings: .init(codec: .aac, bitrate: .value(96_000)),
             cacheDirectory: cache,
             overwrite: true,
             deleteSourceFile: true
-        ) { state in
-            switch state {
-            case .completed:
-                terminalState.set(state)
-                completed.fulfill()
-            case .failed(let error):
-                XCTFail("Audio conversion failed: \(error)")
-                terminalState.set(state)
-                completed.fulfill()
-            case .cancelled:
-                XCTFail("Audio conversion was cancelled unexpectedly")
-                terminalState.set(state)
-                completed.fulfill()
-            case .started:
-                break
-            }
-        }
+        )
 
-        await fulfillment(of: [completed], timeout: 30)
-        guard case .completed = terminalState.read() else {
-            return XCTFail("Expected successful conversion, got \(String(describing: terminalState.read()))")
-        }
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
         XCTAssertNotEqual(try Data(contentsOf: destination), sentinelData)
@@ -906,26 +897,25 @@ final class RefactoringVerificationTests: XCTestCase {
             backup: backup,
             replacement: replacement
         )
-        let terminal = expectation(description: "audio source replacement")
-        let recorder = TerminalStateRecorder(terminal)
-        _ = await AudioTool.convert(
-            source: source,
-            destination: destination,
-            settings: .init(codec: .aac, bitrate: .value(96_000)),
-            overwrite: true,
-            deleteSourceFile: true
-        ) { state in
-            if state == .started {
-                replacer.replace()
-            } else {
-                recorder.record(state)
-            }
+        let task = CompressionTask(destination: destination)
+        let conversion = Task {
+            try await AudioTool.convert(
+                source: source,
+                destination: destination,
+                settings: .init(codec: .aac, bitrate: .value(96_000)),
+                overwrite: true,
+                deleteSourceFile: true,
+                task: task
+            )
         }
 
-        await fulfillment(of: [terminal], timeout: 30)
-        guard case .completed = recorder.terminalStates().first else {
-            return XCTFail("Expected audio conversion to complete after replacing its source entry")
-        }
+        // The replacement has to land after the pipeline opened its source,
+        // which is what `.started` used to signal.
+        let started = try await waitForConversionStart(task)
+        XCTAssertTrue(started, "Audio conversion never left preparation")
+        replacer.replace()
+        _ = try await conversion.value
+
         let replacementResult = replacer.result()
         XCTAssertTrue(replacementResult.didReplace)
         XCTAssertNil(replacementResult.error)
@@ -947,31 +937,30 @@ final class RefactoringVerificationTests: XCTestCase {
             backup: backup,
             replacement: replacement
         )
-        let terminal = expectation(description: "video source replacement")
-        let recorder = TerminalStateRecorder(terminal)
-        _ = await VideoTool.convert(
-            source: source,
-            destination: destination,
-            videoSettings: .init(
-                codec: .h264,
-                bitrate: .encoder,
-                edit: [.cut(from: 0, to: 1)]
-            ),
-            skipAudio: true,
-            overwrite: true,
-            deleteSourceFile: true
-        ) { state in
-            if state == .started {
-                replacer.replace()
-            } else {
-                recorder.record(state)
-            }
+        let task = CompressionTask(destination: destination)
+        let conversion = Task {
+            try await VideoTool.convert(
+                source: source,
+                destination: destination,
+                videoSettings: .init(
+                    codec: .h264,
+                    bitrate: .encoder,
+                    edit: [.cut(from: 0, to: 1)]
+                ),
+                skipAudio: true,
+                overwrite: true,
+                deleteSourceFile: true,
+                task: task
+            )
         }
 
-        await fulfillment(of: [terminal], timeout: 30)
-        guard case .completed = recorder.terminalStates().first else {
-            return XCTFail("Expected video conversion to complete after replacing its source entry")
-        }
+        // The replacement has to land after the pipeline opened its source,
+        // which is what `.started` used to signal.
+        let started = try await waitForConversionStart(task)
+        XCTAssertTrue(started, "Video conversion never left preparation")
+        replacer.replace()
+        _ = try await conversion.value
+
         let replacementResult = replacer.result()
         XCTAssertTrue(replacementResult.didReplace)
         XCTAssertNil(replacementResult.error)
@@ -986,9 +975,7 @@ final class RefactoringVerificationTests: XCTestCase {
         let sentinelData = Data("existing video output".utf8)
         try sentinelData.write(to: destination)
 
-        let terminal = expectation(description: "transactional video replacement")
-        let recorder = TerminalStateRecorder(terminal)
-        _ = await VideoTool.convert(
+        _ = try await VideoTool.convert(
             source: source,
             destination: destination,
             videoSettings: .init(
@@ -997,24 +984,24 @@ final class RefactoringVerificationTests: XCTestCase {
                 edit: [.cut(from: 0, to: 1)]
             ),
             skipAudio: true,
-            overwrite: true,
-            callback: { recorder.record($0) }
+            overwrite: true
         )
 
-        await fulfillment(of: [terminal], timeout: 30)
-        guard case .completed = recorder.terminalStates().first else {
-            return XCTFail("Expected video replacement to complete")
-        }
         XCTAssertNotEqual(try Data(contentsOf: destination), sentinelData)
         let videoTrack = await AVAsset(url: destination).getFirstTrack(withMediaType: .video)
         XCTAssertNotNil(videoTrack)
     }
 
-    func testAudioProgressQueueDoesNotRetainCompletedSession() async throws {
-        let source = try fixture("440Hz.mp3")
-        let destination = try outputURL("progress-retention.m4a")
-        let terminal = expectation(description: "audio conversion terminal")
-        let released = expectation(description: "callback lifetime released")
+    /// An inactive progress queue must not keep a finished conversion alive.
+    ///
+    /// The 1.x version of this test anchored its lifetime probe in the public
+    /// terminal callback. With that callback gone, the probe rides in the frame
+    /// processor instead — also retained by the session for the conversion's
+    /// whole lifetime, so it leaks in exactly the same circumstances.
+    func testProgressQueueDoesNotRetainCompletedSession() async throws {
+        let source = try fixture("chromecast.mp4")
+        let destination = try outputURL("progress-retention.mov")
+        let released = expectation(description: "processor lifetime released")
         let inactiveQueue = DispatchQueue(
             label: "MediaToolSwiftTests.inactive-progress",
             attributes: .initiallyInactive
@@ -1028,24 +1015,49 @@ final class RefactoringVerificationTests: XCTestCase {
             }
             weakProbe = probe
 
-            _ = await AudioTool.convert(
+            _ = try await VideoTool.convert(
                 source: source,
                 destination: destination,
-                settings: .init(codec: .aac, bitrate: .value(96_000)),
+                videoSettings: .init(
+                    codec: .h264,
+                    bitrate: .encoder,
+                    edit: [
+                        .cut(from: 0, to: 1),
+                        .process(.sampleBuffer { [probe] sample in
+                            _ = probe
+                            return sample
+                        })
+                    ]
+                ),
+                skipAudio: true,
                 overwrite: true,
                 progressQueue: inactiveQueue
-            ) { [probe] state in
-                _ = probe
-                if state != .started {
-                    terminal.fulfill()
-                }
-            }
-
-            await fulfillment(of: [terminal], timeout: 30)
+            )
         }
 
         await fulfillment(of: [released], timeout: 5)
         XCTAssertNil(weakProbe)
+    }
+
+    /// A progress queue that never runs must not stall the conversion itself.
+    func testAudioConversionCompletesWithAnInactiveProgressQueue() async throws {
+        let source = try fixture("440Hz.mp3")
+        let destination = try outputURL("progress-retention.m4a")
+        let inactiveQueue = DispatchQueue(
+            label: "MediaToolSwiftTests.inactive-audio-progress",
+            attributes: .initiallyInactive
+        )
+        defer { inactiveQueue.activate() }
+
+        _ = try await AudioTool.convert(
+            source: source,
+            destination: destination,
+            settings: .init(codec: .aac, bitrate: .value(96_000)),
+            overwrite: true,
+            progressQueue: inactiveQueue
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
     }
 
     func testTaskSynchronizesReplacementProgressCancellation() async throws {
@@ -1150,28 +1162,35 @@ final class RefactoringVerificationTests: XCTestCase {
         try FileManager.default.copyItem(at: fixture, to: source)
         try sentinelData.write(to: destination)
 
-        let terminal = expectation(description: "audio cancellation terminal event")
-        let recorder = TerminalStateRecorder(terminal)
-        let task = await AudioTool.convert(
-            source: source,
-            destination: destination,
-            settings: .init(codec: .aac, bitrate: .value(96_000)),
-            overwrite: true,
-            deleteSourceFile: true,
-            callback: { recorder.record($0) }
-        )
+        let task = CompressionTask(destination: destination)
+        let probe = ConversionProbe<AudioInfo>()
+        let conversion = Task {
+            do {
+                probe.store(.success(try await AudioTool.convert(
+                    source: source,
+                    destination: destination,
+                    settings: .init(codec: .aac, bitrate: .value(96_000)),
+                    overwrite: true,
+                    deleteSourceFile: true,
+                    task: task
+                )))
+            } catch {
+                probe.store(.failure(error))
+            }
+        }
 
         task.progress.cancel()
         task.cancel()
         task.cancel()
         task.writingProgress.cancel()
 
-        await fulfillment(of: [terminal], timeout: 20)
+        await conversion.value
+        // A second terminal event would resume the continuation twice, which
+        // traps rather than merely recording an extra state, so the sleep gives
+        // any stray delivery a chance to land before the test ends.
         try await Task.sleep(nanoseconds: 100_000_000)
 
-        let states = recorder.terminalStates()
-        XCTAssertEqual(states.count, 1)
-        XCTAssertEqual(states.first, .cancelled)
+        XCTAssertTrue(probe.isCancellation)
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         XCTAssertEqual(try Data(contentsOf: destination), sentinelData)
     }
@@ -1184,79 +1203,249 @@ final class RefactoringVerificationTests: XCTestCase {
         try FileManager.default.copyItem(at: fixture, to: source)
         try sentinelData.write(to: destination)
 
-        let terminal = expectation(description: "video cancellation terminal event")
-        let recorder = TerminalStateRecorder(terminal)
-        let task = await VideoTool.convert(
-            source: source,
-            destination: destination,
-            videoSettings: .init(codec: .hevc, bitrate: .encoder),
-            skipAudio: true,
-            overwrite: true,
-            deleteSourceFile: true,
-            callback: { recorder.record($0) }
-        )
+        let task = CompressionTask(destination: destination)
+        let probe = ConversionProbe<VideoInfo>()
+        let conversion = Task {
+            do {
+                probe.store(.success(try await VideoTool.convert(
+                    source: source,
+                    destination: destination,
+                    videoSettings: .init(codec: .hevc, bitrate: .encoder),
+                    skipAudio: true,
+                    overwrite: true,
+                    deleteSourceFile: true,
+                    task: task
+                )))
+            } catch {
+                probe.store(.failure(error))
+            }
+        }
 
         task.progress.cancel()
         task.cancel()
         task.cancel()
         task.writingProgress.cancel()
 
-        await fulfillment(of: [terminal], timeout: 20)
+        await conversion.value
+        // A second terminal event would trap on a double continuation resume.
         try await Task.sleep(nanoseconds: 100_000_000)
 
-        let states = recorder.terminalStates()
-        XCTAssertEqual(states.count, 1)
-        XCTAssertEqual(states.first, .cancelled)
+        XCTAssertTrue(probe.isCancellation)
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         XCTAssertEqual(try Data(contentsOf: destination), sentinelData)
     }
 
-    func testVideoStartedCallbackCannotBlockTaskReturn() async throws {
-        let fixture = try fixture("oludeniz.MOV")
-        let source = try outputURL("blocking-started-source.mov")
-        let destination = try outputURL("blocking-started-output.mov")
-        try FileManager.default.copyItem(at: fixture, to: source)
+    /// A `CompressionTask` tracks one terminal outcome for its lifetime, so a
+    /// reused task must be rejected. Before this was enforced, the second
+    /// conversion had every terminal claim refused, delivered no state, and hung
+    /// forever with no way to cancel it.
+    /// A task built for one destination but handed to a conversion writing
+    /// another must report the file actually being written.
+    ///
+    /// Audio is the sharpest case: `VideoProgress.configureWritingProgress` is
+    /// what normally corrects `fileURL`, and audio conversions never build one,
+    /// so nothing else would ever fix it. The same gap exists for video outputs
+    /// below `FileObserverConfig.minimalFileLenght`.
+    func testWritingProgressReportsTheDestinationActuallyWritten() async throws {
+        let source = try fixture("440Hz.mp3")
+        let stale = try outputURL("task-destination-stale.m4a")
+        let actual = try outputURL("task-destination-actual.m4a")
 
-        let started = expectation(description: "started callback entered")
-        let returned = expectation(description: "conversion call returned its task")
-        let terminal = expectation(description: "conversion cancelled")
-        let releaseStarted = DispatchSemaphore(value: 0)
-        let returnedTask = LockedValue<CompressionTask?>(nil)
-        let terminalState = LockedValue<CompressionState?>(nil)
+        let task = CompressionTask(destination: stale)
+        XCTAssertEqual(task.writingProgress.fileURL, stale)
 
-        Task { @Sendable in
-            let task = await VideoTool.convert(
+        _ = try await AudioTool.convert(
+            source: source,
+            destination: actual,
+            settings: CompressionAudioSettings(codec: .aac, bitrate: .value(96_000)),
+            overwrite: true,
+            task: task
+        )
+
+        XCTAssertEqual(task.writingProgress.fileURL, actual)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: actual.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
+    }
+
+    func testReusingACompressionTaskIsRejectedRatherThanHanging() async throws {
+        let source = try fixture("440Hz.mp3")
+        let first = try outputURL("task-reuse-1.m4a")
+        let second = try outputURL("task-reuse-2.m4a")
+        let settings = CompressionAudioSettings(codec: .aac, bitrate: .value(96_000))
+
+        let task = CompressionTask(destination: first)
+        _ = try await AudioTool.convert(
+            source: source,
+            destination: first,
+            settings: settings,
+            overwrite: true,
+            task: task
+        )
+
+        do {
+            _ = try await AudioTool.convert(
                 source: source,
-                destination: destination,
+                destination: second,
+                settings: settings,
+                overwrite: true,
+                task: task
+            )
+            XCTFail("Reusing a completed task must not start a second conversion")
+        } catch let error as CompressionError {
+            XCTAssertEqual(error, .taskAlreadyUsed)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: second.path))
+    }
+
+    /// The same latch applies to a task already used by a video conversion, and
+    /// to one still in flight.
+    func testReusingAnInFlightCompressionTaskIsRejected() async throws {
+        let source = try fixture("oludeniz.MOV")
+        let first = try outputURL("task-inflight-1.mov")
+        let second = try outputURL("task-inflight-2.mov")
+
+        let task = CompressionTask(destination: first)
+        let conversion = Task {
+            try await VideoTool.convert(
+                source: source,
+                destination: first,
                 videoSettings: .init(codec: .hevc, bitrate: .encoder),
                 skipAudio: true,
-                overwrite: true
-            ) { state in
-                switch state {
-                case .started:
-                    started.fulfill()
-                    releaseStarted.wait()
-                case .completed, .cancelled, .failed:
-                    terminalState.set(state)
-                    terminal.fulfill()
-                }
-            }
-            returnedTask.set(task)
-            returned.fulfill()
+                overwrite: true,
+                task: task
+            )
         }
 
-        // `.started` may run before the async API returns, but it must not run
-        // in a synchronous handoff that prevents the caller receiving its task.
-        await fulfillment(of: [started, returned], timeout: 10)
-        guard let task = returnedTask.read() else {
-            releaseStarted.signal()
-            return XCTFail("The conversion did not return its task")
+        let started = try await waitForConversionStart(task)
+        XCTAssertTrue(started, "Video conversion never left preparation")
+
+        do {
+            _ = try await VideoTool.convert(
+                source: source,
+                destination: second,
+                skipAudio: true,
+                overwrite: true,
+                task: task
+            )
+            XCTFail("Reusing an in-flight task must not start a second conversion")
+        } catch let error as CompressionError {
+            XCTAssertEqual(error, .taskAlreadyUsed)
         }
+
         task.cancel()
-        releaseStarted.signal()
+        _ = try? await conversion.value
+    }
 
-        await fulfillment(of: [terminal], timeout: 10)
-        XCTAssertEqual(terminalState.read(), .cancelled)
+    /// A cancelled Task must stop thumbnail generation rather than waiting for
+    /// every `AVAssetImageGenerator` request to finish.
+    /// Cancellation that is already pending when the call begins.
+    ///
+    /// `withTaskCancellationHandler` fires `onCancel` before running the
+    /// operation in this case, so `cancelAllCGImageGeneration()` reaches a
+    /// generator with nothing queued and cancels nothing. The early
+    /// `Task.checkCancellation()` is what makes this path skip the decode
+    /// rather than doing all the work and discarding it.
+    func testThumbnailGenerationHonoursCancellationRequestedBeforeItStarts() async throws {
+        let source = try fixture("oludeniz.MOV")
+        let asset = AVAsset(url: source)
+
+        let generation = Task {
+            try await VideoTool.thumbnailImages(
+                for: asset,
+                at: Array(stride(from: 0.0, to: 3.0, by: 0.05))
+            )
+        }
+        generation.cancel()
+
+        do {
+            _ = try await generation.value
+            XCTFail("Expected cancelled thumbnail generation to throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    /// Cancellation that arrives after generation is under way, which is the
+    /// path the `onCancel` handler actually exists for. The wait only decides
+    /// which path is taken; the assertion holds either way, so this cannot
+    /// flake on a slow machine.
+    func testThumbnailGenerationHonoursCancellationDuringGeneration() async throws {
+        let source = try fixture("oludeniz.MOV")
+        let asset = AVAsset(url: source)
+
+        let generation = Task {
+            try await VideoTool.thumbnailImages(
+                for: asset,
+                at: Array(stride(from: 0.0, to: 3.0, by: 0.01)),
+                timeToleranceBefore: .zero,
+                timeToleranceAfter: .zero
+            )
+        }
+
+        try await Task.sleep(nanoseconds: 20_000_000)
+        generation.cancel()
+
+        do {
+            _ = try await generation.value
+            XCTFail("Expected cancelled thumbnail generation to throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    /// Cancellation arriving while the *last* thumbnail is being edited and
+    /// written. `encodeThumbnails` checks before each frame, so with a single
+    /// request there is no later per-frame check to catch it and the call
+    /// reported success for a cancelled task.
+    ///
+    /// Blocking the public `ImageProcessor` is what makes the window
+    /// deterministic rather than timing-dependent: the task is cancelled while
+    /// the only frame is provably in flight.
+    func testThumbnailEncodingHonoursCancellationDuringTheFinalFrame() async throws {
+        let source = try fixture("oludeniz.MOV")
+        let asset = AVAsset(url: source)
+        let output = try outputURL("thumbnail-cancel-final-frame.png")
+
+        let processorEntered = expectation(description: "image processor entered")
+        processorEntered.assertForOverFulfill = false
+        let releaseProcessor = DispatchSemaphore(value: 0)
+        defer { releaseProcessor.signal() }
+        let settings = ImageSettings(
+            format: .png,
+            edit: [
+                .imageProcessing({ ciImage, cgImage, _, _ in
+                    processorEntered.fulfill()
+                    releaseProcessor.wait()
+                    return (ciImage, cgImage)
+                })
+            ]
+        )
+
+        let generation = Task {
+            try await VideoTool.thumbnailFiles(
+                of: asset,
+                at: [VideoThumbnailRequest(time: 0, url: output)],
+                settings: settings
+            )
+        }
+
+        await fulfillment(of: [processorEntered], timeout: 10)
+        generation.cancel()
+        releaseProcessor.signal()
+
+        do {
+            _ = try await generation.value
+            XCTFail("Expected cancellation during the final encode to throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
     }
 
     func testConcurrentCancellationStressPreservesEverySource() async throws {
@@ -1265,71 +1454,88 @@ final class RefactoringVerificationTests: XCTestCase {
             label: "MediaToolSwiftTests.concurrent-cancellation",
             attributes: .concurrent
         )
-        var recorders: [TerminalStateRecorder] = []
+        var cancellations: [ConversionProbe<Bool>] = []
+        var conversions: [Task<Void, Never>] = []
         var sources: [URL] = []
         var destinations: [URL] = []
-        var expectations: [XCTestExpectation] = []
+
+        // Each probe stores `Bool` rather than the conversion's own info type so
+        // audio and video sessions can share one result list; only cancellation
+        // is asserted.
+        func record(_ probe: ConversionProbe<Bool>, _ body: @escaping @Sendable () async throws -> Void) -> Task<Void, Never> {
+            Task {
+                do {
+                    try await body()
+                    probe.store(.success(true))
+                } catch {
+                    probe.store(.failure(error))
+                }
+            }
+        }
 
         for index in 0 ..< 2 {
             let source = try outputURL("concurrent-audio-\(index).mov")
             let destination = try outputURL("concurrent-audio-\(index).m4a")
             try FileManager.default.copyItem(at: fixture, to: source)
-            let terminal = expectation(description: "concurrent audio \(index)")
-            let recorder = TerminalStateRecorder(terminal)
-            let task = await AudioTool.convert(
-                source: source,
-                destination: destination,
-                settings: .init(codec: .aac, bitrate: .value(96_000)),
-                overwrite: true,
-                deleteSourceFile: true,
-                callback: { recorder.record($0) }
-            )
+            let task = CompressionTask(destination: destination)
+            let probe = ConversionProbe<Bool>()
+            conversions.append(record(probe) {
+                _ = try await AudioTool.convert(
+                    source: source,
+                    destination: destination,
+                    settings: .init(codec: .aac, bitrate: .value(96_000)),
+                    overwrite: true,
+                    deleteSourceFile: true,
+                    task: task
+                )
+            })
             cancellationQueue.async {
                 task.progress.cancel()
                 task.cancel()
                 task.cancel()
                 task.writingProgress.cancel()
             }
-            recorders.append(recorder)
+            cancellations.append(probe)
             sources.append(source)
             destinations.append(destination)
-            expectations.append(terminal)
         }
 
         for index in 0 ..< 2 {
             let source = try outputURL("concurrent-video-source-\(index).mov")
             let destination = try outputURL("concurrent-video-output-\(index).mov")
             try FileManager.default.copyItem(at: fixture, to: source)
-            let terminal = expectation(description: "concurrent video \(index)")
-            let recorder = TerminalStateRecorder(terminal)
-            let task = await VideoTool.convert(
-                source: source,
-                destination: destination,
-                videoSettings: .init(codec: .hevc, bitrate: .encoder),
-                skipAudio: true,
-                overwrite: true,
-                deleteSourceFile: true,
-                callback: { recorder.record($0) }
-            )
+            let task = CompressionTask(destination: destination)
+            let probe = ConversionProbe<Bool>()
+            conversions.append(record(probe) {
+                _ = try await VideoTool.convert(
+                    source: source,
+                    destination: destination,
+                    videoSettings: .init(codec: .hevc, bitrate: .encoder),
+                    skipAudio: true,
+                    overwrite: true,
+                    deleteSourceFile: true,
+                    task: task
+                )
+            })
             cancellationQueue.async {
                 task.progress.cancel()
                 task.cancel()
                 task.cancel()
                 task.writingProgress.cancel()
             }
-            recorders.append(recorder)
+            cancellations.append(probe)
             sources.append(source)
             destinations.append(destination)
-            expectations.append(terminal)
         }
 
-        await fulfillment(of: expectations, timeout: 30)
+        for conversion in conversions {
+            await conversion.value
+        }
+        // A duplicate terminal event traps on a double continuation resume.
         try await Task.sleep(nanoseconds: 100_000_000)
 
-        for index in recorders.indices {
-            let states = recorders[index].terminalStates()
-            XCTAssertEqual(states.count, 1, "session \(index) emitted multiple terminal states")
-            XCTAssertEqual(states.first, .cancelled)
+        for index in cancellations.indices {
+            XCTAssertTrue(cancellations[index].isCancellation, "session \(index) did not report cancellation")
             XCTAssertTrue(FileManager.default.fileExists(atPath: sources[index].path))
             XCTAssertFalse(FileManager.default.fileExists(atPath: destinations[index].path))
         }

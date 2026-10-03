@@ -112,10 +112,9 @@ final class VideoHDRBitDepthTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: outputDirectory) }
 
         let destination = outputDirectory.appendingPathComponent("processed-hdr.mov")
-        let terminal = expectation(description: "HDR conversion terminal state")
-        let terminalState = LockedValue<CompressionState?>(nil)
 
-        _ = await VideoTool.convert(
+        // A failure or cancellation now propagates out of the call itself.
+        _ = try await VideoTool.convert(
             source: source,
             destination: destination,
             videoSettings: .init(
@@ -127,28 +126,7 @@ final class VideoHDRBitDepthTests: XCTestCase {
             ),
             skipAudio: true,
             overwrite: true
-        ) { state in
-            switch state {
-            case .completed, .failed, .cancelled:
-                terminalState.set(state)
-                terminal.fulfill()
-            case .started:
-                break
-            }
-        }
-
-        await fulfillment(of: [terminal], timeout: 120)
-
-        switch terminalState.read() {
-        case .completed:
-            break
-        case .failed(let error):
-            throw error
-        case .cancelled:
-            return XCTFail("HDR conversion was cancelled unexpectedly")
-        case .started, .none:
-            return XCTFail("HDR conversion did not report a terminal state")
-        }
+        )
 
         let outputAsset = AVAsset(url: destination)
         let maybeOutputTrack = await outputAsset.getFirstTrack(withMediaType: .video)

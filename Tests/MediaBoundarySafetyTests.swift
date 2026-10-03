@@ -327,67 +327,65 @@ final class MediaBoundarySafetyTests: XCTestCase {
         XCTAssertEqual(ciImage.rotating(by: .angle(.nan)).extent, ciImage.extent)
     }
 
-    func testThumbnailPublicBoundaryRejectsUnsafeNumericValuesBeforeAssetAccess() {
+    /// The numeric guards must reject before the asset is ever touched, which is
+    /// why the fixture URL does not exist: reaching the asset would surface
+    /// `videoTrackNotFound` instead.
+    func testThumbnailPublicBoundaryRejectsUnsafeNumericValuesBeforeAssetAccess() async {
         let missingAsset = AVAsset(
             url: URL(fileURLWithPath: "/definitely-missing-mediatoolswift-fixture.mp4")
         )
 
-        let invalidCalls: [() throws -> Void] = [
+        let invalidCalls: [() async throws -> Void] = [
             {
-                try VideoTool.thumbnailImages(
+                _ = try await VideoTool.thumbnailImages(
                     for: missingAsset,
                     at: [0],
-                    size: CGSize(width: CGFloat.nan, height: 10),
-                    completion: { _ in }
+                    size: CGSize(width: CGFloat.nan, height: 10)
                 )
             },
             {
-                try VideoTool.thumbnailImages(
+                _ = try await VideoTool.thumbnailImages(
                     for: missingAsset,
-                    at: [Double.nan],
-                    completion: { _ in }
+                    at: [Double.nan]
                 )
             },
             {
-                try VideoTool.thumbnailImages(
+                _ = try await VideoTool.thumbnailImages(
                     for: missingAsset,
                     at: [0],
-                    timeToleranceBefore: .nan,
-                    completion: { _ in }
+                    timeToleranceBefore: .nan
                 )
             }
         ]
 
         for invalidCall in invalidCalls {
-            XCTAssertThrowsError(try invalidCall()) { error in
+            do {
+                try await invalidCall()
+                XCTFail("Expected the numeric guard to reject this call")
+            } catch {
                 XCTAssertEqual(error as? CompressionError, .failedToGenerateThumbnails)
             }
         }
     }
 
-    func testThumbnailFilesRejectsUnsafeCropGeometry() {
+    func testThumbnailFilesRejectsUnsafeCropGeometry() async {
         let missingAsset = AVAsset(
             url: URL(fileURLWithPath: "/definitely-missing-mediatoolswift-fixture.mp4")
         )
-        let result = LockedValue<Result<[VideoThumbnailFile], CompressionError>?>(nil)
 
-        VideoTool.thumbnailFiles(
-            of: missingAsset,
-            at: [],
-            settings: .init(
-                size: .crop(
-                    options: Crop(rect: CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 10))
+        do {
+            _ = try await VideoTool.thumbnailFiles(
+                of: missingAsset,
+                at: [],
+                settings: .init(
+                    size: .crop(
+                        options: Crop(rect: CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 10))
+                    )
                 )
             )
-        ) { value in
-            result.set(value)
-        }
-
-        switch result.read() {
-        case .failure(let error):
-            XCTAssertEqual(error, .failedToGenerateThumbnails)
-        case .success, .none:
-            XCTFail("Invalid crop geometry must fail synchronously")
+            XCTFail("Invalid crop geometry must be rejected before the asset is read")
+        } catch {
+            XCTAssertEqual(error as? CompressionError, .failedToGenerateThumbnails)
         }
     }
 

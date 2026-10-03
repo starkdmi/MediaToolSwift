@@ -6,7 +6,7 @@ private final class OrdinaryClientState {
     var callbackCount = 0
 }
 
-/// The counterpart of `OrdinaryClientState` for the closures that became
+/// The 2.0 counterpart of `OrdinaryClientState` for the closures that became
 /// `@Sendable`. A real client migrates to a synchronized box exactly like this
 /// one, since these closures run off the caller's isolation domain.
 private final class SynchronizedClientState: @unchecked Sendable {
@@ -22,10 +22,10 @@ private final class SynchronizedClientState: @unchecked Sendable {
 
 final class Swift6ClientCompilationTests: XCTestCase {
     /// This helper is intentionally compile-only. It verifies that a Swift 6 UI
-    /// client can call the public APIs with inline callbacks, while actor state
-    /// updates make their required hop explicit.
+    /// client can call the public APIs, while actor state updates make their
+    /// required hop explicit.
     ///
-    /// It also pins the boundary: every public processor closure — frame,
+    /// It also pins the 2.0 boundary: every public processor closure — frame,
     /// bitrate, size, and image — is `@Sendable` and rejects unsynchronized
     /// captures. Note that `@preconcurrency import` does not soften them: the
     /// attribute is part of the function type, not a conformance.
@@ -38,8 +38,6 @@ final class Swift6ClientCompilationTests: XCTestCase {
         let frameState = SynchronizedClientState()
         let bitrateState = SynchronizedClientState()
         let sizeState = SynchronizedClientState()
-        let videoCallbackState = OrdinaryClientState()
-        let audioCallbackState = OrdinaryClientState()
         let thumbnailState = OrdinaryClientState()
         let imageProcessor: ImageProcessor = { ciImage, cgImage, _, _ in
             imageState.increment()
@@ -62,31 +60,32 @@ final class Swift6ClientCompilationTests: XCTestCase {
         )
         _ = ImageOperation.imageProcessing(imageProcessor)
 
-        _ = await VideoTool.convert(
+        // The 2.0 result shape: a value, not a callback. `VideoInfo` and
+        // `AudioInfo` are returned concretely rather than as `any MediaInfo`.
+        let videoInfo: VideoInfo = try await VideoTool.convert(
             source: source,
             destination: destination,
             videoSettings: settings
-        ) { _ in
-            videoCallbackState.callbackCount += 1
-        }
+        )
+        _ = videoInfo.resolution
 
-        _ = await AudioTool.convert(
+        let audioInfo: AudioInfo = try await AudioTool.convert(
             source: source,
             destination: destination
-        ) { _ in
-            audioCallbackState.callbackCount += 1
-        }
+        )
+        _ = audioInfo.duration
 
-        _ = await VideoTool.convert(
+        // A caller-supplied task exposes progress and out-of-band cancellation.
+        let task = CompressionTask(destination: destination)
+        _ = task.progress
+        _ = try await VideoTool.convert(
             source: source,
-            destination: destination
-        ) { _ in
-            videoCallbackState.callbackCount += 1
-        }
+            destination: destination,
+            task: task
+        )
 
-        try VideoTool.thumbnailImages(for: asset, at: []) { _ in
-            thumbnailState.callbackCount += 1
-        }
+        let thumbnails = try await VideoTool.thumbnailImages(for: asset, at: [])
+        thumbnailState.callbackCount += thumbnails.count
     }
 
     func testPublicModuleImportsWithoutTestableAccess() {
