@@ -1,20 +1,6 @@
 import Foundation
 import AVFoundation
-#if (os(iOS) && !targetEnvironment(macCatalyst)) || os(tvOS) || os(visionOS)
-import MobileCoreServices
-#endif
-
-#if targetEnvironment(macCatalyst)
-private enum CatalystLegacyImageUTType {
-    static let png = "public.png"
-    static let jpeg = "public.jpeg"
-    static let gif = "com.compuserve.gif"
-    static let tiff = "public.tiff"
-    static let bmp = "com.microsoft.bmp"
-    static let ico = "com.microsoft.ico"
-    static let pdf = "com.adobe.pdf"
-}
-#endif
+import UniformTypeIdentifiers
 
 private final class ImageFormatRegistry: @unchecked Sendable {
     private final class RegisteredFormat {
@@ -271,81 +257,28 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
         case .heics:
             return "public.heics" as CFString
         case .png:
-            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
-                return UTType.png.identifier as CFString
-            } else {
-                #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.png as CFString
-                #else
-                return kUTTypePNG
-                #endif
-            }
+            return UTType.png.identifier as CFString
         case .jpeg:
-            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
-                return UTType.jpeg.identifier as CFString
-            } else {
-                #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.jpeg as CFString
-                #else
-                return kUTTypeJPEG
-                #endif
-            }
+            return UTType.jpeg.identifier as CFString
         #if os(macOS)
         case .jpeg2000:
-            return kUTTypeJPEG2000 // public.jpeg-2000
+            // `kUTTypeJPEG2000` is deprecated as of the macOS 12 deployment
+            // target and has no `UTType` static equivalent, but the identifier
+            // itself is unchanged.
+            return "public.jpeg-2000" as CFString
         #endif
         case .gif:
-            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
-                return UTType.gif.identifier as CFString
-            } else {
-                #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.gif as CFString
-                #else
-                return kUTTypeGIF
-                #endif
-            }
+            return UTType.gif.identifier as CFString
         case .tiff:
-            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
-                return UTType.tiff.identifier as CFString
-            } else {
-                #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.tiff as CFString
-                #else
-                return kUTTypeTIFF
-                #endif
-            }
+            return UTType.tiff.identifier as CFString
         case .bmp:
-            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
-                return UTType.bmp.identifier as CFString
-            } else {
-                #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.bmp as CFString
-                #else
-                return kUTTypeBMP
-                #endif
-            }
+            return UTType.bmp.identifier as CFString
         case .exr:
             return "com.ilm.openexr-image" as CFString
         case .ico:
-            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
-                return UTType.ico.identifier as CFString
-            } else {
-                #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.ico as CFString
-                #else
-                return kUTTypeICO
-                #endif
-            }
+            return UTType.ico.identifier as CFString
         case .pdf:
-            if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
-                return UTType.pdf.identifier as CFString
-            } else {
-                #if targetEnvironment(macCatalyst)
-                return CatalystLegacyImageUTType.pdf as CFString
-                #else
-                return kUTTypePDF
-                #endif
-            }
+            return UTType.pdf.identifier as CFString
         case .custom(let identifier):
             let value: CFString?? = Self.registry.write(with: identifier) { format in
                 format.utType
@@ -370,7 +303,6 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
     }
 
     /// Init `ImageFormat` using corresponding `UTType`
-    @available(macOS 11, iOS 14, tvOS 14, *)
     public init?(_ type: UTType) {
         if let format = Self(type.identifier as CFString) {
             self = format
@@ -404,39 +336,15 @@ public enum ImageFormat: Hashable, Equatable, Sendable {
             filenameExtension = "heic"
         }
 
-        if #available(macOS 11, iOS 14, tvOS 14, visionOS 1, *) {
-            if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
-                if format == .heif, fileExtension == "heic" { // type == .heic
-                    // Fix `.heic` file extension recognized as `.heif` format
-                    self = .heic
-                } else {
-                    self = format
-                }
+        if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
+            if format == .heif, fileExtension == "heic" { // type == .heic
+                // Fix `.heic` file extension recognized as `.heif` format
+                self = .heic
             } else {
-                return nil
+                self = format
             }
         } else {
-            // Fallback on earlier versions
-            #if os(visionOS)
-            // Warning: dublicate code for visionOS
-            if let type = UTType(filenameExtension: filenameExtension), let format = ImageFormat(type) {
-                if format == .heif, fileExtension == "heic" { // type == .heic
-                    // Fix `.heic` file extension recognized as HEIF image
-                    self = .heic
-                } else {
-                    self = format
-                }
-            } else {
-                return nil
-            }
-            #else
-            let utType = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, filenameExtension as CFString, nil)?.takeRetainedValue() // UTTagClass.filenameExtension
-            if let utType = utType, let format = ImageFormat(utType) {
-                self = format
-            } else {
-                return nil
-            }
-            #endif
+            return nil
         }
     }
 

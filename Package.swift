@@ -1,11 +1,11 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 
 import PackageDescription
 
 let package = Package(
     name: "MediaToolSwift",
     platforms: [
-        .macOS(.v11), .iOS(.v13), .tvOS(.v13), .macCatalyst("13.1"), .visionOS(.v1)
+        .macOS(.v12), .iOS(.v15), .tvOS(.v15), .macCatalyst("15.0"), .visionOS(.v1)
     ],
     products: [
         .library(name: "MediaToolSwift", targets: ["MediaToolSwift"])

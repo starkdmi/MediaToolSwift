@@ -107,7 +107,7 @@ internal extension CMFormatDescription {
 
     /// Video bits per component
     var bitsPerComponent: Int? {
-        guard self.mediaType == .video, #available(macOS 12, iOS 15, tvOS 15, *) else { return nil }
+        guard self.mediaType == .video else { return nil }
 
         if let value = self.extensions[kCMFormatDescriptionExtension_BitsPerComponent] as? CMFormatDescription.Extensions.Value,
            let number = value.propertyListRepresentation as? Int {
