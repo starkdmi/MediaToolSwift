@@ -55,7 +55,7 @@ jobs:
           # no symbols for this package and then reports every public
           # declaration as removed, which no allowlist can tell apart from a
           # real removal.
-          - xcode: "26.2"
+          - xcode: "26.3"
             gates: true
     steps:
       - uses: actions/checkout@v4
@@ -124,7 +124,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        xcode: ["16.2", "26.2"]
+        xcode: ["16.2", "26.3"]
         # `platform` has to stay a real axis. Each `include` entry below then
         # matches the combinations naming its platform and only fills in the
         # missing metadata. As include-only entries they would instead merge
@@ -173,7 +173,7 @@ jobs:
       # there. The deployment targets are still guarded on both toolchains by
       # the library build.
       - name: Build tests
-        if: matrix.destination != '' && matrix.xcode == '26.2'
+        if: matrix.destination != '' && matrix.xcode == '26.3'
         run: >-
           xcodebuild build-for-testing
           -scheme MediaToolSwift
@@ -188,7 +188,7 @@ jobs:
       # The podspec declares iOS and tvOS, and lint builds every declared
       # platform. Xcode 16.2 on this image has no iOS or tvOS platform
       # installed, so lint cannot resolve their destinations.
-      - run: sudo xcode-select -s /Applications/Xcode_26.2.app
+      - run: sudo xcode-select -s /Applications/Xcode_26.3.app
       - name: Validate release tag and podspec version
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
@@ -222,7 +222,7 @@ jobs:
         destination: ["platform=macOS", "generic/platform=iOS"]
     steps:
       - uses: actions/checkout@v4
-      - run: sudo xcode-select -s /Applications/Xcode_26.2.app
+      - run: sudo xcode-select -s /Applications/Xcode_26.3.app
       # The target uses automatic signing with a development team and an
       # entitlements file. A hosted runner has neither a certificate nor a
       # provisioning profile, so signing has to be off for the build to reach
