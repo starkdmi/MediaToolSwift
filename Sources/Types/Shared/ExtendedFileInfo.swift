@@ -1,7 +1,7 @@
 import CoreLocation
 
 /// Additional media information
-public struct ExtendedFileInfo {
+public struct ExtendedFileInfo: Sendable {
     /// Public initializer
     public init(
         // date: Date?,

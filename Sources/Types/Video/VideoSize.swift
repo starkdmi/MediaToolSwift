@@ -1,7 +1,7 @@
 import Foundation
 
 /// Video size data type
-public enum CompressionVideoSize {
+public enum CompressionVideoSize: Sendable {
     /// Original size
     case original
 
@@ -14,7 +14,7 @@ public enum CompressionVideoSize {
     case scale(CGSize)
 
     /// Calculate target resolution based on source video resolution
-    case dynamic((_ sourceVideoSize: CGSize) -> CompressionVideoSize)
+    case dynamic(@Sendable (_ sourceVideoSize: CGSize) -> CompressionVideoSize)
 
     /// Get exact value, used for dynamic retreiving
     func value(for videoSize: CGSize) throws -> CompressionVideoSize {

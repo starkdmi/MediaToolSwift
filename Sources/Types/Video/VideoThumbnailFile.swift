@@ -1,7 +1,7 @@
 import Foundation
 
 /// Video thumbnail stored in a file
-public struct VideoThumbnailFile {
+public struct VideoThumbnailFile: Sendable {
     /// Thumbnail file url
     public let url: URL
 

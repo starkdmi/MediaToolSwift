@@ -1,7 +1,7 @@
 import Foundation
 
 /// Tuple storing time and corresponding url of video thumbnail
-public struct VideoThumbnailRequest {
+public struct VideoThumbnailRequest: Sendable {
     /// Public initializer
     public init(time: Double, url: URL) {
         self.time = time

@@ -2,7 +2,7 @@ import AVFoundation
 import VideoToolbox
 
 /// Profiles used by video encoder
-public enum CompressionVideoProfile {
+public enum CompressionVideoProfile: Sendable {
     // MARK: H.264 Profiles
 
     /// Baseline Auto Level
@@ -34,7 +34,7 @@ public enum CompressionVideoProfile {
 }
 
 /// Video profiles bandwidth level
-public enum CompressionVideoProfileBandwidth {
+public enum CompressionVideoProfileBandwidth: Sendable {
     case low, medium, high
 }
 

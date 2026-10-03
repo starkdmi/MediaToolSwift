@@ -6,37 +6,56 @@ private final class OrdinaryClientState {
     var callbackCount = 0
 }
 
+/// The counterpart of `OrdinaryClientState` for the closures that became
+/// `@Sendable`. A real client migrates to a synchronized box exactly like this
+/// one, since these closures run off the caller's isolation domain.
+private final class SynchronizedClientState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+}
+
 final class Swift6ClientCompilationTests: XCTestCase {
     /// This helper is intentionally compile-only. It verifies that a Swift 6 UI
     /// client can call the public APIs with inline callbacks, while actor state
     /// updates make their required hop explicit.
+    ///
+    /// It also pins the boundary: every public processor closure — frame,
+    /// bitrate, size, and image — is `@Sendable` and rejects unsynchronized
+    /// captures. Note that `@preconcurrency import` does not soften them: the
+    /// attribute is part of the function type, not a conformance.
     private nonisolated func compilePublicCallbackUsage(
         source: URL,
         destination: URL,
         asset: AVAsset
     ) async throws {
-        let imageState = OrdinaryClientState()
-        let frameState = OrdinaryClientState()
-        let bitrateState = OrdinaryClientState()
-        let sizeState = OrdinaryClientState()
+        let imageState = SynchronizedClientState()
+        let frameState = SynchronizedClientState()
+        let bitrateState = SynchronizedClientState()
+        let sizeState = SynchronizedClientState()
         let videoCallbackState = OrdinaryClientState()
         let audioCallbackState = OrdinaryClientState()
         let thumbnailState = OrdinaryClientState()
         let imageProcessor: ImageProcessor = { ciImage, cgImage, _, _ in
-            imageState.callbackCount += 1
+            imageState.increment()
             return (ciImage, cgImage)
         }
         let frameProcessor = VideoFrameProcessor.sampleBuffer {
-            frameState.callbackCount += 1
+            frameState.increment()
             return $0
         }
         let settings = CompressionVideoSettings(
             bitrate: .dynamic {
-                bitrateState.callbackCount += 1
+                bitrateState.increment()
                 return max($0 / 2, 1)
             },
             size: .dynamic {
-                sizeState.callbackCount += 1
+                sizeState.increment()
                 return .fit($0)
             },
             edit: [.process(frameProcessor)]

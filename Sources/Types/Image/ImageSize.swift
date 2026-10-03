@@ -1,7 +1,7 @@
 import CoreImage
 
 /// Image frame of a static or animated image
-public enum ImageSize: Equatable {
+public enum ImageSize: Equatable, Sendable {
     /// Original size
     case original
 

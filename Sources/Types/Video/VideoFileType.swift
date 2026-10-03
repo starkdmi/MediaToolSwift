@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// Video file container
-public enum VideoFileType: String {
+public enum VideoFileType: String, Sendable {
     /// MPEG-4
     case mp4
 

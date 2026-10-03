@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// All-in-one video settings
-public struct CompressionVideoSettings {
+public struct CompressionVideoSettings: Sendable {
     /// Public initializer with default settings
     public init(
         codec: AVVideoCodecType? = nil,

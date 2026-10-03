@@ -2,7 +2,7 @@ import Foundation
 import CoreImage
 
 /// Image options
-public struct ImageSettings {
+public struct ImageSettings: Sendable {
     /// Public initializer
     public init(
         format: ImageFormat? = nil,
