@@ -215,12 +215,15 @@ Generate video thumbnails at specified times. Time specified in seconds. Availab
 
 __Usage__
 ```Swift
-try await VideoTool.thumbnailFiles(of: asset, at: [
+let files = try await VideoTool.thumbnailFiles(of: asset, at: [
         .init(time: 3.5, url: url1), 
         .init(time: 5.2, url: url2)
     ],
     settings: .init(format: .png, size: .fit(.hd))
 )
+
+// Or as in-memory images
+let images = try await VideoTool.thumbnailImages(for: asset, at: [3.5, 5.2])
 ```
 
 ## Frame Rate adjustment
