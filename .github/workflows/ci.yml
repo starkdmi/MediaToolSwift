@@ -72,41 +72,23 @@ jobs:
           -Xswiftc -strict-concurrency=complete
           -Xswiftc -warnings-as-errors
 
+      # Both gates below filter their output through
+      # .github/expected-api-breakages.txt. Intentional breaks are declared
+      # there once, in the commit that makes them; everything else fails.
+      #
+      # Note that the digester does not see every source break. Adding
+      # `@Sendable` to a public closure payload, for example, is reported by
+      # neither gate but does break clients, so it still needs a ClientTests
+      # case and a release note.
       - name: API compatibility with 1.2.0
         if: matrix.gates
-        shell: bash
-        run: |
-          set -uo pipefail
-          set +e
-          swift package diagnose-api-breaking-changes 1.2.0 --products MediaToolSwift 2>&1 | tee api-diff.log
-          diagnose_status="${PIPESTATUS[0]}"
-          set -e
-
-          # SwiftPM exits nonzero when it finds a source-breaking API change.
-          # Treat other failures (for example, a failed build) as gate failures.
-          if [[ "$diagnose_status" -ne 0 ]] && ! grep -Fq "API breakage:" api-diff.log; then
-            exit "$diagnose_status"
-          fi
-
-          # OpenEXR and multi-sample processing were added publicly on main
-          # after 1.2.0. Preserve those APIs while rejecting every other
-          # difference from the tag.
-          unexpected_breakages="$(
-            grep -F "API breakage:" api-diff.log |
-              grep -Fv "ImageFormat.exr has been added as a new enum case" |
-              grep -Fv "VideoFrameProcessor.sampleBufferToMany has been added as a new enum case" || true
-          )"
-          if [[ -n "$unexpected_breakages" ]]; then
-            echo "$unexpected_breakages"
-            exit 1
-          fi
+        run: .github/scripts/check-api-breakage.sh 1.2.0
 
       - name: API compatibility with pull-request base
         if: matrix.gates && github.event_name == 'pull_request'
         run: >-
-          swift package diagnose-api-breaking-changes
+          .github/scripts/check-api-breakage.sh
           "${{ github.event.pull_request.base.sha }}"
-          --products MediaToolSwift
 
       - name: Whitespace check
         if: matrix.gates
@@ -222,6 +204,36 @@ jobs:
       - name: Lint tagged source artifact
         if: github.ref_type == 'tag'
         run: pod spec lint MediaToolSwift.podspec --allow-warnings
+
+  # The example app is a real consumer of the public API and the only place a
+  # source-breaking change shows up as a compile error rather than a silent
+  # allowlist entry. Without this lane it drifted out of date unnoticed.
+  example-app:
+    name: Example app (${{ matrix.destination }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        # One target, one shared scheme, two destinations. The project sets
+        # `SDKROOT = auto`, so the same scheme builds both. A separate
+        # `MediaToolSwiftExampleMacOS` scheme exists only in a local
+        # `xcuserdata` directory, which is not committed, so naming it here
+        # would pass locally and fail on every fresh checkout.
+        destination: ["platform=macOS", "generic/platform=iOS"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s /Applications/Xcode_26.2.app
+      # The target uses automatic signing with a development team and an
+      # entitlements file. A hosted runner has neither a certificate nor a
+      # provisioning profile, so signing has to be off for the build to reach
+      # the API-drift check this lane exists for.
+      - run: >-
+          xcodebuild build
+          -project Example/MediaToolSwiftExample.xcodeproj
+          -scheme MediaToolSwiftExample
+          -destination '${{ matrix.destination }}'
+          CODE_SIGNING_ALLOWED=NO
+          -quiet
 
   thread-sanitizer:
     name: Thread Sanitizer cancellation stress
