@@ -303,12 +303,12 @@ extension VideoTool {
 
         do {
             try configureVideoInput()
-        } catch {
+        } catch let originalError {
             // Writer support differs by platform. Keep accepted source profiles
             // and passthrough intact; retry only a tested conversion target.
             guard variables.hasChanges,
                   let compatibleColor = colorInfo?.writerCompatibleColor else {
-                throw error
+                throw originalError
             }
             #if os(visionOS)
             throw CompressionError.notSupportedOnVisionOS
@@ -322,7 +322,11 @@ extension VideoTool {
             targetVideoSize = sizeResult.targetSize
             videoParameters[AVVideoWidthKey] = targetVideoSize.width
             videoParameters[AVVideoHeightKey] = targetVideoSize.height
-            try configureVideoInput()
+            do {
+                try configureVideoInput()
+            } catch {
+                throw VideoWriterInputError(originalError: originalError, retryError: error)
+            }
             #endif
         }
 
@@ -457,6 +461,8 @@ extension VideoTool {
         variables.size = preservesSourcePixelAspectRatio ? analysis.naturalSize : targetVideoSize
         if convertsColorPrimaries {
             variables.size = targetVideoSize
+            // Composition has already applied the track transform. This flag
+            // prevents another dimension swap; the output can still be portrait.
             variables.orientation = .landscape
         }
 
@@ -723,3 +729,24 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
     }
 }
 #endif
+
+/// Retains both setup failures in source-settings, compatible-settings order.
+private struct VideoWriterInputError: LocalizedError, CustomNSError {
+    let originalError: Error
+    let retryError: Error
+
+    private var description: String {
+        "Video writer input setup failed with source color settings (\(originalError.localizedDescription)) " +
+        "and compatible color settings (\(retryError.localizedDescription))."
+    }
+
+    var errorDescription: String? { description }
+
+    var errorUserInfo: [String: Any] {
+        [
+            NSLocalizedDescriptionKey: description,
+            NSUnderlyingErrorKey: originalError,
+            NSMultipleUnderlyingErrorsKey: [originalError, retryError]
+        ]
+    }
+}

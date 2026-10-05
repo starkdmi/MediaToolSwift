@@ -44,8 +44,14 @@ Value for AVVideoColorPrimariesKey must be one of: P3_D65, ITU_R_2020, ITU_R_709
 `testDCIP3WriterSetupBeforeEncoding` exercises that initializer directly.
 The export tests check supported output tags, HLG/PQ transfer functions,
 encoded 10-bit depth from `hvcC`, duration, dimensions, metadata, byte-identical
-AAC payloads, portrait resize with an image processor, and compressed video
-passthrough. The SDR pixel test uses an independent Apple basic compositor as
+AAC payloads, portrait resize with an image processor, `.fit` resizing without
+a processor or crop in both orientations, and compressed video passthrough.
+Resize output is compared with an independent basic compositor and cropped,
+stretched, mirrored, and rotated negative controls. The portrait test also
+checks the source fixture's display dimensions so a missing track transform
+cannot silently turn it into a landscape test. A rejected-profile test verifies
+both writer setup errors remain available through `NSMultipleUnderlyingErrorsKey`.
+The SDR pixel test uses an independent Apple basic compositor as
 its conversion reference on iOS; macOS accepts DCI-P3 and compares against the
 source. High-quality SDR encoding isolates color conversion from quantization.
 Mean error must stay below one normalized 8-bit level (1/255). A negative control
@@ -54,7 +60,7 @@ have less than half that control's mean linear-RGB error.
 These synthetic controls prove the writer failure class and the tested export
 contracts; they do not establish camera HDR quality or dynamic HDR preservation.
 
-Run the six regressions:
+Run the color conversion regressions:
 
 ```sh
 swift test --disable-sandbox --filter VideoColorConversionTests
@@ -84,6 +90,12 @@ for name in dci-p3 dci-p3-hlg dci-p3-pq; do
     -tag:v hvc1 -c:a aac -b:a 64k -movflags +write_colr \
     "Tests/ColorFixtures/$name.mov"
 done
-ffmpeg -i Tests/ColorFixtures/dci-p3.mov -map 0 -c copy \
-  -metadata:s:v:0 rotate=90 Tests/ColorFixtures/dci-p3-portrait.mov
+ffmpeg -display_rotation:v:0 90 -i Tests/ColorFixtures/dci-p3.mov \
+  -map 0 -c copy Tests/ColorFixtures/dci-p3-portrait.mov
+ffprobe -v error -select_streams v:0 -show_entries stream_side_data=rotation \
+  -of default=noprint_wrappers=1 Tests/ColorFixtures/dci-p3-portrait.mov
 ```
+
+The portrait command uses FFmpeg's input [`-display_rotation`](https://ffmpeg.org/ffmpeg.html#Video-Options)
+option to write the track transform during stream copy. Verify that the final
+command reports `rotation=90`.

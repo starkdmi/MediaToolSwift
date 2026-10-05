@@ -39,17 +39,97 @@ final class VideoColorConversionTests: XCTestCase {
 
     func testDCIP3PortraitResizeWithImageProcessor() async throws {
         let source = try fixture("dci-p3-portrait")
+        let sourceImage = try await firstFrame(AVURLAsset(url: source))
+        XCTAssertEqual(sourceImage.width, 96, "The fixture must carry a portrait track transform")
+        XCTAssertEqual(sourceImage.height, 160, "The fixture must carry a portrait track transform")
         let targetSize = CGSize(width: 48, height: 80)
         let destination = temporaryOutput()
         defer { try? FileManager.default.removeItem(at: destination) }
-        let result = try await convert(source, to: destination,
+        let info = try await convert(source, to: destination,
             settings: .init(codec: .hevc, size: .scale(targetSize),
                 profile: .hevcMain, edit: [.process(.image { image, _, _ in image })]))
-        let info = try XCTUnwrap(result as? VideoInfo)
         XCTAssertEqual(info.resolution, targetSize)
         let image = try await firstFrame(AVURLAsset(url: destination))
         XCTAssertEqual(image.width, Int(targetSize.width))
         XCTAssertEqual(image.height, Int(targetSize.height))
+    }
+
+    func testDCIP3FitResizeWithoutFrameProcessor() async throws {
+        // A square bounding box must preserve the fixture's 5:3 aspect ratio.
+        let boundingSize = CGSize(width: 80, height: 80)
+        let cases = [
+            ("dci-p3", CGSize(width: 80, height: 48)),
+            ("dci-p3-portrait", CGSize(width: 48, height: 80))
+        ]
+        for (name, expectedSize) in cases {
+            let source = try fixture(name)
+            let destination = temporaryOutput()
+            defer { try? FileManager.default.removeItem(at: destination) }
+            let info = try await convert(source, to: destination,
+                settings: .init(codec: .hevc, bitrate: .encoder, quality: 1,
+                    size: .fit(boundingSize), profile: .hevcMain))
+            XCTAssertEqual(info.resolution, expectedSize, name)
+            let image = try await firstFrame(AVURLAsset(url: destination))
+            XCTAssertEqual(image.width, Int(expectedSize.width), name)
+            XCTAssertEqual(image.height, Int(expectedSize.height), name)
+
+            // The independent basic compositor applies the track transform;
+            // the image generator then scales uniformly to the requested size.
+            let original = AVURLAsset(url: source)
+            let composition = AVMutableVideoComposition(propertiesOf: original)
+            #if !os(macOS)
+            composition.colorPrimaries = AVVideoColorPrimaries_P3_D65
+            composition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
+            composition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
+            #endif
+            let reference = try await firstFrame(original, composition: composition, maximumSize: expectedSize)
+            XCTAssertEqual(reference.width, Int(expectedSize.width), name)
+            XCTAssertEqual(reference.height, Int(expectedSize.height), name)
+            let expected = try linearPixels(reference)
+            let actual = try linearPixels(image)
+            XCTAssertEqual(actual.count, expected.count)
+            let exportError = meanAbsoluteError(actual, expected)
+
+            // Controls lose half the image and stretch it, mirror it, or rotate
+            // it. Correct geometry must be at least twice as close to reference.
+            let referenceImage = CIImage(cgImage: reference)
+            let halfBounds = referenceImage.extent.divided(atDistance: expectedSize.width / 2, from: .minXEdge).slice
+            let controls = [
+                referenceImage.cropped(to: halfBounds).resizing(to: expectedSize),
+                referenceImage.oriented(.upMirrored),
+                referenceImage.oriented(.down)
+            ]
+            let minimumImprovementFactor: Float = 2
+            for control in controls {
+                let controlImage = try XCTUnwrap(CIContext().createCGImage(control, from: control.extent))
+                let controlPixels = try linearPixels(controlImage)
+                XCTAssertEqual(controlPixels.count, expected.count)
+                let controlError = meanAbsoluteError(controlPixels, expected)
+                print("DCI-P3 \(name) geometry mean error: export=\(exportError), control=\(controlError)")
+                XCTAssertLessThan(exportError * minimumImprovementFactor, controlError, name)
+            }
+        }
+    }
+
+    func testDCIP3WriterSetupRetainsBothErrors() async throws {
+        let asset = AVURLAsset(url: try fixture("dci-p3"))
+        do {
+            // An invalid encoder profile makes both writer-input attempts fail,
+            // including on macOS where DCI-P3 primaries themselves are accepted.
+            _ = try await VideoTool.initializeVideo(asset: asset,
+                videoSettings: .init(codec: .hevc, profile: .value("invalid-profile")))
+            XCTFail("Invalid profile must fail writer setup")
+        } catch {
+            let diagnostic = error as NSError
+            let underlying = try XCTUnwrap(diagnostic.userInfo[NSMultipleUnderlyingErrorsKey] as? [NSError])
+            XCTAssertEqual(underlying.count, 2)
+            let original = try XCTUnwrap(underlying.first)
+            let retry = try XCTUnwrap(underlying.last)
+            XCTAssertEqual((diagnostic.userInfo[NSUnderlyingErrorKey] as? NSError), original)
+            XCTAssertTrue(retry.localizedDescription.contains(AVVideoProfileLevelKey))
+            XCTAssertTrue(diagnostic.localizedDescription.contains(original.localizedDescription))
+            XCTAssertTrue(diagnostic.localizedDescription.contains(retry.localizedDescription))
+        }
     }
 
     func testDCIP3VideoPassthroughWhileDroppingAudio() async throws {
@@ -157,11 +237,8 @@ final class VideoColorConversionTests: XCTestCase {
         let actual = try linearPixels(resultImage)
         let retagged = try linearPixels(incorrectlyRetagged)
         XCTAssertEqual(actual.count, expected.count)
-        func meanError(_ pixels: [Float]) -> Float {
-            zip(pixels, expected).reduce(0) { $0 + abs($1.0 - $1.1) } / Float(expected.count)
-        }
-        let conversionError = meanError(actual)
-        let retaggingError = meanError(retagged)
+        let conversionError = meanAbsoluteError(actual, expected)
+        let retaggingError = meanAbsoluteError(retagged, expected)
         // At most one normalized 8-bit level of mean linear-RGB error, and
         // at least twice as close to the reference as the retag-only control.
         let maximumMeanError = 1 / Float(UInt8.max)
@@ -172,9 +249,18 @@ final class VideoColorConversionTests: XCTestCase {
             "Changing tags alone must not satisfy the pixel-color check")
     }
 
-    private func firstFrame(_ asset: AVAsset, composition: AVVideoComposition? = nil) async throws -> CGImage {
+    private func meanAbsoluteError(_ actual: [Float], _ expected: [Float]) -> Float {
+        zip(actual, expected).reduce(0) { $0 + abs($1.0 - $1.1) } / Float(expected.count)
+    }
+
+    private func firstFrame(
+        _ asset: AVAsset,
+        composition: AVVideoComposition? = nil,
+        maximumSize: CGSize = .zero
+    ) async throws -> CGImage {
         let generator = AVAssetImageGenerator(asset: asset)
         generator.videoComposition = composition
+        generator.maximumSize = maximumSize
         generator.appliesPreferredTrackTransform = true
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
@@ -213,30 +299,18 @@ final class VideoColorConversionTests: XCTestCase {
         settings: CompressionVideoSettings,
         skipAudio: Bool = false,
         metadata: [AVMetadataItem] = []
-    ) async throws -> MediaInfo {
-        let terminal = expectation(description: "Conversion terminal state")
-        let state = LockedValue<CompressionState?>(nil)
-        _ = await VideoTool.convert(
-            source: source, destination: destination,
-            videoSettings: settings, skipAudio: skipAudio, customMetadata: metadata
-        ) { value in
-            switch value {
-            case .completed, .failed, .cancelled:
-                state.set(value)
-                terminal.fulfill()
-            case .started:
-                break
-            }
-        }
-        await fulfillment(of: [terminal], timeout: 30)
-        switch state.read() {
-        case .completed(let info): return info
-        case .failed(let error):
+    ) async throws -> VideoInfo {
+        do {
+            return try await VideoTool.convert(
+                source: source, destination: destination,
+                videoSettings: settings, skipAudio: skipAudio, customMetadata: metadata
+            )
+        } catch is CancellationError {
+            throw ConversionFailure(errorDescription: "Unexpected cancellation")
+        } catch {
             // The exception catcher's underlying NSException cannot be archived
             // by XCTest on iOS; preserve its reason in a serializable test error.
             throw ConversionFailure(errorDescription: error.localizedDescription)
-        case .cancelled: throw ConversionFailure(errorDescription: "Unexpected cancellation")
-        case .started, .none: throw ConversionFailure(errorDescription: "No terminal state")
         }
     }
 
