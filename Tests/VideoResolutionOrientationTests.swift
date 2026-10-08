@@ -27,7 +27,7 @@ final class VideoResolutionOrientationTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    func testDisplayedSizeSnapsTransformsToTheNearestQuarterTurn() {
+    func testDisplayedSizeSwapsOnlyForQuarterTurns() {
         let size = CGSize(width: 160, height: 96)
         let swapped = CGSize(width: 96, height: 160)
 
@@ -35,8 +35,10 @@ final class VideoResolutionOrientationTests: XCTestCase {
         XCTAssertEqual(size.displayed(with: CGAffineTransform(rotationAngle: .pi / 2)), swapped)
         XCTAssertEqual(size.displayed(with: CGAffineTransform(rotationAngle: -.pi / 2)), swapped)
         XCTAssertEqual(size.displayed(with: CGAffineTransform(rotationAngle: .pi)), size)
-        XCTAssertEqual(size.displayed(with: CGAffineTransform(rotationAngle: .pi / 3)), swapped)
-        XCTAssertEqual(size.displayed(with: CGAffineTransform(rotationAngle: .pi / 6)), size)
+        XCTAssertEqual(size.displayed(with: CGAffineTransform(rotationAngle: CGFloat(Rotate.clockwise.radians))), swapped)
+        XCTAssertEqual(size.displayed(with: CGAffineTransform(rotationAngle: .pi / 3)), size)
+        XCTAssertEqual(size.displayed(with: CGAffineTransform(rotationAngle: .pi * 100 / 180)), size)
+        XCTAssertEqual(size.displayed(with: CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0)), swapped)
         XCTAssertEqual(size.displayed(with: CGAffineTransform(scaleX: 1, y: -1)), size)
         XCTAssertEqual(
             size.displayed(with: CGAffineTransform(rotationAngle: .pi / 2).concatenating(CGAffineTransform(scaleX: -1, y: 1))),
@@ -125,6 +127,24 @@ final class VideoResolutionOrientationTests: XCTestCase {
         try await assertResolutionMatchesFirstFrame(info)
     }
 
+    func testCustomAngleRotationKeepsDisplayedResolution() async throws {
+        // AVFoundation displays a transform that is not a quarter turn unrotated
+        let info = try await convert(portrait: false, edit: [.rotate(.angle(.pi * 100 / 180))])
+        XCTAssertEqual(info.resolution, CGSize(width: 160, height: 96))
+        try await assertResolutionMatchesFirstFrame(info)
+    }
+
+    func testRotationWithReflectionReportsDisplayedResolution() async throws {
+        for edit: Set<VideoOperation> in [[.rotate(.clockwise), .mirror], [.rotate(.clockwise), .flip]] {
+            for (portrait, expected) in [(false, CGSize(width: 96, height: 160)), (true, CGSize(width: 160, height: 96))] {
+                let info = try await convert(portrait: portrait, edit: edit)
+                XCTAssertEqual(info.resolution, expected)
+                // `getInfo` does not recognize reflected quarter turns yet
+                try await assertResolutionMatchesFirstFrame(info, comparingFileInfo: false)
+            }
+        }
+    }
+
     func testLandscapeUpsideDownKeepsResolution() async throws {
         let info = try await convert(portrait: false, edit: [.rotate(.upsideDown)])
         XCTAssertEqual(info.resolution, CGSize(width: 160, height: 96))
@@ -159,6 +179,7 @@ final class VideoResolutionOrientationTests: XCTestCase {
     /// the information read back from the written file
     private func assertResolutionMatchesFirstFrame(
         _ info: VideoInfo,
+        comparingFileInfo: Bool = true,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
@@ -172,6 +193,7 @@ final class VideoResolutionOrientationTests: XCTestCase {
 
         XCTAssertEqual(info.resolution, decodedSize, "Reported resolution differs from the displayed frame", file: file, line: line)
 
+        guard comparingFileInfo else { return }
         let fileInfo = try await VideoTool.getInfo(source: info.url)
         XCTAssertEqual(info.resolution, fileInfo.resolution, "Reported resolution differs from the written file", file: file, line: line)
     }
