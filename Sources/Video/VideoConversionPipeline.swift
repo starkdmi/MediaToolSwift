@@ -455,16 +455,10 @@ private final class VideoConversionSession: @unchecked Sendable {
             }
 
             guard let sample = pump.output.copyNextSampleBuffer() else {
-                if prepared.reader.status == .failed {
-                    failOnQueue(prepared.reader.error ?? pump.readError)
-                    return
-                }
-
-                guard markInputFinishedOnQueue(pump, writer: prepared.writer) else { return }
-                pump.isFinished = true
-                finishEncodingIfPossibleOnQueue()
+                finishReadingOnQueue(pump, prepared: prepared)
                 return
             }
+            pump.recordRead(sample)
 
             if let sampleHandler = pump.sampleHandler {
                 pump.isProcessing = true
@@ -510,15 +504,10 @@ private final class VideoConversionSession: @unchecked Sendable {
         }
 
         guard let sample = result.sample else {
-            if prepared.reader.status == .failed {
-                failOnQueue(prepared.reader.error ?? pump.readError)
-            } else {
-                guard markInputFinishedOnQueue(pump, writer: prepared.writer) else { return }
-                pump.isFinished = true
-                finishEncodingIfPossibleOnQueue()
-            }
+            finishReadingOnQueue(pump, prepared: prepared)
             return
         }
+        pump.recordRead(sample)
 
         if let sampleHandler = pump.sampleHandler {
             pump.isProcessing = true
@@ -536,6 +525,21 @@ private final class VideoConversionSession: @unchecked Sendable {
                 self?.pumpOnQueue(at: index)
             }
         }
+    }
+
+    /// Handles the end of a track's samples, reported as a `nil` read.
+    private func finishReadingOnQueue(_ pump: VideoTrackPump, prepared: PreparedVideoConversion) {
+        // A video track can end without a single sample, after a decoder failure
+        // the reader did not report or for a cut past the last frame. Finishing
+        // would then report a file without a video track as a success.
+        if prepared.reader.status == .failed || (pump.kind == .video && !pump.hasReadSample) {
+            failOnQueue(prepared.reader.error ?? pump.readError)
+            return
+        }
+
+        guard markInputFinishedOnQueue(pump, writer: prepared.writer) else { return }
+        pump.isFinished = true
+        finishEncodingIfPossibleOnQueue()
     }
 
     private func isVideoCompositionOutput(_ output: AVAssetReaderOutput) -> Bool {
@@ -708,7 +712,7 @@ private final class VideoConversionSession: @unchecked Sendable {
 
         let videoInfo = VideoInfo(
             url: destination,
-            resolution: prepared.video.size.oriented(prepared.video.orientation),
+            resolution: prepared.video.resolution,
             frameRate: prepared.video.frameRate ?? Int(prepared.video.nominalFrameRate.rounded()),
             totalFrames: Int(prepared.video.totalFrames),
             duration: (prepared.video.range?.duration ?? prepared.video.sourceDuration).seconds,
@@ -851,6 +855,8 @@ private final class VideoTrackPump {
     let readsAsynchronously: Bool
     var isFinished = false
     var isProcessing = false
+    /// Set once a read returns media; marker-only buffers carry no samples
+    private(set) var hasReadSample = false
     private var pendingSamples: [CMSampleBuffer] = []
 
     init(
@@ -886,6 +892,12 @@ private final class VideoTrackPump {
             return .failedToWriteAudio
         case .metadata:
             return .failedToWriteVideo
+        }
+    }
+
+    func recordRead(_ sample: CMSampleBuffer) {
+        if !hasReadSample, CMSampleBufferGetNumSamples(sample) > 0 {
+            hasReadSample = true
         }
     }
 

@@ -54,6 +54,27 @@ final class VideoColorConversionTests: XCTestCase {
         XCTAssertEqual(image.height, Int(targetSize.height))
     }
 
+    func testDCIP3PortraitRotationReportsDisplayedResolution() async throws {
+        // iOS rejects DCI-P3 in the writer, so its retry renders through a video
+        // composition that already applies the track transform; the reported
+        // resolution must still follow the user's rotation exactly once. macOS
+        // accepts DCI-P3 and covers the track-output path instead.
+        let source = try fixture("dci-p3-portrait")
+        let settings = CompressionVideoSettings(codec: .hevc, bitrate: .encoder, quality: 1,
+            profile: .hevcMain, edit: [.rotate(.clockwise)])
+        let configured = try await VideoTool.initializeVideo(asset: AVURLAsset(url: source), videoSettings: settings)
+        #if !os(macOS)
+        XCTAssertTrue(configured.videoOutput is AVAssetReaderVideoCompositionOutput,
+            "Expected the DCI-P3 conversion retry to use a video composition")
+        #endif
+        let destination = temporaryOutput()
+        defer { try? FileManager.default.removeItem(at: destination) }
+        let info = try await convert(source, to: destination, settings: settings, skipAudio: true)
+        XCTAssertEqual(info.resolution, CGSize(width: 160, height: 96))
+        let image = try await firstFrame(AVURLAsset(url: destination))
+        XCTAssertEqual(CGSize(width: image.width, height: image.height), info.resolution)
+    }
+
     func testDCIP3FitResizeWithoutFrameProcessor() async throws {
         // A square bounding box must preserve the fixture's 5:3 aspect ratio.
         let boundingSize = CGSize(width: 80, height: 80)
