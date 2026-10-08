@@ -1,6 +1,7 @@
 import CoreMedia
 
 /// Video operations
+/// Rotation, flip, and mirror are applied in that order regardless of `Set` order, matching `ImageOperation`
 public enum VideoOperation: Equatable, Hashable, Sendable {
     /// Cutting
     /// Fails with `CompressionError.failedToReadVideo` when no video frames are read for the range,

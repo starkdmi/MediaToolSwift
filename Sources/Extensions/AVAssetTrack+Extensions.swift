@@ -64,10 +64,10 @@ internal extension AVAssetTrack {
     }
 
     /// Transform orientation
+    /// Quarter turns, including reflected ones (transposes), swap the displayed dimensions
     func getOrientation() async -> VideoOrientation {
         let transform = await getPreferredTransform()
-        if (transform.a == 0 && transform.b == 1.0 && transform.c == -1.0 && transform.d == 0) ||
-            (transform.a == 0 && transform.b == -1.0 && transform.c == 1.0 && transform.d == 0) {
+        if transform.a == 0 && transform.d == 0 && abs(transform.b) == 1.0 && abs(transform.c) == 1.0 {
             return .portrait
         } else {
             return .landscape

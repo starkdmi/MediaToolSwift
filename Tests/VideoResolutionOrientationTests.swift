@@ -139,8 +139,7 @@ final class VideoResolutionOrientationTests: XCTestCase {
             for (portrait, expected) in [(false, CGSize(width: 96, height: 160)), (true, CGSize(width: 160, height: 96))] {
                 let info = try await convert(portrait: portrait, edit: edit)
                 XCTAssertEqual(info.resolution, expected)
-                // `getInfo` does not recognize reflected quarter turns yet
-                try await assertResolutionMatchesFirstFrame(info, comparingFileInfo: false)
+                try await assertResolutionMatchesFirstFrame(info)
             }
         }
     }
@@ -179,7 +178,6 @@ final class VideoResolutionOrientationTests: XCTestCase {
     /// the information read back from the written file
     private func assertResolutionMatchesFirstFrame(
         _ info: VideoInfo,
-        comparingFileInfo: Bool = true,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
@@ -193,7 +191,6 @@ final class VideoResolutionOrientationTests: XCTestCase {
 
         XCTAssertEqual(info.resolution, decodedSize, "Reported resolution differs from the displayed frame", file: file, line: line)
 
-        guard comparingFileInfo else { return }
         let fileInfo = try await VideoTool.getInfo(source: info.url)
         XCTAssertEqual(info.resolution, fileInfo.resolution, "Reported resolution differs from the written file", file: file, line: line)
     }

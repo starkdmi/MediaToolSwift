@@ -79,9 +79,18 @@ internal extension CVPixelBuffer {
     ) -> CIImage? {
         var processedImage = image
 
-        // Invert video transformation
-        if let transform = transform {
-            processedImage = processedImage.transformed(by: transform.inverted())
+        // Track transforms use a top-left origin while Core Image uses a
+        // bottom-left one; conjugating by a vertical flip negates the
+        // off-diagonal terms. For rotations the result equals the inverse,
+        // which was used before, but reflected quarter turns would then
+        // present the frame rotated by 180 degrees.
+        let displayTransform = transform.map {
+            CGAffineTransform(a: $0.a, b: -$0.b, c: -$0.c, d: $0.d, tx: 0, ty: 0)
+        }
+
+        // Apply video transformation, presenting the frame in display orientation
+        if let displayTransform {
+            processedImage = processedImage.transformed(by: displayTransform)
             processedImage = processedImage.transformed(
                 by: .init(translationX: -processedImage.extent.origin.x, y: -processedImage.extent.origin.y)
             )
@@ -109,8 +118,8 @@ internal extension CVPixelBuffer {
         }
 
         // Transform back
-        if let transform = transform {
-            outputImage = outputImage.transformed(by: transform)
+        if let displayTransform {
+            outputImage = outputImage.transformed(by: displayTransform.inverted())
             outputImage = outputImage.transformed(
                 by: .init(translationX: -outputImage.extent.origin.x, y: -outputImage.extent.origin.y)
             )
