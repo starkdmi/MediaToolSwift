@@ -45,7 +45,7 @@ final class VideoOrientationTests: XCTestCase {
     }
 
     func testConversionPreservesDisplayForAllTransforms() async throws {
-        let paths: [(name: String, settings: (CGSize) -> CompressionVideoSettings, scale: CGFloat)] = [
+        var paths: [(name: String, settings: (CGSize) -> CompressionVideoSettings, scale: CGFloat)] = [
             ("re-encode", { _ in .init(codec: .hevc) }, 1),
             ("image", { _ in .init(codec: .hevc, edit: [.process(.image { image, _, _ in image })]) }, 1),
             ("pixelBuffer", { _ in .init(codec: .hevc, edit: [.process(.pixelBuffer { buffer, _, _, _ in buffer })]) }, 1),
@@ -54,7 +54,8 @@ final class VideoOrientationTests: XCTestCase {
             ("image+crop", { size in
                 .init(codec: .hevc, edit: [.crop(.init(size: size.scaled(0.75))), .process(.image { image, _, _ in image })])
             }, 0.75)
-        ] + compositionPaths
+        ]
+        paths += compositionPaths
         for transform in Self.transforms {
             let source = try await makeSource(transform)
             defer { try? FileManager.default.removeItem(at: source) }
@@ -79,12 +80,12 @@ final class VideoOrientationTests: XCTestCase {
             defer { try? FileManager.default.removeItem(at: source) }
             let expected = Layout.encoded.applying(transform)
             let received = LockedValue<Layout?>(nil)
-            let processors: [(String, VideoFrameProcessor)] = [
-                ("image", .image { image, context, _ in
-                    received.withValue { $0 = $0 ?? Self.layout(of: image, context: context) }
-                    return image
-                })
-            ] + compositionProcessors(received)
+            let imageProcessor = VideoFrameProcessor.image { image, context, _ in
+                received.withValue { if $0 == nil { $0 = Self.layout(of: image, context: context) } }
+                return image
+            }
+            var processors: [(String, VideoFrameProcessor)] = [("image", imageProcessor)]
+            processors += compositionProcessors(received)
             for (name, processor) in processors {
                 received.set(nil)
                 let output = try await convert(source, settings: .init(codec: .hevc, edit: [.process(processor)]))
@@ -120,10 +121,11 @@ final class VideoOrientationTests: XCTestCase {
             }
         }
 
-        let paths: [(name: String, edit: Set<VideoOperation>)] = [
+        var paths: [(name: String, edit: Set<VideoOperation>)] = [
             ("re-encode", []),
             ("image", [.process(.image { image, _, _ in image })])
-        ] + compositionEdits
+        ]
+        paths += compositionEdits
         for transform in Self.transforms {
             let source = try await makeSource(transform)
             defer { try? FileManager.default.removeItem(at: source) }
@@ -166,7 +168,7 @@ final class VideoOrientationTests: XCTestCase {
         return []
         #else
         return [("imageComposition", .imageComposition { image, context, _ in
-            received.withValue { $0 = $0 ?? Self.layout(of: image, context: context) }
+            received.withValue { if $0 == nil { $0 = Self.layout(of: image, context: context) } }
             return image
         })]
         #endif
@@ -190,8 +192,9 @@ final class VideoOrientationTests: XCTestCase {
             let positions: [(CGFloat, CGFloat)] = [(-1, -1), (1, -1), (-1, 1), (1, 1)]
             var result = corners
             for (index, (x, y)) in positions.enumerated() {
-                let mapped = (a * x + c * y, b * x + d * y)
-                let target = positions.firstIndex { $0 == mapped }!
+                let mappedX: CGFloat = a * x + c * y
+                let mappedY: CGFloat = b * x + d * y
+                let target = positions.firstIndex { $0.0 == mappedX && $0.1 == mappedY }!
                 result[target] = corners[index]
             }
             let transposes = a == 0
@@ -238,8 +241,10 @@ final class VideoOrientationTests: XCTestCase {
 
         private func distance(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Int {
             let (cr, cg, cb) = rgb
-            return [(Int(cr), Int(r)), (Int(cg), Int(g)), (Int(cb), Int(b))]
-                .reduce(0) { $0 + ($1.0 - $1.1) * ($1.0 - $1.1) }
+            let dr: Int = Int(cr) - Int(r)
+            let dg: Int = Int(cg) - Int(g)
+            let db: Int = Int(cb) - Int(b)
+            return dr * dr + dg * dg + db * db
         }
     }
 
@@ -268,8 +273,9 @@ final class VideoOrientationTests: XCTestCase {
             bytesPerRow: width * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         // Bitmap context memory starts with the top row.
-        let samples = [(width / 4, height / 4), (width * 3 / 4, height / 4),
-                       (width / 4, height * 3 / 4), (width * 3 / 4, height * 3 / 4)]
+        let left: Int = width / 4, right: Int = width * 3 / 4
+        let top: Int = height / 4, bottom: Int = height * 3 / 4
+        let samples: [(Int, Int)] = [(left, top), (right, top), (left, bottom), (right, bottom)]
         let corners = samples.map { x, y in
             let offset = (y * width + x) * 4
             return Color.nearest(pixels[offset], pixels[offset + 1], pixels[offset + 2])
