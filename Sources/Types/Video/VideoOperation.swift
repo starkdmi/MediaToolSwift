@@ -3,6 +3,9 @@ import CoreMedia
 /// Video operations
 public enum VideoOperation: Equatable, Hashable, Sendable {
     /// Cutting
+    /// Fails with `CompressionError.failedToReadVideo` when no video frames are read for the range,
+    /// such as a range after the end of a video track that is shorter than the audio
+    /// (operations rendered through a video composition, like cropping, fill it with frames instead)
     case cut(from: Double = 0.0, to: Double = .infinity)
 
     /// Cropping
