@@ -68,6 +68,19 @@ private let smokeVideoOutputs: Set<String> = [
     "exported_oludeniz.mp4"
 ]
 
+/// Formats an error with every underlying error beneath it. AVFoundation's
+/// "Cannot Decode" only names the failing VideoToolbox status in the underlying error.
+private func errorChainDescription(_ error: Error) -> String {
+    let error = error as NSError
+    var description = "\(error.domain) \(error.code): \(error.localizedDescription)"
+    if let multiple = error.userInfo[NSMultipleUnderlyingErrorsKey] as? [Error], !multiple.isEmpty {
+        description += " <- [" + multiple.map(errorChainDescription).joined(separator: "; ") + "]"
+    } else if let underlying = error.userInfo[NSUnderlyingErrorKey] as? Error {
+        description += " <- " + errorChainDescription(underlying)
+    }
+    return description
+}
+
 // Configurations used by tests
 var configurations: [ConfigList] {
     var videos = [
@@ -1138,7 +1151,13 @@ class MediaToolSwiftTests: XCTestCase {
 
         // A task group keeps the conversions overlapping the way the callback
         // API did; awaiting each `convert` in turn would serialize the suite.
+        // GitHub's hosted macOS VMs intermittently fail every H.264/HEVC decode
+        // ("Cannot Decode") or stall when the extended suite's ~17 conversions
+        // start at once, while the same files decode fine a few at a time. The
+        // window bounds that load there only; elsewhere everything overlaps.
+        let maxConcurrentConversions = ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" ? 4 : Int.max
         try await withThrowingTaskGroup(of: Void.self) { group in
+            var conversionsInFlight = 0
             for file in testConfigurations {
                 let source = try fixture(file.filename)
 
@@ -1185,6 +1204,11 @@ class MediaToolSwiftTests: XCTestCase {
 
                     let fileType = config.output.fileType
                     let videoSettings = config.videoSettings
+                    if conversionsInFlight >= maxConcurrentConversions {
+                        try await group.next()
+                        conversionsInFlight -= 1
+                    }
+                    conversionsInFlight += 1
                     group.addTask {
                         do {
                             _ = try await VideoTool.convert(
@@ -1198,7 +1222,7 @@ class MediaToolSwiftTests: XCTestCase {
                         } catch is CancellationError {
                             XCTFail("Conversion was cancelled unexpectedly while compressing \(inputFilename)->\(outputFilename)")
                         } catch {
-                            XCTFail("\(error.localizedDescription) while compressing \(inputFilename)->\(outputFilename)")
+                            XCTFail("\(errorChainDescription(error)) while compressing \(inputFilename)->\(outputFilename)")
                         }
                     }
                 }

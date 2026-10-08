@@ -251,6 +251,13 @@ jobs:
     name: Extended media suite
     if: github.event_name != 'workflow_dispatch' || inputs.extended_media
     runs-on: macos-15
+    # A healthy run takes about 5 minutes. A VideoToolbox stall on the hosted VM
+    # otherwise holds the job until the 6 hour default.
+    timeout-minutes: 15
+    env:
+      # XCTest output is block-buffered when piped, so a hung run would print
+      # nothing after the build. Unbuffered output shows the last test started.
+      NSUnbufferedIO: "YES"
     steps:
       - uses: actions/checkout@v4
       - run: sudo xcode-select -s /Applications/Xcode_16.2.app
