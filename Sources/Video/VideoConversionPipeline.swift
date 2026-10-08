@@ -462,11 +462,7 @@ private final class VideoConversionSession: @unchecked Sendable {
 
             if let sampleHandler = pump.sampleHandler {
                 pump.isProcessing = true
-                let work = VideoSampleProcessingWork(
-                    sample: sample,
-                    pixelBufferPool: prepared.video.videoInputAdaptor?.pixelBufferPool,
-                    handler: sampleHandler
-                )
+                let work = VideoSampleProcessingWork(sample: sample, handler: sampleHandler)
                 processingQueue.async { [weak self, work] in
                     let result = work.run()
                     self?.stateQueue.async { [weak self, result] in
@@ -515,11 +511,7 @@ private final class VideoConversionSession: @unchecked Sendable {
 
         if let sampleHandler = pump.sampleHandler {
             pump.isProcessing = true
-            let work = VideoSampleProcessingWork(
-                sample: sample,
-                pixelBufferPool: prepared.video.videoInputAdaptor?.pixelBufferPool,
-                handler: sampleHandler
-            )
+            let work = VideoSampleProcessingWork(sample: sample, handler: sampleHandler)
             processingQueue.async { [weak self, work] in
                 let result = work.run()
                 self?.stateQueue.async { [weak self, result] in
@@ -859,7 +851,7 @@ private final class VideoTrackPump {
     let kind: VideoTrackKind
     let input: AVAssetWriterInput
     let output: AVAssetReaderOutput
-    let sampleHandler: ((CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput)?
+    let sampleHandler: ((CMSampleBuffer) -> VideoSampleProcessingOutput)?
     let readsAsynchronously: Bool
     var isFinished = false
     var isProcessing = false
@@ -871,7 +863,7 @@ private final class VideoTrackPump {
         kind: VideoTrackKind,
         input: AVAssetWriterInput,
         output: AVAssetReaderOutput,
-        sampleHandler: ((CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput)? = nil,
+        sampleHandler: ((CMSampleBuffer) -> VideoSampleProcessingOutput)? = nil,
         readsAsynchronously: Bool = false
     ) {
         self.kind = kind
@@ -921,23 +913,20 @@ private final class VideoTrackPump {
 
 private final class VideoSampleProcessingWork: @unchecked Sendable {
     private let sample: CMSampleBuffer
-    private let pixelBufferPool: CVPixelBufferPool?
-    private let handler: (CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput
+    private let handler: (CMSampleBuffer) -> VideoSampleProcessingOutput
 
     init(
         sample: CMSampleBuffer,
-        pixelBufferPool: CVPixelBufferPool?,
-        handler: @escaping (CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput
+        handler: @escaping (CMSampleBuffer) -> VideoSampleProcessingOutput
     ) {
         self.sample = sample
-        self.pixelBufferPool = pixelBufferPool
         self.handler = handler
     }
 
     func run() -> VideoSampleProcessingResult {
         VideoSampleProcessingResult(
             sourceSample: sample,
-            output: handler(sample, pixelBufferPool)
+            output: handler(sample)
         )
     }
 }
