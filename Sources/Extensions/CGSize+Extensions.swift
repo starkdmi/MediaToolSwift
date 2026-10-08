@@ -44,6 +44,18 @@ public extension CGSize {
         }
     }
 
+    /// Size displayed through a track transform. Dimensions swap only for a
+    /// quarter turn, with or without a reflection, as stored in the file's
+    /// 16.16 fixed-point matrix; AVFoundation displays other angles unrotated
+    internal func displayed(with transform: CGAffineTransform) -> CGSize {
+        let precision = 1.0 / 131_072 // Half of the 16.16 fixed-point step
+        if abs(transform.a) < precision && abs(transform.d) < precision {
+            return CGSize(width: height, height: width)
+        } else {
+            return self
+        }
+    }
+
     /// Calculate filled image size after rotation
     internal func rotateFilling(angle: Double) -> CGSize {
         let width = self.width

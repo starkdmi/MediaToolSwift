@@ -716,7 +716,7 @@ private final class VideoConversionSession: @unchecked Sendable {
 
         let videoInfo = VideoInfo(
             url: destination,
-            resolution: prepared.video.size.oriented(prepared.video.orientation),
+            resolution: prepared.video.resolution,
             frameRate: prepared.video.frameRate ?? Int(prepared.video.nominalFrameRate.rounded()),
             totalFrames: Int(prepared.video.totalFrames),
             duration: (prepared.video.range?.duration ?? prepared.video.sourceDuration).seconds,

@@ -43,11 +43,8 @@ internal struct VideoVariables {
 
     // MARK: Video info variables
 
-    /// Video resolution
-    var size: CGSize!
-
-    /// Video orientation
-    var orientation: VideoOrientation!
+    /// Displayed video resolution, with the output track transform applied
+    var resolution: CGSize!
 
     /// Video codec
     var codec: AVVideoCodecType!
