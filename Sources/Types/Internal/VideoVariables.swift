@@ -24,7 +24,7 @@ internal struct VideoVariables {
     var sourceDuration: CMTime = .zero
 
     /// Frame modifier
-    var sampleHandler: ((CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput)?
+    var sampleHandler: ((CMSampleBuffer) -> VideoSampleProcessingOutput)?
 
     /// Require to encode
     var hasChanges = true

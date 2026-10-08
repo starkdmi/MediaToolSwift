@@ -246,6 +246,55 @@ final class RefactoringVerificationTests: XCTestCase {
         XCTAssertGreaterThan(outputSamples, Int(configured.totalFrames))
     }
 
+    /// `AVAssetWriterInputPixelBufferAdaptor.pixelBufferPool` hands out
+    /// VideoToolbox's current pool without retaining it, and VideoToolbox
+    /// replaces that pool a few frames into encoding, sometimes on its own
+    /// encoder thread. Reading the property while that replacement releases
+    /// the old pool can retain a pool that is already being finalized, and
+    /// `CVPixelBufferPoolCreatePixelBuffer` then crashes on its cleared
+    /// backing. The pipeline therefore owns the pool it gives frame
+    /// processors, so one pool must serve the entire conversion.
+    func testPixelBufferProcessorReceivesOnePoolForTheWholeConversion() async throws {
+        let source = try fixture("chromecast.mp4")
+        let destination = try outputURL("stable-pixel-buffer-pool.mov")
+        // Strong references keep each pool alive, so identity comparisons
+        // cannot be confused by a later pool reusing a freed address.
+        let pools = LockedValue<[CVPixelBufferPool]>([])
+        let processor = VideoFrameProcessor.pixelBuffer { buffer, pool, _, _ in
+            pools.withValue { $0.append(pool) }
+            var output: CVPixelBuffer?
+            guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &output) == kCVReturnSuccess else {
+                return nil
+            }
+            return output
+        }
+        let settings = CompressionVideoSettings(
+            codec: .h264,
+            edit: [
+                .cut(from: 0, to: 1),
+                .process(processor)
+            ]
+        )
+
+        _ = try await VideoTool.convert(
+            source: source,
+            destination: destination,
+            videoSettings: settings,
+            skipAudio: true,
+            overwrite: true
+        )
+
+        let received = pools.read()
+        // VideoToolbox swaps its pool within the first few frames, so the
+        // check only means something when the clip outlasts that point.
+        XCTAssertGreaterThan(received.count, 10)
+        let first = try XCTUnwrap(received.first)
+        XCTAssertTrue(
+            received.allSatisfy { $0 === first },
+            "Frame processors received \(Set(received.map(ObjectIdentifier.init)).count) different pools"
+        )
+    }
+
     func testVideoTerminalResultWaitsForInFlightProcessor() async throws {
         let source = try fixture("chromecast.mp4")
         let destination = try outputURL("processor-cancellation-order.mov")

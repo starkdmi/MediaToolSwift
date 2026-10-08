@@ -422,6 +422,31 @@ extension VideoTool {
             return
         }
 
+        // Frame processors render into a pool the conversion owns rather than
+        // `videoInputAdaptor.pixelBufferPool`. That property returns
+        // VideoToolbox's current pool unretained, and VideoToolbox replaces the
+        // pool a few frames into encoding, possibly on its encoder thread.
+        // Reading the property while the old pool is being released can retain
+        // a pool that is already finalized, and creating a buffer from it then
+        // dereferences NULL.
+        var outputPixelBufferPool: CVPixelBufferPool?
+        if useVideoAdaptor {
+            let pixelBufferAttributes: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: pixelFormat,
+                kCVPixelBufferWidthKey as String: targetVideoSize.width,
+                kCVPixelBufferHeightKey as String: targetVideoSize.height,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
+            ]
+            guard CVPixelBufferPoolCreate(
+                kCFAllocatorDefault,
+                nil,
+                pixelBufferAttributes as CFDictionary,
+                &outputPixelBufferPool
+            ) == kCVReturnSuccess, outputPixelBufferPool != nil else {
+                throw CompressionError.failedToWriteVideo
+            }
+        }
+
         // Transform
         if useVideoComposition {
             variables.videoInput.transform = transform
@@ -442,7 +467,7 @@ extension VideoTool {
             targetVideoSize: convertsColorPrimaries ? targetVideoSize : targetVideoSize.oriented(analysis.orientation),
             cropRect: convertsColorPrimaries ? nil : effectiveCropRect,
             fixedPreferredTransform: convertsColorPrimaries ? .identity : analysis.fixedPreferredTransform,
-            videoInputAdaptor: variables.videoInputAdaptor,
+            pixelBufferPool: outputPixelBufferPool,
             colorInfo: colorInfo,
             context: context,
             orientation: analysis.orientation
@@ -537,12 +562,12 @@ extension VideoTool {
         targetVideoSize: CGSize,
         cropRect: CGRect?,
         fixedPreferredTransform: CGAffineTransform,
-        videoInputAdaptor: AVAssetWriterInputPixelBufferAdaptor?,
+        pixelBufferPool: CVPixelBufferPool?,
         colorInfo: VideoColorInformation?,
         context: CIContext?,
         orientation: VideoOrientation
-    ) -> ((CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput)? {
-        let process: (CMSampleBuffer, CVPixelBufferPool?) -> VideoSampleProcessingOutput = { sample, pixelBufferPool in
+    ) -> ((CMSampleBuffer) -> VideoSampleProcessingOutput)? {
+        let process: (CMSampleBuffer) -> VideoSampleProcessingOutput = { sample in
             autoreleasepool {
                 switch frameProcessor {
                 case .image, .pixelBuffer:
@@ -603,7 +628,7 @@ extension VideoTool {
         var frameIndex: Int = 0
         var previousPresentationTimeStamp: CMTime?
 
-        return { sample, pixelBufferPool in
+        return { sample in
             frameIndex += 1
 
             guard frames.contains(frameIndex) else {
@@ -640,7 +665,7 @@ extension VideoTool {
                 )
 
                 if copyStatus == noErr {
-                    return process(buffer, pixelBufferPool)
+                    return process(buffer)
                 }
                 return .dropped
             }
