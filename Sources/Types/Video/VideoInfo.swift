@@ -38,7 +38,10 @@ public struct VideoInfo: MediaInfo {
     /// Video file path
     public let url: URL
 
-    /// Video resolution (oriented)
+    /// Displayed video resolution: the encoded dimensions with the track
+    /// transform applied, matching a frame decoded with the preferred track
+    /// transform. For a conversion result this includes the source orientation
+    /// and any `VideoOperation.rotate`, snapped to the nearest quarter turn.
     public let resolution: CGSize
 
     /// Video orientation

@@ -68,7 +68,6 @@ extension VideoTool {
         variables.codec = codecResolution.codec
         variables.hasAlpha = codecResolution.hasAlpha
         variables.isHDR = analysis.isHDR
-        variables.orientation = analysis.orientation
         variables.sourceDuration = analysis.duration
 
         // MARK: - Phase 3: Process Video Operations
@@ -458,13 +457,18 @@ extension VideoTool {
         } else {
             variables.totalFrames = totalFrames
         }
-        variables.size = preservesSourcePixelAspectRatio ? analysis.naturalSize : targetVideoSize
-        if convertsColorPrimaries {
-            variables.size = targetVideoSize
-            // Composition has already applied the track transform. This flag
-            // prevents another dimension swap; the output can still be portrait.
-            variables.orientation = .landscape
+
+        // Report the displayed resolution: the frame handed to the writer,
+        // turned by the writer's track transform. Video composition output
+        // already has the source orientation applied, so on that path only the
+        // edit transform (rotation) can still swap the dimensions.
+        let writerFrameSize: CGSize
+        if preservesSourcePixelAspectRatio {
+            writerFrameSize = useVideoComposition ? analysis.naturalSize.oriented(analysis.orientation) : analysis.naturalSize
+        } else {
+            writerFrameSize = targetVideoSize
         }
+        variables.resolution = writerFrameSize.displayed(with: variables.videoInput.transform)
 
         return variables
     }

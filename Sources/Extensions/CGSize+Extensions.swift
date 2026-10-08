@@ -44,6 +44,17 @@ public extension CGSize {
         }
     }
 
+    /// Size displayed through a track transform, snapped to the nearest
+    /// quarter turn: dimensions swap when the transform turns the frame
+    /// closer to 90 or 270 degrees than to 0 or 180
+    internal func displayed(with transform: CGAffineTransform) -> CGSize {
+        if abs(transform.b) > abs(transform.a) {
+            return CGSize(width: height, height: width)
+        } else {
+            return self
+        }
+    }
+
     /// Calculate filled image size after rotation
     internal func rotateFilling(angle: Double) -> CGSize {
         let width = self.width
