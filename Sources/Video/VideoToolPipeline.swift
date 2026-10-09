@@ -136,11 +136,14 @@ extension VideoTool {
         // MARK: - Phase 4: Calculate Output Size
 
         let sizeCalculator = VideoSizeCalculator()
+        // Display dimensions, with non-square pixel spacing and orientation applied
+        let displayedSourceSize = analysis.naturalSize.oriented(analysis.orientation)
         let sizeResult = try sizeCalculator.calculate(
             settings: videoSettings.size,
             sourceSize: analysis.sourceVideoSize,
             operations: videoSettings.edit,
-            orientation: analysis.orientation
+            orientation: analysis.orientation,
+            displayedSize: displayedSourceSize
         )
 
         var targetVideoSize = sizeResult.targetSize
@@ -265,14 +268,6 @@ extension VideoTool {
             videoParameters[AVVideoColorPropertiesKey] = colorInfo.writerProperties
         }
 
-        if preservesSourcePixelAspectRatio,
-           let pixelAspectRatio = analysis.pixelAspectRatio {
-            videoParameters[AVVideoPixelAspectRatioKey] = [
-                AVVideoPixelAspectRatioHorizontalSpacingKey: pixelAspectRatio.horizontalSpacing,
-                AVVideoPixelAspectRatioVerticalSpacingKey: pixelAspectRatio.verticalSpacing
-            ]
-        }
-
         // Set final resolution
         videoParameters[AVVideoWidthKey] = targetVideoSize.width
         videoParameters[AVVideoHeightKey] = targetVideoSize.height
@@ -300,8 +295,43 @@ extension VideoTool {
         // MARK: - Phase 8: Setup Reader/Writer
 
         var convertsColorPrimaries = false
+        // Scales composition source frames, which carry encoded pixels, to square pixels.
+        var compositionPixelScale: CGAffineTransform?
 
         func configureVideoInput() throws {
+            compositionPixelScale = nil
+            if let pixelAspectRatio = analysis.pixelAspectRatio {
+                let stretch = CGFloat(pixelAspectRatio.horizontalSpacing) / CGFloat(pixelAspectRatio.verticalSpacing)
+                let squarePixels = [
+                    AVVideoPixelAspectRatioHorizontalSpacingKey: 1,
+                    AVVideoPixelAspectRatioVerticalSpacingKey: 1
+                ]
+                if useVideoComposition && effectiveCropRect == nil {
+                    // Video composition sources carry encoded pixels with the
+                    // orientation applied. Stretch them along the displayed axis
+                    // and render square pixels at the displayed size. Set 1:1
+                    // explicitly, or the source format hint restores the spacing.
+                    if stretch != 1 {
+                        compositionPixelScale = analysis.orientation == .portrait
+                            ? CGAffineTransform(scaleX: 1, y: stretch)
+                            : CGAffineTransform(scaleX: stretch, y: 1)
+                    }
+                    if preservesSourcePixelAspectRatio {
+                        targetVideoSize = displayedSourceSize
+                        videoParameters[AVVideoWidthKey] = targetVideoSize.width
+                        videoParameters[AVVideoHeightKey] = targetVideoSize.height
+                    }
+                    videoParameters[AVVideoPixelAspectRatioKey] = squarePixels
+                } else if preservesSourcePixelAspectRatio {
+                    videoParameters[AVVideoPixelAspectRatioKey] = [
+                        AVVideoPixelAspectRatioHorizontalSpacingKey: pixelAspectRatio.horizontalSpacing,
+                        AVVideoPixelAspectRatioVerticalSpacingKey: pixelAspectRatio.verticalSpacing
+                    ]
+                } else if effectiveCropRect == nil {
+                    // Resized to displayed dimensions
+                    videoParameters[AVVideoPixelAspectRatioKey] = squarePixels
+                }
+            }
             // Set composition profiles before the writer captures its settings.
             if useVideoComposition, videoSettings.profile == nil,
                let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: outputBitsPerComponent) {
@@ -430,6 +460,8 @@ extension VideoTool {
                 targetVideoSize: targetVideoSize,
                 frameProcessor: frameProcessor,
                 colorInfo: colorInfo,
+                pixelScale: compositionPixelScale,
+                displayedSize: displayedSourceSize,
                 context: context,
                 renderContext: convertsColorPrimaries ? nil : context
             )
@@ -549,10 +581,13 @@ extension VideoTool {
         targetVideoSize: CGSize,
         frameProcessor: VideoFrameProcessor?,
         colorInfo: VideoColorInformation?,
+        pixelScale: CGAffineTransform?,
+        displayedSize: CGSize,
         context: CIContext?,
         renderContext: CIContext?
     ) -> AVMutableVideoComposition {
         let renderer = VideoCompositionRenderer(
+            pixelScale: pixelScale,
             cropRect: cropRect,
             videoSize: videoSize,
             targetVideoSize: targetVideoSize,
@@ -578,6 +613,10 @@ extension VideoTool {
             }
         }
 
+        if pixelScale != nil, renderSize == nil {
+            // The default render size follows the encoded pixels
+            renderSize = displayedSize
+        }
         if let renderSize = renderSize {
             videoComposition.renderSize = renderSize
         }
@@ -733,6 +772,7 @@ extension VideoTool {
 /// frame-processor closures must stay confined to one execution context.
 private final class VideoCompositionRenderer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "MediaToolSwift.video.composition")
+    private let pixelScale: CGAffineTransform?
     private let cropRect: CGRect?
     private let videoSize: CompressionVideoSize
     private let targetVideoSize: CGSize
@@ -742,6 +782,7 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
     private let scaleFilter: CIFilter?
 
     init(
+        pixelScale: CGAffineTransform?,
         cropRect: CGRect?,
         videoSize: CompressionVideoSize,
         targetVideoSize: CGSize,
@@ -749,6 +790,7 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
         context: CIContext?,
         renderContext: CIContext?
     ) {
+        self.pixelScale = pixelScale
         self.cropRect = cropRect
         self.videoSize = videoSize
         self.targetVideoSize = targetVideoSize
@@ -767,6 +809,10 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
     func render(_ request: AVAsynchronousCIImageFilteringRequest) {
         queue.sync {
             var image = request.sourceImage
+
+            if let pixelScale {
+                image = image.samplingLinear().transformed(by: pixelScale)
+            }
 
             if let cropRect {
                 image = image.cropping(to: cropRect)

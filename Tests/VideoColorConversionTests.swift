@@ -199,6 +199,99 @@ final class VideoColorConversionTests: XCTestCase {
         try checkHEVCBitDepth(description, expected: 10)
     }
 
+    func testAnamorphicPortraitThroughCompositor() async throws {
+        // 2:1 pixels under a 90° track transform. The compositor applies the
+        // turn to encoded pixels, so the horizontal spacing must not survive it.
+        let source = try fixture("anamorphic-portrait")
+        let displayedSize = CGSize(width: 96, height: 320)
+        let reference = try await firstFrame(AVURLAsset(url: source))
+        XCTAssertEqual(CGSize(width: reference.width, height: reference.height), displayedSize,
+            "The fixture must carry non-square pixels and a portrait track transform")
+        let expected = try linearPixels(reference)
+
+        // Controls: the regression squeezed the picture into the lower half,
+        // and an upside-down frame stands in for a wrong orientation.
+        let referenceImage = CIImage(cgImage: reference)
+        let squeezed = referenceImage.transformed(by: CGAffineTransform(scaleX: 1, y: 0.5))
+            .composited(over: CIImage(color: .black).cropped(to: referenceImage.extent))
+        var controls: [[Float]] = []
+        for control in [squeezed, referenceImage.oriented(.down)] {
+            let controlImage = try XCTUnwrap(CIContext().createCGImage(control, from: referenceImage.extent))
+            controls.append(try linearPixels(controlImage))
+        }
+
+        let cases: [(String, CompressionVideoSettings)] = [
+            ("color", .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: .hevcMain, color: .p3D65)),
+            ("imageComposition", .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: .hevcMain,
+                edit: [.process(.imageComposition { image, _, _ in image })])),
+            ("color and image processor", .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: .hevcMain,
+                color: .p3D65, edit: [.process(.image { image, _, _ in image })]))
+        ]
+        for (name, settings) in cases {
+            let destination = temporaryOutput()
+            defer { try? FileManager.default.removeItem(at: destination) }
+            let info = try await convert(source, to: destination, settings: settings, skipAudio: true)
+            XCTAssertEqual(info.resolution, displayedSize, name)
+            let image = try await firstFrame(AVURLAsset(url: destination))
+            XCTAssertEqual(CGSize(width: image.width, height: image.height), displayedSize, name)
+            guard image.width == reference.width, image.height == reference.height else { continue }
+            let exportError = meanAbsoluteError(try linearPixels(image), expected)
+            let minimumImprovementFactor: Float = 2
+            for controlPixels in controls {
+                let controlError = meanAbsoluteError(controlPixels, expected)
+                print("Anamorphic \(name) mean error: export=\(exportError), control=\(controlError)")
+                XCTAssertLessThan(exportError * minimumImprovementFactor, controlError, name)
+            }
+        }
+    }
+
+    func testAnamorphicPortraitResize() async throws {
+        // Bounds and exact sizes apply to the displayed 96x320 picture, and
+        // resized output has square pixels on every frame-processing path.
+        let source = try fixture("anamorphic-portrait")
+        let reference = CIImage(cgImage: try await firstFrame(AVURLAsset(url: source)))
+        let processors: [(String, VideoFrameProcessor?)] = [
+            ("track output", nil),
+            ("imageComposition", .imageComposition { image, _, _ in image }),
+            ("image", .image { image, _, _ in image })
+        ]
+        let sizes: [(CompressionVideoSize, CGSize)] = [
+            (.fit(CGSize(width: 200, height: 200)), CGSize(width: 60, height: 200)),
+            (.scale(CGSize(width: 48, height: 160)), CGSize(width: 48, height: 160))
+        ]
+        for (size, expectedSize) in sizes {
+            // Independent reference: stretch the displayed frame on both axes.
+            let expectedImage = reference.samplingLinear().transformed(by: CGAffineTransform(
+                scaleX: expectedSize.width / reference.extent.width,
+                y: expectedSize.height / reference.extent.height))
+            let expectedFrame = try XCTUnwrap(CIContext().createCGImage(expectedImage,
+                from: CGRect(origin: .zero, size: expectedSize)))
+            let expected = try linearPixels(expectedFrame)
+            let upsideDown = try XCTUnwrap(CIContext().createCGImage(expectedImage.oriented(.down),
+                from: CGRect(origin: .zero, size: expectedSize)))
+            let controlError = meanAbsoluteError(try linearPixels(upsideDown), expected)
+            for (name, processor) in processors {
+                let label = "\(name) \(size)"
+                let destination = temporaryOutput()
+                defer { try? FileManager.default.removeItem(at: destination) }
+                let info = try await convert(source, to: destination, settings: .init(codec: .hevc,
+                    bitrate: .encoder, quality: 1, size: size, profile: .hevcMain,
+                    edit: processor.map { [.process($0)] } ?? []), skipAudio: true)
+                XCTAssertEqual(info.resolution, expectedSize, label)
+                let result = AVURLAsset(url: destination)
+                let description = try await videoDescription(result)
+                let spacing = description.pixelAspectRatio
+                XCTAssertEqual(spacing?.horizontalSpacing ?? 1, spacing?.verticalSpacing ?? 1, label)
+                let image = try await firstFrame(result)
+                XCTAssertEqual(CGSize(width: image.width, height: image.height), expectedSize, label)
+                guard image.width == expectedFrame.width, image.height == expectedFrame.height else { continue }
+                let exportError = meanAbsoluteError(try linearPixels(image), expected)
+                print("Anamorphic resize \(label) mean error: export=\(exportError), control=\(controlError)")
+                XCTAssertLessThan(exportError * 2, controlError, label)
+            }
+        }
+    }
+
     #if os(macOS)
     func testProResHDRWithImageProcessor() async throws {
         // Core Image cannot render into the 10-bit 4:2:2 buffers used for

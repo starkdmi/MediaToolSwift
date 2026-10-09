@@ -168,6 +168,26 @@ final class MediaBoundarySafetyTests: XCTestCase {
         XCTAssertEqual(result.targetSize, CGSize(width: 100, height: 100))
     }
 
+    func testVideoFitAndScaleUseDisplayedSizeOfNonSquarePixels() throws {
+        // 160x96 encoded with 2:1 pixels under a 90° turn displays at 96x320.
+        let calculator = VideoSizeCalculator()
+        let encoded = CGSize(width: 96, height: 160)
+        let displayed = CGSize(width: 96, height: 320)
+        let fitted = try calculator.calculate(settings: .fit(CGSize(width: 200, height: 200)),
+            sourceSize: encoded, operations: [], orientation: .portrait, displayedSize: displayed)
+        XCTAssertEqual(fitted.targetSize, CGSize(width: 60, height: 200))
+        XCTAssertTrue(fitted.needsResize)
+        let scaled = try calculator.calculate(settings: .scale(CGSize(width: 48, height: 160)),
+            sourceSize: encoded, operations: [], orientation: .portrait, displayedSize: displayed)
+        XCTAssertEqual(scaled.targetSize, CGSize(width: 48, height: 160))
+        XCTAssertTrue(scaled.needsResize)
+        // Within bounds the encoded size stays, so the spacing can be preserved.
+        let unchanged = try calculator.calculate(settings: .fit(CGSize(width: 400, height: 400)),
+            sourceSize: encoded, operations: [], orientation: .portrait, displayedSize: displayed)
+        XCTAssertEqual(unchanged.targetSize, encoded)
+        XCTAssertFalse(unchanged.needsResize)
+    }
+
     func testCoreImageResizeStretchesEachAxisIndependently() {
         let cases = [
             (CGSize(width: 160, height: 96), CGSize(width: 160, height: 48)),

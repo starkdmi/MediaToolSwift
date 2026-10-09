@@ -29,11 +29,14 @@ swift build --disable-sandbox -Xswiftc -swift-version -Xswiftc 6 -Xswiftc -stric
 
 ## Writer primary compatibility regression
 
-`ColorFixtures` contains four synthetic one-second, 160×96 HEVC clips (80,286
+`ColorFixtures` contains five synthetic one-second, 160×96 HEVC clips (91,214
 bytes total), bundled with SwiftPM so the same tests run on macOS and iOS.
 The base pattern is FFmpeg `testsrc2` with a 440 Hz AAC tone, tagged DCI-P3.
 HLG/PQ variants contain 10-bit HEVC; the portrait variant only adds a 90°
-track transform. No user recordings are included.
+track transform. `anamorphic-portrait.mov` is a separate silent BT.709 clip with
+2:1 pixel aspect ratio and a 90° track transform, displayed at 96×320; it covers
+pixel spacing when the video compositor applies the orientation. No user
+recordings are included.
 
 On iOS, the unpatched writer initializer throws:
 
@@ -94,11 +97,18 @@ ffmpeg -display_rotation:v:0 90 -i Tests/ColorFixtures/dci-p3.mov \
   -map 0 -c copy Tests/ColorFixtures/dci-p3-portrait.mov
 ffprobe -v error -select_streams v:0 -show_entries stream_side_data=rotation \
   -of default=noprint_wrappers=1 Tests/ColorFixtures/dci-p3-portrait.mov
+
+ffmpeg -f lavfi -i 'testsrc2=size=160x96:rate=6:duration=1' -vf setsar=2/1 \
+  -c:v libx265 -pix_fmt yuv420p -color_primaries bt709 -color_trc bt709 -colorspace bt709 \
+  -x265-params "colorprim=bt709:transfer=bt709:colormatrix=bt709:log-level=error" \
+  -tag:v hvc1 -movflags +write_colr -an anamorphic.mov
+ffmpeg -display_rotation:v:0 90 -i anamorphic.mov \
+  -map 0 -c copy Tests/ColorFixtures/anamorphic-portrait.mov
 ```
 
 The portrait command uses FFmpeg's input [`-display_rotation`](https://ffmpeg.org/ffmpeg.html#Video-Options)
-option to write the track transform during stream copy. Verify that the final
-command reports `rotation=90`.
+option to write the track transform during stream copy. Verify that the
+`ffprobe` command reports `rotation=90`.
 
 ## Video orientation regression
 

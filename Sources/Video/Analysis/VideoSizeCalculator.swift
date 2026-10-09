@@ -25,6 +25,8 @@ internal struct VideoSizeCalculator {
     ///   - sourceSize: Source video size (accounting for orientation)
     ///   - operations: Video operations that may affect size (crop)
     ///   - orientation: Video orientation (for reference, not applied here)
+    ///   - displayedSize: Source size with non-square pixel spacing applied. Without
+    ///     cropping, fit and scale compare against it, and resize to square pixels.
     /// - Returns: Size calculation result
     /// - Throws: CompressionError if crop bounds are invalid
     /// - Note: Orientation transform is NOT applied by this calculator.
@@ -34,7 +36,8 @@ internal struct VideoSizeCalculator {
         settings: CompressionVideoSize,
         sourceSize: CGSize,
         operations: Set<VideoOperation>,
-        orientation: VideoOrientation
+        orientation: VideoOrientation,
+        displayedSize: CGSize? = nil
     ) throws -> Result {
         guard sourceSize.width.isFinite,
               sourceSize.height.isFinite,
@@ -84,10 +87,12 @@ internal struct VideoSizeCalculator {
 
         // Base size after cropping
         var targetSize = cropRect?.size ?? sourceSize
+        // Bounds apply to the displayed picture. Cropping keeps encoded pixels.
+        let baseSize = cropRect == nil ? (displayedSize ?? sourceSize) : targetSize
         var resolvedSizeOption = settings
         var needsResize = false
 
-        switch try settings.value(for: sourceSize) {
+        switch try settings.value(for: cropRect == nil ? baseSize : sourceSize) {
         case .fit(let size):
             guard size.width.isFinite,
                   size.height.isFinite,
@@ -95,9 +100,9 @@ internal struct VideoSizeCalculator {
                   size.height > 0 else {
                 throw CompressionError.invalidVideoSize
             }
-            if targetSize.width > size.width || targetSize.height > size.height {
+            if baseSize.width > size.width || baseSize.height > size.height {
                 // Calculate box to fit
-                let fittedSize = targetSize.fit(in: size)
+                let fittedSize = baseSize.fit(in: size)
                 // Round to nearest even number
                 targetSize = fittedSize.roundEven()
                 needsResize = true
@@ -112,7 +117,7 @@ internal struct VideoSizeCalculator {
                   size.height > 0 else {
                 throw CompressionError.invalidVideoSize
             }
-            if targetSize != size {
+            if baseSize != size {
                 targetSize = size
                 needsResize = true
             } else {
