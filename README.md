@@ -14,7 +14,7 @@
 To install library with Swift Package Manager, add the following code to your __Package.swift__ file:
 ```
 dependencies: [
-    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "1.3.0"))
+    .package(url: "https://github.com/starkdmi/MediaToolSwift.git", .upToNextMajor(from: "2.1.0"))
 ]
 ```
 
@@ -24,35 +24,7 @@ To install library with CocoaPods, add the following line to your __Podfile__ fi
 pod 'MediaToolSwift'
 ```
 
-### Swift 6 concurrency
-
-Closures you hand to MediaToolSwift run on library-managed queues, not on your
-caller's actor. All of them are now `@Sendable` and reject unsynchronized
-captures at compile time:
-
-* `VideoFrameProcessor` (every case)
-* `CompressionVideoBitrate.dynamic`
-* `CompressionVideoSize.dynamic`
-* `ImageProcessor`
-
-This is a source-breaking change from 1.x, and `@preconcurrency import` does not
-soften it — `@Sendable` is part of the function type rather than a conformance.
-Move captured state into a synchronized box or an actor, and hop explicitly
-before touching actor-isolated state.
-
-The terminal `callback:` on `VideoTool.convert` and `AudioTool.convert` is gone,
-as are the `thumbnailImages` and `thumbnailFiles` completions: all four now
-return their result and throw on failure, so there is no state closure left to
-constrain.
-
-A `CompressionTask` tracks one conversion. Passing a task that is already in
-flight or finished throws `CompressionError.taskAlreadyUsed` — create a new task
-per conversion.
-
-`thumbnailImages` and `thumbnailFiles` inherit the caller's isolation, so an
-`AVAsset` held by a `@MainActor` view model can be passed directly even though
-`AVAsset` is not `Sendable`. Thumbnail decoding and encoding still run off your
-actor.
+> Upgrading from 1.x? See the [migration guide](MIGRATION.md).
 
 ## VideoTool
 __Video compressor focused on:__
@@ -66,17 +38,6 @@ __Video compressor focused on:__
 - Progress and cancellation
 
 __[Features](Files/VIDEO.md)__
-
-Transcoding preserves static HDR color tags, but codec-private dynamic HDR and
-Dolby Vision metadata may not survive an AVFoundation re-encode. Use passthrough
-settings when exact dynamic-metadata preservation is required. Explicit color
-space or transfer-function overrides remain unsupported. On platforms with
-video-composition support, a writer rejecting DCI-P3 uses Apple's native
-compositor to convert the pixels in the same encode. BT.709 SDR retains wide
-color in P3-D65; HLG/PQ retain their transfer function and 10-bit depth in
-BT.2020. Accepted source profiles and video passthrough retain their original
-color tags. Other rejected color profiles remain unsupported.
-
 | Convert | Resize | Crop | Cut | Rotate, Flip, Mirror | Frame Processing[\*](Files/VIDEO.md#frame-processing) | FPS | Thumbnail | Info |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | ✔️ | ✔️ | ✔️ | ⭐️ | ⭐️ | ✔️ | ✔️ | ✔️ | ✔️ |
@@ -100,12 +61,11 @@ __Supported audio codecs:__
 
 __Example:__
 ```Swift
-// A task is optional - pass one to report progress or to cancel the
-// conversion from outside the awaiting context.
+// Optional task for progress and cancellation
 let task = CompressionTask(destination: URL(fileURLWithPath: "output.mov"))
 
 // Observe progress
-task.progress.observe(\.fractionCompleted) { progress, _ in
+let observation = task.progress.observe(\.fractionCompleted) { progress, _ in
     print("Progress", progress.fractionCompleted)
 }
 
@@ -150,8 +110,7 @@ let info = try await VideoTool.convert(
 )
 print("Done: \(info.url.path)")
 
-// Cancel compression - from anywhere holding the task, or by cancelling
-// the enclosing Swift `Task`
+// Cancel compression
 task.cancel()
 ```
 Complex example can be found in [this](Example/) directory.
@@ -244,7 +203,7 @@ __Example:__
 let task = CompressionTask(destination: URL(fileURLWithPath: "output.m4a"))
 
 // Observe progress
-task.progress.observe(\.fractionCompleted) { progress, _ in
+let observation = task.progress.observe(\.fractionCompleted) { progress, _ in
     print("Progress", progress.fractionCompleted)
 }
 
@@ -281,10 +240,6 @@ task.cancel()
 Swift DocC documentation is hosted on [Github Pages](https://starkdmi.github.io/MediaToolSwift/documentation/mediatoolswift)
 
 Use those links for more info on [video](Files/VIDEO.md), [image](Files/IMAGE.md) and [audio](Files/AUDIO.md) features and operations.
-
-## Testing
-
-The required macOS suite runs only the deterministic smoke corpus. Large HDR, alpha, slow-motion, ProRes, and gain-map coverage runs in the scheduled extended suite. Those existing fixtures remain in Git for this 1.x stabilization branch: an LFS history rewrite would not reduce normal full-clone size while the published `1.2.0` tag is retained, and would add release risk. New large fixtures should not be added until a separate storage and history-migration decision is made. See [Tests/README.md](Tests/README.md) for fixture tiers and local commands.
 
 ## Flutter
 `MediaToolSwift` is available in [Flutter](https://github.com/flutter/flutter) via [media_tool_flutter](https://pub.dev/packages/media_tool_flutter) plugin.
