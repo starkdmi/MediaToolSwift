@@ -32,16 +32,20 @@ extension VideoTool {
         let trackAnalyzer = VideoTrackAnalyzer()
         let analysis = try await trackAnalyzer.analyze(track: videoTrack, asset: asset)
 
-        if videoSettings.color != nil {
-            // Explicit changes can require transfer conversion or tone mapping
-            // beyond the writer-primary compatibility fallback below. Merely
-            // retagging decoded samples would corrupt their interpretation.
-            throw CompressionError.invalidVideoCodec
-        }
         if videoSettings.frameRate != nil, analysis.nominalFrameRate <= 0 {
             throw CompressionError.invalidFrameRate
         }
-        let requiresHighBitDepth = analysis.isHDR || (analysis.bitsPerComponent ?? 8) > 8
+        let requestedColor = videoSettings.color.map { VideoColorInformation(for: $0) }
+        let outputIsHDR = requestedColor?.isHDR ?? analysis.isHDR
+        let sourceBitsPerComponent = analysis.bitsPerComponent ?? (analysis.isHDR ? 10 : 8)
+        // HDR output needs at least 10 bits. SDR output keeps the source depth,
+        // except HDR sources tone-mapped to SDR, which are encoded in 8 bits.
+        let outputBitsPerComponent = outputIsHDR
+            ? max(sourceBitsPerComponent, 10)
+            : (analysis.isHDR ? 8 : sourceBitsPerComponent)
+        let requiresHighBitDepth = outputBitsPerComponent > 8
+        // Decode HDR sources at high bit depth, even when tone-mapping to SDR.
+        let decodesHighBitDepth = requiresHighBitDepth || analysis.isHDR
 
         // Register supplemental decoders if needed (VP9, AV1 on macOS)
         trackAnalyzer.registerSupplementalDecodersIfNeeded(for: analysis.formatDescription)
@@ -67,7 +71,7 @@ extension VideoTool {
 
         variables.codec = codecResolution.codec
         variables.hasAlpha = codecResolution.hasAlpha
-        variables.isHDR = analysis.isHDR
+        variables.isHDR = outputIsHDR
         variables.sourceDuration = analysis.duration
 
         // MARK: - Phase 3: Process Video Operations
@@ -173,7 +177,7 @@ extension VideoTool {
             sourceSize: analysis.encodedSize,
             codec: codecResolution.codec,
             codecChanged: codecResolution.codecChanged,
-            isHDR: analysis.isHDR,
+            isHDR: outputIsHDR,
             frameRate: effectiveFrameRate,
             duration: cutDurationInSeconds ?? durationInSeconds
         )
@@ -250,14 +254,13 @@ extension VideoTool {
         ]
 
         // Color information
-        var colorInfo: VideoColorInformation?
-        if let colorProperties = videoSettings.color {
-            colorInfo = VideoColorInformation(for: colorProperties)
-        } else if let colorPrimaries = analysis.colorPrimaries,
-                  let matrix = analysis.colorMatrix,
-                  let transferFunction = analysis.colorTransferFunction {
-            colorInfo = VideoColorInformation(colorPrimaries: colorPrimaries, matrix: matrix, transferFunction: transferFunction)
+        var sourceColor: VideoColorInformation?
+        if let colorPrimaries = analysis.colorPrimaries,
+           let matrix = analysis.colorMatrix,
+           let transferFunction = analysis.colorTransferFunction {
+            sourceColor = VideoColorInformation(colorPrimaries: colorPrimaries, matrix: matrix, transferFunction: transferFunction)
         }
+        var colorInfo = requestedColor ?? sourceColor
         if let colorInfo = colorInfo {
             videoParameters[AVVideoColorPropertiesKey] = colorInfo.writerProperties
         }
@@ -300,9 +303,8 @@ extension VideoTool {
 
         func configureVideoInput() throws {
             // Set composition profiles before the writer captures its settings.
-            let bitsPerComponent = analysis.bitsPerComponent ?? (analysis.isHDR ? 10 : 8)
             if useVideoComposition, videoSettings.profile == nil,
-               let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: bitsPerComponent) {
+               let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: outputBitsPerComponent) {
                 videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
                 videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
             }
@@ -314,6 +316,30 @@ extension VideoTool {
                 )
                 return variables.videoInput
             }
+        }
+
+        #if !os(visionOS)
+        func convertColorWithCompositor(to color: VideoColorInformation) {
+            colorInfo = color
+            convertsColorPrimaries = true
+            videoParameters[AVVideoColorPropertiesKey] = color.writerProperties
+            useVideoComposition = true
+            // The compositor bakes in the source orientation. Its dimensions
+            // are the display dimensions calculated before the encoder swap.
+            targetVideoSize = sizeResult.targetSize
+            videoParameters[AVVideoWidthKey] = targetVideoSize.width
+            videoParameters[AVVideoHeightKey] = targetVideoSize.height
+        }
+        #endif
+
+        // The writer alone converts some color changes and only retags others,
+        // so explicit changes always use the color-managed compositor.
+        if variables.hasChanges, let requestedColor, requestedColor != sourceColor {
+            #if os(visionOS)
+            throw CompressionError.notSupportedOnVisionOS
+            #else
+            convertColorWithCompositor(to: requestedColor)
+            #endif
         }
 
         do {
@@ -328,15 +354,7 @@ extension VideoTool {
             #if os(visionOS)
             throw CompressionError.notSupportedOnVisionOS
             #else
-            colorInfo = compatibleColor
-            convertsColorPrimaries = true
-            videoParameters[AVVideoColorPropertiesKey] = compatibleColor.writerProperties
-            useVideoComposition = true
-            // The compositor bakes in the source orientation. Its dimensions
-            // are the display dimensions calculated before the encoder swap.
-            targetVideoSize = sizeResult.targetSize
-            videoParameters[AVVideoWidthKey] = targetVideoSize.width
-            videoParameters[AVVideoHeightKey] = targetVideoSize.height
+            convertColorWithCompositor(to: compatibleColor)
             do {
                 try configureVideoInput()
             } catch {
@@ -346,7 +364,7 @@ extension VideoTool {
         }
 
         let pixelFormat: OSType
-        if requiresHighBitDepth {
+        if decodesHighBitDepth {
             // Keep HDR samples in a 10-bit format through decode, optional
             // frame processing, and the pixel-buffer adaptor. Using the SDR
             // 8-bit YUV/BGRA formats here irreversibly quantizes the image

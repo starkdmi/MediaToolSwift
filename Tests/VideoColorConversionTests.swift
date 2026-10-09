@@ -169,6 +169,81 @@ final class VideoColorConversionTests: XCTestCase {
         XCTAssertEqual(audioTracks?.count, 0)
     }
 
+    func testExplicitSDRColorConversion() async throws {
+        // SMPTE-C is the case the writer alone retags without converting.
+        for color in [CompressionColorPrimary.smpteC, .ebu3213, .itu2020] {
+            try await checkExplicitColor("dci-p3", color: color)
+        }
+    }
+
+    func testExplicitHDRToSDRToneMapping() async throws {
+        // Main10 keeps 8-bit quantization of the tone-mapped 10-bit source out of
+        // the budget. Re-subsampling tone-mapped chroma moves single pixels along
+        // the fixture's sharp edges; compare 8x8 block means for the tone curve.
+        let info = try await checkExplicitColor("dci-p3-hlg", color: .itu709_2, profile: .hevcMain10, blockSize: 8)
+        XCTAssertFalse(info.isHDR)
+    }
+
+    func testExplicitSDRToHDRColor() async throws {
+        let source = try fixture("dci-p3")
+        let destination = temporaryOutput()
+        defer { try? FileManager.default.removeItem(at: destination) }
+        let info = try await convert(source, to: destination,
+            settings: .init(codec: .hevc, color: .itu2020_hlg), skipAudio: true)
+        XCTAssertTrue(info.isHDR)
+        let description = try await videoDescription(AVURLAsset(url: destination))
+        XCTAssertEqual(description.colorPrimaries, AVVideoColorPrimaries_ITU_R_2020)
+        XCTAssertEqual(description.transferFunction, AVVideoTransferFunction_ITU_R_2100_HLG)
+        XCTAssertEqual(description.matrix, AVVideoYCbCrMatrix_ITU_R_2020)
+        // HDR transfer functions in an 8-bit stream would band visibly.
+        try checkHEVCBitDepth(description, expected: 10)
+    }
+
+    @discardableResult
+    private func checkExplicitColor(
+        _ name: String,
+        color: CompressionColorPrimary,
+        profile: CompressionVideoProfile = .hevcMain,
+        blockSize: Int = 1
+    ) async throws -> VideoInfo {
+        let source = try fixture(name)
+        let destination = temporaryOutput()
+        defer { try? FileManager.default.removeItem(at: destination) }
+        // Maximum SDR quality keeps quantization below the color-error budget.
+        let info = try await convert(source, to: destination,
+            settings: .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: profile, color: color),
+            skipAudio: true)
+
+        let expectedColor = VideoColorInformation(for: color)
+        let original = AVURLAsset(url: source)
+        let result = AVURLAsset(url: destination)
+        let description = try await videoDescription(result)
+        XCTAssertEqual(description.colorPrimaries, expectedColor.colorPrimaries, "\(color)")
+        XCTAssertEqual(description.transferFunction, expectedColor.transferFunction, "\(color)")
+        XCTAssertEqual(description.matrix, expectedColor.matrix, "\(color)")
+
+        // Apple's basic compositor is the independent conversion reference.
+        // Decode through AVAssetReader: AVAssetImageGenerator tone-maps HDR
+        // sources differently from the reader composition used for export.
+        let composition = AVMutableVideoComposition(propertiesOf: original)
+        composition.colorPrimaries = expectedColor.colorPrimaries
+        composition.colorYCbCrMatrix = expectedColor.matrix
+        composition.colorTransferFunction = expectedColor.transferFunction
+        let expected = try await decodedPixels(original, composition: composition, blockSize: blockSize)
+        let actual = try await decodedPixels(result, blockSize: blockSize)
+        let retagged = try await decodedPixels(original, retaggedAs: expectedColor, blockSize: blockSize)
+        XCTAssertEqual(actual.count, expected.count)
+        let conversionError = meanAbsoluteError(actual, expected)
+        let retaggingError = meanAbsoluteError(retagged, expected)
+        let maximumMeanError = 1 / Float(UInt8.max)
+        let minimumImprovementFactor: Float = 2
+        print("\(name) -> \(color) linear-RGB mean error: export=\(conversionError), retag-only=\(retaggingError)")
+        XCTAssertLessThan(conversionError, maximumMeanError, "\(color)")
+        XCTAssertLessThan(conversionError * minimumImprovementFactor, retaggingError,
+            "\(color): changing tags alone must not satisfy the pixel-color check")
+        return info
+    }
+
     private func checkConversion(_ name: String, hdrTransfer: String?, settings: CompressionVideoSettings) async throws {
         let source = try fixture(name)
         let destination = temporaryOutput()
@@ -290,6 +365,51 @@ final class VideoColorConversionTests: XCTestCase {
         } else {
             return try generator.copyCGImage(at: .zero, actualTime: nil)
         }
+    }
+
+    /// First-frame RGB in linear sRGB, color-managed from the buffer's tags.
+    private func decodedPixels(
+        _ asset: AVAsset,
+        composition: AVVideoComposition? = nil,
+        retaggedAs color: VideoColorInformation? = nil,
+        blockSize: Int = 1
+    ) async throws -> [Float] {
+        let maybeTrack = await asset.getFirstTrack(withMediaType: .video)
+        let track = try XCTUnwrap(maybeTrack)
+        let reader = try AVAssetReader(asset: asset)
+        let settings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_64RGBAHalf]
+        let output: AVAssetReaderOutput
+        if let composition {
+            let compositionOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [track], videoSettings: settings)
+            compositionOutput.videoComposition = composition
+            output = compositionOutput
+        } else {
+            output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+        }
+        reader.add(output)
+        XCTAssertTrue(reader.startReading())
+        defer { reader.cancelReading() }
+        let sample = try XCTUnwrap(output.copyNextSampleBuffer())
+        let pixelBuffer = try XCTUnwrap(CMSampleBufferGetImageBuffer(sample))
+        if let color {
+            // Control: keep the decoded values but reinterpret them in the target space.
+            CVBufferSetAttachment(pixelBuffer, kCVImageBufferColorPrimariesKey,
+                color.colorPrimaries as CFString, .shouldPropagate)
+            CVBufferSetAttachment(pixelBuffer, kCVImageBufferTransferFunctionKey,
+                color.transferFunction as CFString, .shouldPropagate)
+            CVBufferRemoveAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey)
+        }
+        var image = CIImage(cvPixelBuffer: pixelBuffer)
+        if blockSize > 1 {
+            let blockScale = 1 / CGFloat(blockSize)
+            image = image.applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: blockSize / 2])
+                .cropped(to: image.extent)
+                .transformed(by: CGAffineTransform(scaleX: blockScale, y: blockScale))
+        }
+        let context = CIContext()
+        let cgImage = try XCTUnwrap(context.createCGImage(image, from: image.extent,
+            format: .RGBAh, colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)))
+        return try linearPixels(cgImage)
     }
 
     private func linearPixels(_ image: CGImage) throws -> [Float] {
