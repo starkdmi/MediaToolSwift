@@ -72,7 +72,11 @@ extension VideoTool {
 
         // MARK: - Phase 3: Process Video Operations
 
-        var transform = CGAffineTransform.identity
+        // Rotation, flip and mirror are applied in a fixed order matching
+        // `ImageOperation`: rotate first, then flip, then mirror the result.
+        var rotationTransform = CGAffineTransform.identity
+        var flips = false
+        var mirrors = false
         var transformed = false
         var cutDurationInSeconds: Double?
         var frameProcessor: VideoFrameProcessor?
@@ -103,14 +107,26 @@ extension VideoTool {
                 guard rotation.radians.isFinite else {
                     throw CompressionError.invalidVideoSize
                 }
-                transform = transform.concatenating(operation.transform!)
+                // Rotations commute, so `Set` order does not matter here
+                rotationTransform = rotationTransform.concatenating(operation.transform!)
                 transformed = true
-            case .flip, .mirror:
-                transform = transform.concatenating(operation.transform!)
+            case .flip:
+                flips = true
+                transformed = true
+            case .mirror:
+                mirrors = true
                 transformed = true
             case .process(let processor):
                 frameProcessor = processor
             }
+        }
+
+        var transform = rotationTransform
+        if flips {
+            transform = transform.concatenating(VideoOperation.flip.transform!)
+        }
+        if mirrors {
+            transform = transform.concatenating(VideoOperation.mirror.transform!)
         }
 
         // MARK: - Phase 4: Calculate Output Size

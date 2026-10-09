@@ -99,3 +99,20 @@ ffprobe -v error -select_streams v:0 -show_entries stream_side_data=rotation \
 The portrait command uses FFmpeg's input [`-display_rotation`](https://ffmpeg.org/ffmpeg.html#Video-Options)
 option to write the track transform during stream copy. Verify that the final
 command reports `rotation=90`.
+
+## Video orientation regression
+
+`VideoOrientationTests` encodes a 128×64 four-color quadrant frame once for each
+of the eight axis-aligned track transforms, including the reflected quarter
+turns (transposes). The expected displayed layout of every output is derived
+from the transform matrices, not from the library, and compared with the first
+frame decoded by `AVAssetImageGenerator` with `appliesPreferredTrackTransform`.
+The tests cover `getInfo`, plain re-encoding, resize, crop, and the `.image`,
+`.pixelBuffer`, and `.imageComposition` processors, including the orientation
+the processors receive. Combined rotate, flip, and mirror operations must match
+`ImageTool` output for all three image frameworks: rotate first, then flip, then
+mirror, regardless of `Set` iteration order.
+
+```sh
+swift test --disable-sandbox --filter VideoOrientationTests
+```
