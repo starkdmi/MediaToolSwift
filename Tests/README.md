@@ -53,7 +53,7 @@ Resize output is compared with an independent basic compositor and cropped,
 stretched, mirrored, and rotated negative controls. The portrait test also
 checks the source fixture's display dimensions so a missing track transform
 cannot silently turn it into a landscape test. A rejected-profile test verifies
-both writer setup errors remain available through `NSMultipleUnderlyingErrorsKey`.
+that unrelated writer setup errors surface unchanged.
 The SDR pixel test uses an independent Apple basic compositor as
 its conversion reference on iOS; macOS accepts DCI-P3 and compares against the
 source. High-quality SDR encoding isolates color conversion from quantization.

@@ -132,24 +132,18 @@ final class VideoColorConversionTests: XCTestCase {
         }
     }
 
-    func testDCIP3WriterSetupRetainsBothErrors() async throws {
+    func testDCIP3WriterSetupReportsUnrelatedErrors() async throws {
         let asset = AVURLAsset(url: try fixture("dci-p3"))
         do {
-            // An invalid encoder profile makes both writer-input attempts fail,
-            // including on macOS where DCI-P3 primaries themselves are accepted.
+            // An invalid encoder profile fails writer setup on every platform.
+            // It must surface as is: iOS still converts the rejected DCI-P3
+            // primaries first, and macOS accepts them and converts nothing.
             _ = try await VideoTool.initializeVideo(asset: asset,
                 videoSettings: .init(codec: .hevc, profile: .value("invalid-profile")))
             XCTFail("Invalid profile must fail writer setup")
         } catch {
-            let diagnostic = error as NSError
-            let underlying = try XCTUnwrap(diagnostic.userInfo[NSMultipleUnderlyingErrorsKey] as? [NSError])
-            XCTAssertEqual(underlying.count, 2)
-            let original = try XCTUnwrap(underlying.first)
-            let retry = try XCTUnwrap(underlying.last)
-            XCTAssertEqual((diagnostic.userInfo[NSUnderlyingErrorKey] as? NSError), original)
-            XCTAssertTrue(retry.localizedDescription.contains(AVVideoProfileLevelKey))
-            XCTAssertTrue(diagnostic.localizedDescription.contains(original.localizedDescription))
-            XCTAssertTrue(diagnostic.localizedDescription.contains(retry.localizedDescription))
+            XCTAssertTrue(error.localizedDescription.contains(AVVideoProfileLevelKey), error.localizedDescription)
+            XCTAssertFalse(error.localizedDescription.contains(AVVideoColorPrimariesKey), error.localizedDescription)
         }
     }
 

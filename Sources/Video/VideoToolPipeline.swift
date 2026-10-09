@@ -372,26 +372,22 @@ extension VideoTool {
             #endif
         }
 
-        do {
-            try configureVideoInput()
-        } catch let originalError {
-            // Writer support differs by platform. Keep accepted source profiles
-            // and passthrough intact; retry only a tested conversion target.
-            guard variables.hasChanges,
-                  let compatibleColor = colorInfo?.writerCompatibleColor else {
-                throw originalError
-            }
+        // Writer support for color primaries differs by platform: iOS rejects
+        // DCI-P3. Keep accepted source profiles and passthrough intact, and
+        // convert only when the writer rejects the source color itself.
+        if variables.hasChanges, !convertsColorPrimaries,
+           let color = colorInfo,
+           let compatibleColor = color.writerCompatibleColor,
+           writerRejects(color, accepting: compatibleColor,
+                         codec: codecResolution.codec, size: targetVideoSize) {
             #if os(visionOS)
             throw CompressionError.notSupportedOnVisionOS
             #else
             convertColorWithCompositor(to: compatibleColor)
-            do {
-                try configureVideoInput()
-            } catch {
-                throw VideoWriterInputError(originalError: originalError, retryError: error)
-            }
             #endif
         }
+
+        try configureVideoInput()
 
         let pixelFormat: OSType
         if decodesHighBitDepth {
@@ -568,6 +564,33 @@ extension VideoTool {
         variables.resolution = writerFrameSize.displayed(with: variables.videoInput.transform)
 
         return variables
+    }
+
+    // MARK: - Helper: Writer Color Support
+
+    /// Whether the writer rejects `color` itself while accepting `compatible`.
+    /// Only codec, size and color are probed, so unrelated settings cannot
+    /// trigger a conversion; the probe writer is never started.
+    private static func writerRejects(
+        _ color: VideoColorInformation,
+        accepting compatible: VideoColorInformation,
+        codec: AVVideoCodecType,
+        size: CGSize
+    ) -> Bool {
+        let probeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MediaToolSwift-probe-\(UUID().uuidString).mov")
+        guard let writer = try? AVAssetWriter(outputURL: probeURL, fileType: .mov) else {
+            return false
+        }
+        func accepts(_ color: VideoColorInformation) -> Bool {
+            writer.canApply(outputSettings: [
+                AVVideoCodecKey: codec,
+                AVVideoWidthKey: size.width,
+                AVVideoHeightKey: size.height,
+                AVVideoColorPropertiesKey: color.writerProperties
+            ], forMediaType: .video)
+        }
+        return !accepts(color) && accepts(compatible)
     }
 
     // MARK: - Helper: Build Video Composition
@@ -844,24 +867,3 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
     }
 }
 #endif
-
-/// Retains both setup failures in source-settings, compatible-settings order.
-private struct VideoWriterInputError: LocalizedError, CustomNSError {
-    let originalError: Error
-    let retryError: Error
-
-    private var description: String {
-        "Video writer input setup failed with source color settings (\(originalError.localizedDescription)) " +
-        "and compatible color settings (\(retryError.localizedDescription))."
-    }
-
-    var errorDescription: String? { description }
-
-    var errorUserInfo: [String: Any] {
-        [
-            NSLocalizedDescriptionKey: description,
-            NSUnderlyingErrorKey: originalError,
-            NSMultipleUnderlyingErrorsKey: [originalError, retryError]
-        ]
-    }
-}
