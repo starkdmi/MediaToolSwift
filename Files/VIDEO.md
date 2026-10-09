@@ -29,7 +29,7 @@ In addition to the video and audio codecs conversion provided with the following
 | Video quality | Video quality in range from 0.0 to 1.0, __ignored__ when bitrate is set | `[0.0, 1.0]` | `1.0` |
 | Preserve Alpha channel | Preserve or drop alpha channel from video file with transparency | `Boolean` | `true` |
 | Profile | Video profile used by video encoder, `H.264` and `H.265/HEVC` codecs only | `Baseline`, `Main`, `High`, `Custom(String)` | Selected automatically |
-| Color | Color primary, Transfer function, YCbCr Matrix combination | `SD`, `SD (PAL)`, `P3`, `HDTV`, `UHDTV SDR`, `UHDTV HDR HLG`, `UHDTV HDR PQ` | Selected automatically |
+| Color | Color primary, Transfer function, YCbCr Matrix combination, see [Color and HDR](#color-and-hdr) | `SD`, `SD (PAL)`, `P3`, `HDTV`, `UHDTV SDR`, `UHDTV HDR HLG`, `UHDTV HDR PQ` | Source color |
 | Max Key Frame Interval | Maximum interval between keyframes | `Int` | Unset |
 | Hardware Acceleration | Usage of hardware acceleration during the compression | `Auto`, `Disabled` | `Auto` |
 | Optimize For Network Use | Allows video file to be streamed over network | `Boolean` | `true` |
@@ -61,6 +61,17 @@ CompressionAudioSettings(
     sampleRate: 44100
 )
 ```
+
+### Color and HDR
+By default the source color is kept. Setting `color` converts the pixels with Apple's native compositor, not just the tags: SDR gamut changes are color-matched, HDR to SDR is tone-mapped, and SDR to HLG/PQ is encoded in 10 bits (`H.265/HEVC` or `ProRes`). Explicit color conversion is not available on visionOS.
+
+Transcoding preserves static HDR color tags, but codec-private dynamic HDR and Dolby Vision metadata may not survive an AVFoundation re-encode. Use passthrough settings when exact dynamic-metadata preservation is required.
+
+When the writer rejects the source color primaries (e.g. DCI-P3 on iOS), the pixels are converted with Apple's native compositor in the same encode, on platforms with video-composition support:
+- BT.709 SDR keeps wide color in P3-D65
+- HLG/PQ keep their transfer function and 10-bit depth in BT.2020
+
+Accepted source profiles and video passthrough retain their original color tags. Other rejected color profiles are not supported.
 
 ## Resize
 Resizing can be done using fit or fill method. The `.dynamic` option allows to choose or calculate scale method based on source video resolution.

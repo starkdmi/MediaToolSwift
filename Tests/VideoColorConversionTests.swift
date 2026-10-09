@@ -132,24 +132,18 @@ final class VideoColorConversionTests: XCTestCase {
         }
     }
 
-    func testDCIP3WriterSetupRetainsBothErrors() async throws {
+    func testDCIP3WriterSetupReportsUnrelatedErrors() async throws {
         let asset = AVURLAsset(url: try fixture("dci-p3"))
         do {
-            // An invalid encoder profile makes both writer-input attempts fail,
-            // including on macOS where DCI-P3 primaries themselves are accepted.
+            // An invalid encoder profile fails writer setup on every platform.
+            // It must surface as is: iOS still converts the rejected DCI-P3
+            // primaries first, and macOS accepts them and converts nothing.
             _ = try await VideoTool.initializeVideo(asset: asset,
                 videoSettings: .init(codec: .hevc, profile: .value("invalid-profile")))
             XCTFail("Invalid profile must fail writer setup")
         } catch {
-            let diagnostic = error as NSError
-            let underlying = try XCTUnwrap(diagnostic.userInfo[NSMultipleUnderlyingErrorsKey] as? [NSError])
-            XCTAssertEqual(underlying.count, 2)
-            let original = try XCTUnwrap(underlying.first)
-            let retry = try XCTUnwrap(underlying.last)
-            XCTAssertEqual((diagnostic.userInfo[NSUnderlyingErrorKey] as? NSError), original)
-            XCTAssertTrue(retry.localizedDescription.contains(AVVideoProfileLevelKey))
-            XCTAssertTrue(diagnostic.localizedDescription.contains(original.localizedDescription))
-            XCTAssertTrue(diagnostic.localizedDescription.contains(retry.localizedDescription))
+            XCTAssertTrue(error.localizedDescription.contains(AVVideoProfileLevelKey), error.localizedDescription)
+            XCTAssertFalse(error.localizedDescription.contains(AVVideoColorPrimariesKey), error.localizedDescription)
         }
     }
 
@@ -167,6 +161,215 @@ final class VideoColorConversionTests: XCTestCase {
         XCTAssertEqual(resultVideo, originalVideo)
         let audioTracks = await result.getTracks(withMediaType: .audio)
         XCTAssertEqual(audioTracks?.count, 0)
+    }
+
+    func testExplicitSDRColorConversion() async throws {
+        // SMPTE-C is the case the writer alone retags without converting.
+        for color in [CompressionColorPrimary.smpteC, .ebu3213, .itu2020] {
+            try await checkExplicitColor("dci-p3", color: color)
+        }
+    }
+
+    func testExplicitHDRToSDRToneMapping() async throws {
+        // Main10 keeps 8-bit quantization of the tone-mapped 10-bit source out of
+        // the budget. Re-subsampling tone-mapped chroma moves single pixels along
+        // the fixture's sharp edges; compare 8x8 block means for the tone curve.
+        let info = try await checkExplicitColor("dci-p3-hlg", color: .itu709_2, profile: .hevcMain10, blockSize: 8)
+        XCTAssertFalse(info.isHDR)
+    }
+
+    func testExplicitSDRToHDRColor() async throws {
+        let source = try fixture("dci-p3")
+        let destination = temporaryOutput()
+        defer { try? FileManager.default.removeItem(at: destination) }
+        let info = try await convert(source, to: destination,
+            settings: .init(codec: .hevc, color: .itu2020_hlg), skipAudio: true)
+        XCTAssertTrue(info.isHDR)
+        let description = try await videoDescription(AVURLAsset(url: destination))
+        XCTAssertEqual(description.colorPrimaries, AVVideoColorPrimaries_ITU_R_2020)
+        XCTAssertEqual(description.transferFunction, AVVideoTransferFunction_ITU_R_2100_HLG)
+        XCTAssertEqual(description.matrix, AVVideoYCbCrMatrix_ITU_R_2020)
+        // HDR transfer functions in an 8-bit stream would band visibly.
+        try checkHEVCBitDepth(description, expected: 10)
+    }
+
+    func testAnamorphicPortraitThroughCompositor() async throws {
+        // 2:1 pixels under a 90° track transform. The compositor applies the
+        // turn to encoded pixels, so the horizontal spacing must not survive it.
+        let source = try fixture("anamorphic-portrait")
+        let displayedSize = CGSize(width: 96, height: 320)
+        let reference = try await firstFrame(AVURLAsset(url: source))
+        XCTAssertEqual(CGSize(width: reference.width, height: reference.height), displayedSize,
+            "The fixture must carry non-square pixels and a portrait track transform")
+        let expected = try linearPixels(reference)
+
+        // Controls: the regression squeezed the picture into the lower half,
+        // and an upside-down frame stands in for a wrong orientation.
+        let referenceImage = CIImage(cgImage: reference)
+        let squeezed = referenceImage.transformed(by: CGAffineTransform(scaleX: 1, y: 0.5))
+            .composited(over: CIImage(color: .black).cropped(to: referenceImage.extent))
+        var controls: [[Float]] = []
+        for control in [squeezed, referenceImage.oriented(.down)] {
+            let controlImage = try XCTUnwrap(CIContext().createCGImage(control, from: referenceImage.extent))
+            controls.append(try linearPixels(controlImage))
+        }
+
+        let cases: [(String, CompressionVideoSettings)] = [
+            ("color", .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: .hevcMain, color: .p3D65)),
+            ("imageComposition", .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: .hevcMain,
+                edit: [.process(.imageComposition { image, _, _ in image })])),
+            ("color and image processor", .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: .hevcMain,
+                color: .p3D65, edit: [.process(.image { image, _, _ in image })]))
+        ]
+        for (name, settings) in cases {
+            let destination = temporaryOutput()
+            defer { try? FileManager.default.removeItem(at: destination) }
+            let info = try await convert(source, to: destination, settings: settings, skipAudio: true)
+            XCTAssertEqual(info.resolution, displayedSize, name)
+            let image = try await firstFrame(AVURLAsset(url: destination))
+            XCTAssertEqual(CGSize(width: image.width, height: image.height), displayedSize, name)
+            guard image.width == reference.width, image.height == reference.height else { continue }
+            let exportError = meanAbsoluteError(try linearPixels(image), expected)
+            let minimumImprovementFactor: Float = 2
+            for controlPixels in controls {
+                let controlError = meanAbsoluteError(controlPixels, expected)
+                print("Anamorphic \(name) mean error: export=\(exportError), control=\(controlError)")
+                XCTAssertLessThan(exportError * minimumImprovementFactor, controlError, name)
+            }
+        }
+    }
+
+    func testAnamorphicPortraitResize() async throws {
+        // Bounds and exact sizes apply to the displayed 96x320 picture, and
+        // resized output has square pixels on every frame-processing path.
+        let source = try fixture("anamorphic-portrait")
+        let reference = CIImage(cgImage: try await firstFrame(AVURLAsset(url: source)))
+        let processors: [(String, VideoFrameProcessor?)] = [
+            ("track output", nil),
+            ("imageComposition", .imageComposition { image, _, _ in image }),
+            ("image", .image { image, _, _ in image })
+        ]
+        let sizes: [(CompressionVideoSize, CGSize)] = [
+            (.fit(CGSize(width: 200, height: 200)), CGSize(width: 60, height: 200)),
+            (.scale(CGSize(width: 48, height: 160)), CGSize(width: 48, height: 160))
+        ]
+        for (size, expectedSize) in sizes {
+            // Independent reference: stretch the displayed frame on both axes.
+            let expectedImage = reference.samplingLinear().transformed(by: CGAffineTransform(
+                scaleX: expectedSize.width / reference.extent.width,
+                y: expectedSize.height / reference.extent.height))
+            let expectedFrame = try XCTUnwrap(CIContext().createCGImage(expectedImage,
+                from: CGRect(origin: .zero, size: expectedSize)))
+            let expected = try linearPixels(expectedFrame)
+            let upsideDown = try XCTUnwrap(CIContext().createCGImage(expectedImage.oriented(.down),
+                from: CGRect(origin: .zero, size: expectedSize)))
+            let controlError = meanAbsoluteError(try linearPixels(upsideDown), expected)
+            for (name, processor) in processors {
+                let label = "\(name) \(size)"
+                let destination = temporaryOutput()
+                defer { try? FileManager.default.removeItem(at: destination) }
+                let info = try await convert(source, to: destination, settings: .init(codec: .hevc,
+                    bitrate: .encoder, quality: 1, size: size, profile: .hevcMain,
+                    edit: processor.map { [.process($0)] } ?? []), skipAudio: true)
+                XCTAssertEqual(info.resolution, expectedSize, label)
+                let result = AVURLAsset(url: destination)
+                let description = try await videoDescription(result)
+                let spacing = description.pixelAspectRatio
+                XCTAssertEqual(spacing?.horizontalSpacing ?? 1, spacing?.verticalSpacing ?? 1, label)
+                let image = try await firstFrame(result)
+                XCTAssertEqual(CGSize(width: image.width, height: image.height), expectedSize, label)
+                guard image.width == expectedFrame.width, image.height == expectedFrame.height else { continue }
+                let exportError = meanAbsoluteError(try linearPixels(image), expected)
+                print("Anamorphic resize \(label) mean error: export=\(exportError), control=\(controlError)")
+                XCTAssertLessThan(exportError * 2, controlError, label)
+            }
+        }
+    }
+
+    #if os(macOS)
+    func testProResHDRWithImageProcessor() async throws {
+        // Core Image cannot render into the 10-bit 4:2:2 buffers used for
+        // ProRes HDR; an identity image processor must match no processor.
+        let cases: [(String, CompressionColorPrimary?)] = [("dci-p3-hlg", nil), ("dci-p3", .itu2020_hlg)]
+        for (name, color) in cases {
+            let source = try fixture(name)
+            var results: [AVAsset] = []
+            for edit: Set<VideoOperation> in [[], [.process(.image { image, _, _ in image })]] {
+                let destination = temporaryOutput()
+                addTeardownBlock { try? FileManager.default.removeItem(at: destination) }
+                let info = try await convert(source, to: destination,
+                    settings: .init(codec: .proRes422, color: color, edit: edit), skipAudio: true)
+                XCTAssertTrue(info.isHDR, name)
+                let result = AVURLAsset(url: destination)
+                let description = try await videoDescription(result)
+                XCTAssertEqual(description.transferFunction, AVVideoTransferFunction_ITU_R_2100_HLG, name)
+                results.append(result)
+            }
+            // The encoder subsamples RGB input itself, and the result differs
+            // between macOS versions, so compare against controls rather than a
+            // fixed budget: the frame turned upside down, and with red and blue
+            // swapped as a misread pixel format would.
+            let expected = try await decodedPixels(results[0])
+            let actual = try await decodedPixels(results[1])
+            let pixels = stride(from: 0, to: expected.count, by: 3).map { Array(expected[$0..<$0 + 3]) }
+            let controls = [
+                Array(pixels.reversed().joined()),
+                Array(pixels.map { [$0[2], $0[1], $0[0]] }.joined())
+            ]
+            let processorError = meanAbsoluteError(actual, expected)
+            let minimumImprovementFactor: Float = 4
+            for control in controls {
+                let controlError = meanAbsoluteError(control, expected)
+                print("\(name) ProRes HLG image-processor mean error: export=\(processorError), control=\(controlError)")
+                XCTAssertLessThan(processorError * minimumImprovementFactor, controlError, name)
+            }
+        }
+    }
+    #endif
+
+    @discardableResult
+    private func checkExplicitColor(
+        _ name: String,
+        color: CompressionColorPrimary,
+        profile: CompressionVideoProfile = .hevcMain,
+        blockSize: Int = 1
+    ) async throws -> VideoInfo {
+        let source = try fixture(name)
+        let destination = temporaryOutput()
+        defer { try? FileManager.default.removeItem(at: destination) }
+        // Maximum SDR quality keeps quantization below the color-error budget.
+        let info = try await convert(source, to: destination,
+            settings: .init(codec: .hevc, bitrate: .encoder, quality: 1, profile: profile, color: color),
+            skipAudio: true)
+
+        let expectedColor = VideoColorInformation(for: color)
+        let original = AVURLAsset(url: source)
+        let result = AVURLAsset(url: destination)
+        let description = try await videoDescription(result)
+        XCTAssertEqual(description.colorPrimaries, expectedColor.colorPrimaries, "\(color)")
+        XCTAssertEqual(description.transferFunction, expectedColor.transferFunction, "\(color)")
+        XCTAssertEqual(description.matrix, expectedColor.matrix, "\(color)")
+
+        // Apple's basic compositor is the independent conversion reference.
+        // Decode through AVAssetReader: AVAssetImageGenerator tone-maps HDR
+        // sources differently from the reader composition used for export.
+        let composition = AVMutableVideoComposition(propertiesOf: original)
+        composition.colorPrimaries = expectedColor.colorPrimaries
+        composition.colorYCbCrMatrix = expectedColor.matrix
+        composition.colorTransferFunction = expectedColor.transferFunction
+        let expected = try await decodedPixels(original, composition: composition, blockSize: blockSize)
+        let actual = try await decodedPixels(result, blockSize: blockSize)
+        let retagged = try await decodedPixels(original, retaggedAs: expectedColor, blockSize: blockSize)
+        XCTAssertEqual(actual.count, expected.count)
+        let conversionError = meanAbsoluteError(actual, expected)
+        let retaggingError = meanAbsoluteError(retagged, expected)
+        let maximumMeanError = 1 / Float(UInt8.max)
+        let minimumImprovementFactor: Float = 2
+        print("\(name) -> \(color) linear-RGB mean error: export=\(conversionError), retag-only=\(retaggingError)")
+        XCTAssertLessThan(conversionError, maximumMeanError, "\(color)")
+        XCTAssertLessThan(conversionError * minimumImprovementFactor, retaggingError,
+            "\(color): changing tags alone must not satisfy the pixel-color check")
+        return info
     }
 
     private func checkConversion(_ name: String, hdrTransfer: String?, settings: CompressionVideoSettings) async throws {
@@ -290,6 +493,51 @@ final class VideoColorConversionTests: XCTestCase {
         } else {
             return try generator.copyCGImage(at: .zero, actualTime: nil)
         }
+    }
+
+    /// First-frame RGB in linear sRGB, color-managed from the buffer's tags.
+    private func decodedPixels(
+        _ asset: AVAsset,
+        composition: AVVideoComposition? = nil,
+        retaggedAs color: VideoColorInformation? = nil,
+        blockSize: Int = 1
+    ) async throws -> [Float] {
+        let maybeTrack = await asset.getFirstTrack(withMediaType: .video)
+        let track = try XCTUnwrap(maybeTrack)
+        let reader = try AVAssetReader(asset: asset)
+        let settings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_64RGBAHalf]
+        let output: AVAssetReaderOutput
+        if let composition {
+            let compositionOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [track], videoSettings: settings)
+            compositionOutput.videoComposition = composition
+            output = compositionOutput
+        } else {
+            output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+        }
+        reader.add(output)
+        XCTAssertTrue(reader.startReading())
+        defer { reader.cancelReading() }
+        let sample = try XCTUnwrap(output.copyNextSampleBuffer())
+        let pixelBuffer = try XCTUnwrap(CMSampleBufferGetImageBuffer(sample))
+        if let color {
+            // Control: keep the decoded values but reinterpret them in the target space.
+            CVBufferSetAttachment(pixelBuffer, kCVImageBufferColorPrimariesKey,
+                color.colorPrimaries as CFString, .shouldPropagate)
+            CVBufferSetAttachment(pixelBuffer, kCVImageBufferTransferFunctionKey,
+                color.transferFunction as CFString, .shouldPropagate)
+            CVBufferRemoveAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey)
+        }
+        var image = CIImage(cvPixelBuffer: pixelBuffer)
+        if blockSize > 1 {
+            let blockScale = 1 / CGFloat(blockSize)
+            image = image.applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: blockSize / 2])
+                .cropped(to: image.extent)
+                .transformed(by: CGAffineTransform(scaleX: blockScale, y: blockScale))
+        }
+        let context = CIContext()
+        let cgImage = try XCTUnwrap(context.createCGImage(image, from: image.extent,
+            format: .RGBAh, colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)))
+        return try linearPixels(cgImage)
     }
 
     private func linearPixels(_ image: CGImage) throws -> [Float] {

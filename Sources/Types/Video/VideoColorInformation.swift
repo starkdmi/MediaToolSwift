@@ -1,7 +1,7 @@
 import AVFoundation
 
 /// Internal type to store color primaries, matrix and transfer function
-internal struct VideoColorInformation {
+internal struct VideoColorInformation: Equatable {
     /// Color Primaries
     let colorPrimaries: String
 
@@ -10,6 +10,12 @@ internal struct VideoColorInformation {
 
     /// Transfer Function
     let transferFunction: String
+
+    /// Whether the transfer function is HLG or PQ.
+    var isHDR: Bool {
+        transferFunction == AVVideoTransferFunction_ITU_R_2100_HLG
+            || transferFunction == AVVideoTransferFunction_SMPTE_ST_2084_PQ
+    }
 
     /// Color properties used by AVAssetWriterInput.
     var writerProperties: [String: String] {

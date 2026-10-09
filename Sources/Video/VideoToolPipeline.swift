@@ -32,16 +32,20 @@ extension VideoTool {
         let trackAnalyzer = VideoTrackAnalyzer()
         let analysis = try await trackAnalyzer.analyze(track: videoTrack, asset: asset)
 
-        if videoSettings.color != nil {
-            // Explicit changes can require transfer conversion or tone mapping
-            // beyond the writer-primary compatibility fallback below. Merely
-            // retagging decoded samples would corrupt their interpretation.
-            throw CompressionError.invalidVideoCodec
-        }
         if videoSettings.frameRate != nil, analysis.nominalFrameRate <= 0 {
             throw CompressionError.invalidFrameRate
         }
-        let requiresHighBitDepth = analysis.isHDR || (analysis.bitsPerComponent ?? 8) > 8
+        let requestedColor = videoSettings.color.map { VideoColorInformation(for: $0) }
+        let outputIsHDR = requestedColor?.isHDR ?? analysis.isHDR
+        let sourceBitsPerComponent = analysis.bitsPerComponent ?? (analysis.isHDR ? 10 : 8)
+        // HDR output needs at least 10 bits. SDR output keeps the source depth,
+        // except HDR sources tone-mapped to SDR, which are encoded in 8 bits.
+        let outputBitsPerComponent = outputIsHDR
+            ? max(sourceBitsPerComponent, 10)
+            : (analysis.isHDR ? 8 : sourceBitsPerComponent)
+        let requiresHighBitDepth = outputBitsPerComponent > 8
+        // Decode HDR sources at high bit depth, even when tone-mapping to SDR.
+        let decodesHighBitDepth = requiresHighBitDepth || analysis.isHDR
 
         // Register supplemental decoders if needed (VP9, AV1 on macOS)
         trackAnalyzer.registerSupplementalDecodersIfNeeded(for: analysis.formatDescription)
@@ -67,7 +71,7 @@ extension VideoTool {
 
         variables.codec = codecResolution.codec
         variables.hasAlpha = codecResolution.hasAlpha
-        variables.isHDR = analysis.isHDR
+        variables.isHDR = outputIsHDR
         variables.sourceDuration = analysis.duration
 
         // MARK: - Phase 3: Process Video Operations
@@ -132,11 +136,14 @@ extension VideoTool {
         // MARK: - Phase 4: Calculate Output Size
 
         let sizeCalculator = VideoSizeCalculator()
+        // Display dimensions, with non-square pixel spacing and orientation applied
+        let displayedSourceSize = analysis.naturalSize.oriented(analysis.orientation)
         let sizeResult = try sizeCalculator.calculate(
             settings: videoSettings.size,
             sourceSize: analysis.sourceVideoSize,
             operations: videoSettings.edit,
-            orientation: analysis.orientation
+            orientation: analysis.orientation,
+            displayedSize: displayedSourceSize
         )
 
         var targetVideoSize = sizeResult.targetSize
@@ -173,7 +180,7 @@ extension VideoTool {
             sourceSize: analysis.encodedSize,
             codec: codecResolution.codec,
             codecChanged: codecResolution.codecChanged,
-            isHDR: analysis.isHDR,
+            isHDR: outputIsHDR,
             frameRate: effectiveFrameRate,
             duration: cutDurationInSeconds ?? durationInSeconds
         )
@@ -250,24 +257,15 @@ extension VideoTool {
         ]
 
         // Color information
-        var colorInfo: VideoColorInformation?
-        if let colorProperties = videoSettings.color {
-            colorInfo = VideoColorInformation(for: colorProperties)
-        } else if let colorPrimaries = analysis.colorPrimaries,
-                  let matrix = analysis.colorMatrix,
-                  let transferFunction = analysis.colorTransferFunction {
-            colorInfo = VideoColorInformation(colorPrimaries: colorPrimaries, matrix: matrix, transferFunction: transferFunction)
+        var sourceColor: VideoColorInformation?
+        if let colorPrimaries = analysis.colorPrimaries,
+           let matrix = analysis.colorMatrix,
+           let transferFunction = analysis.colorTransferFunction {
+            sourceColor = VideoColorInformation(colorPrimaries: colorPrimaries, matrix: matrix, transferFunction: transferFunction)
         }
+        var colorInfo = requestedColor ?? sourceColor
         if let colorInfo = colorInfo {
             videoParameters[AVVideoColorPropertiesKey] = colorInfo.writerProperties
-        }
-
-        if preservesSourcePixelAspectRatio,
-           let pixelAspectRatio = analysis.pixelAspectRatio {
-            videoParameters[AVVideoPixelAspectRatioKey] = [
-                AVVideoPixelAspectRatioHorizontalSpacingKey: pixelAspectRatio.horizontalSpacing,
-                AVVideoPixelAspectRatioVerticalSpacingKey: pixelAspectRatio.verticalSpacing
-            ]
         }
 
         // Set final resolution
@@ -297,12 +295,46 @@ extension VideoTool {
         // MARK: - Phase 8: Setup Reader/Writer
 
         var convertsColorPrimaries = false
+        // Scales composition source frames, which carry encoded pixels, to square pixels.
+        var compositionPixelScale: CGAffineTransform?
 
         func configureVideoInput() throws {
+            compositionPixelScale = nil
+            if let pixelAspectRatio = analysis.pixelAspectRatio {
+                let stretch = CGFloat(pixelAspectRatio.horizontalSpacing) / CGFloat(pixelAspectRatio.verticalSpacing)
+                let squarePixels = [
+                    AVVideoPixelAspectRatioHorizontalSpacingKey: 1,
+                    AVVideoPixelAspectRatioVerticalSpacingKey: 1
+                ]
+                if useVideoComposition && effectiveCropRect == nil {
+                    // Video composition sources carry encoded pixels with the
+                    // orientation applied. Stretch them along the displayed axis
+                    // and render square pixels at the displayed size. Set 1:1
+                    // explicitly, or the source format hint restores the spacing.
+                    if stretch != 1 {
+                        compositionPixelScale = analysis.orientation == .portrait
+                            ? CGAffineTransform(scaleX: 1, y: stretch)
+                            : CGAffineTransform(scaleX: stretch, y: 1)
+                    }
+                    if preservesSourcePixelAspectRatio {
+                        targetVideoSize = displayedSourceSize
+                        videoParameters[AVVideoWidthKey] = targetVideoSize.width
+                        videoParameters[AVVideoHeightKey] = targetVideoSize.height
+                    }
+                    videoParameters[AVVideoPixelAspectRatioKey] = squarePixels
+                } else if preservesSourcePixelAspectRatio {
+                    videoParameters[AVVideoPixelAspectRatioKey] = [
+                        AVVideoPixelAspectRatioHorizontalSpacingKey: pixelAspectRatio.horizontalSpacing,
+                        AVVideoPixelAspectRatioVerticalSpacingKey: pixelAspectRatio.verticalSpacing
+                    ]
+                } else if effectiveCropRect == nil {
+                    // Resized to displayed dimensions
+                    videoParameters[AVVideoPixelAspectRatioKey] = squarePixels
+                }
+            }
             // Set composition profiles before the writer captures its settings.
-            let bitsPerComponent = analysis.bitsPerComponent ?? (analysis.isHDR ? 10 : 8)
             if useVideoComposition, videoSettings.profile == nil,
-               let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: bitsPerComponent) {
+               let profile = CompressionVideoProfile.profile(for: codecResolution.codec, bitsPerComponent: outputBitsPerComponent) {
                 videoCompressionSettings[AVVideoProfileLevelKey] = profile.rawValue
                 videoParameters[AVVideoCompressionPropertiesKey] = videoCompressionSettings
             }
@@ -316,37 +348,49 @@ extension VideoTool {
             }
         }
 
-        do {
-            try configureVideoInput()
-        } catch let originalError {
-            // Writer support differs by platform. Keep accepted source profiles
-            // and passthrough intact; retry only a tested conversion target.
-            guard variables.hasChanges,
-                  let compatibleColor = colorInfo?.writerCompatibleColor else {
-                throw originalError
-            }
-            #if os(visionOS)
-            throw CompressionError.notSupportedOnVisionOS
-            #else
-            colorInfo = compatibleColor
+        #if !os(visionOS)
+        func convertColorWithCompositor(to color: VideoColorInformation) {
+            colorInfo = color
             convertsColorPrimaries = true
-            videoParameters[AVVideoColorPropertiesKey] = compatibleColor.writerProperties
+            videoParameters[AVVideoColorPropertiesKey] = color.writerProperties
             useVideoComposition = true
             // The compositor bakes in the source orientation. Its dimensions
             // are the display dimensions calculated before the encoder swap.
             targetVideoSize = sizeResult.targetSize
             videoParameters[AVVideoWidthKey] = targetVideoSize.width
             videoParameters[AVVideoHeightKey] = targetVideoSize.height
-            do {
-                try configureVideoInput()
-            } catch {
-                throw VideoWriterInputError(originalError: originalError, retryError: error)
-            }
+        }
+        #endif
+
+        // The writer alone converts some color changes and only retags others,
+        // so explicit changes always use the color-managed compositor.
+        if variables.hasChanges, let requestedColor, requestedColor != sourceColor {
+            #if os(visionOS)
+            throw CompressionError.notSupportedOnVisionOS
+            #else
+            convertColorWithCompositor(to: requestedColor)
             #endif
         }
 
+        // Writer support for color primaries differs by platform: iOS rejects
+        // DCI-P3. Keep accepted source profiles and passthrough intact, and
+        // convert only when the writer rejects the source color itself.
+        if variables.hasChanges, !convertsColorPrimaries,
+           let color = colorInfo,
+           let compatibleColor = color.writerCompatibleColor,
+           writerRejects(color, accepting: compatibleColor,
+                         codec: codecResolution.codec, size: targetVideoSize) {
+            #if os(visionOS)
+            throw CompressionError.notSupportedOnVisionOS
+            #else
+            convertColorWithCompositor(to: compatibleColor)
+            #endif
+        }
+
+        try configureVideoInput()
+
         let pixelFormat: OSType
-        if requiresHighBitDepth {
+        if decodesHighBitDepth {
             // Keep HDR samples in a 10-bit format through decode, optional
             // frame processing, and the pixel-buffer adaptor. Using the SDR
             // 8-bit YUV/BGRA formats here irreversibly quantizes the image
@@ -357,7 +401,13 @@ extension VideoTool {
                 #if !os(visionOS)
                 switch codecResolution.codec {
                 case .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy, .proRes4444:
-                    pixelFormat = kCVPixelFormatType_422YpCbCr10
+                    // Core Image cannot render image-processor output into
+                    // 10-bit 4:2:2, so render those frames as half-float RGBA.
+                    if case .image = frameProcessor {
+                        pixelFormat = kCVPixelFormatType_64RGBAHalf
+                    } else {
+                        pixelFormat = kCVPixelFormatType_422YpCbCr10
+                    }
                 default:
                     pixelFormat = kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
                 }
@@ -406,6 +456,8 @@ extension VideoTool {
                 targetVideoSize: targetVideoSize,
                 frameProcessor: frameProcessor,
                 colorInfo: colorInfo,
+                pixelScale: compositionPixelScale,
+                displayedSize: displayedSourceSize,
                 context: context,
                 renderContext: convertsColorPrimaries ? nil : context
             )
@@ -514,6 +566,33 @@ extension VideoTool {
         return variables
     }
 
+    // MARK: - Helper: Writer Color Support
+
+    /// Whether the writer rejects `color` itself while accepting `compatible`.
+    /// Only codec, size and color are probed, so unrelated settings cannot
+    /// trigger a conversion; the probe writer is never started.
+    private static func writerRejects(
+        _ color: VideoColorInformation,
+        accepting compatible: VideoColorInformation,
+        codec: AVVideoCodecType,
+        size: CGSize
+    ) -> Bool {
+        let probeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MediaToolSwift-probe-\(UUID().uuidString).mov")
+        guard let writer = try? AVAssetWriter(outputURL: probeURL, fileType: .mov) else {
+            return false
+        }
+        func accepts(_ color: VideoColorInformation) -> Bool {
+            writer.canApply(outputSettings: [
+                AVVideoCodecKey: codec,
+                AVVideoWidthKey: size.width,
+                AVVideoHeightKey: size.height,
+                AVVideoColorPropertiesKey: color.writerProperties
+            ], forMediaType: .video)
+        }
+        return !accepts(color) && accepts(compatible)
+    }
+
     // MARK: - Helper: Build Video Composition
 
     #if !os(visionOS)
@@ -525,10 +604,13 @@ extension VideoTool {
         targetVideoSize: CGSize,
         frameProcessor: VideoFrameProcessor?,
         colorInfo: VideoColorInformation?,
+        pixelScale: CGAffineTransform?,
+        displayedSize: CGSize,
         context: CIContext?,
         renderContext: CIContext?
     ) -> AVMutableVideoComposition {
         let renderer = VideoCompositionRenderer(
+            pixelScale: pixelScale,
             cropRect: cropRect,
             videoSize: videoSize,
             targetVideoSize: targetVideoSize,
@@ -554,6 +636,10 @@ extension VideoTool {
             }
         }
 
+        if pixelScale != nil, renderSize == nil {
+            // The default render size follows the encoded pixels
+            renderSize = displayedSize
+        }
         if let renderSize = renderSize {
             videoComposition.renderSize = renderSize
         }
@@ -709,6 +795,7 @@ extension VideoTool {
 /// frame-processor closures must stay confined to one execution context.
 private final class VideoCompositionRenderer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "MediaToolSwift.video.composition")
+    private let pixelScale: CGAffineTransform?
     private let cropRect: CGRect?
     private let videoSize: CompressionVideoSize
     private let targetVideoSize: CGSize
@@ -718,6 +805,7 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
     private let scaleFilter: CIFilter?
 
     init(
+        pixelScale: CGAffineTransform?,
         cropRect: CGRect?,
         videoSize: CompressionVideoSize,
         targetVideoSize: CGSize,
@@ -725,6 +813,7 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
         context: CIContext?,
         renderContext: CIContext?
     ) {
+        self.pixelScale = pixelScale
         self.cropRect = cropRect
         self.videoSize = videoSize
         self.targetVideoSize = targetVideoSize
@@ -743,6 +832,10 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
     func render(_ request: AVAsynchronousCIImageFilteringRequest) {
         queue.sync {
             var image = request.sourceImage
+
+            if let pixelScale {
+                image = image.samplingLinear().transformed(by: pixelScale)
+            }
 
             if let cropRect {
                 image = image.cropping(to: cropRect)
@@ -774,24 +867,3 @@ private final class VideoCompositionRenderer: @unchecked Sendable {
     }
 }
 #endif
-
-/// Retains both setup failures in source-settings, compatible-settings order.
-private struct VideoWriterInputError: LocalizedError, CustomNSError {
-    let originalError: Error
-    let retryError: Error
-
-    private var description: String {
-        "Video writer input setup failed with source color settings (\(originalError.localizedDescription)) " +
-        "and compatible color settings (\(retryError.localizedDescription))."
-    }
-
-    var errorDescription: String? { description }
-
-    var errorUserInfo: [String: Any] {
-        [
-            NSLocalizedDescriptionKey: description,
-            NSUnderlyingErrorKey: originalError,
-            NSMultipleUnderlyingErrorsKey: [originalError, retryError]
-        ]
-    }
-}

@@ -111,19 +111,11 @@ public extension CGSize {
         return CGSize(width: round(cropWidth), height: round(cropHeight))
     }
 
-    /// Scale and aspect ratio calculations based on two input sizes
+    /// `CILanczosScaleTransform` parameters resizing `lhs` to `rhs`: `scale`
+    /// sets the height and `aspectRatio` additionally scales the width.
     internal static func / (lhs: CGSize, rhs: CGSize) -> (scale: CGFloat, aspectRatio: CGFloat) {
-        let scale: CGFloat
-        let aspectRatio: CGFloat
-
-        if lhs.width >= lhs.height {
-            scale = rhs.width / lhs.width
-            aspectRatio = rhs.height / (lhs.height * scale)
-        } else {
-            scale = rhs.height / lhs.height
-            aspectRatio = rhs.width / (lhs.width * scale)
-        }
-
+        let scale = rhs.height / lhs.height
+        let aspectRatio = rhs.width / (lhs.width * scale)
         return (scale, aspectRatio)
     }
 
