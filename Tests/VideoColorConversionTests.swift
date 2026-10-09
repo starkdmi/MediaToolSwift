@@ -199,6 +199,32 @@ final class VideoColorConversionTests: XCTestCase {
         try checkHEVCBitDepth(description, expected: 10)
     }
 
+    #if os(macOS)
+    func testProResHDRWithImageProcessor() async throws {
+        // Core Image cannot render into the 10-bit 4:2:2 buffers used for
+        // ProRes HDR; an identity image processor must match no processor.
+        let cases: [(String, CompressionColorPrimary?)] = [("dci-p3-hlg", nil), ("dci-p3", .itu2020_hlg)]
+        for (name, color) in cases {
+            let source = try fixture(name)
+            var pixels: [[Float]] = []
+            for edit: Set<VideoOperation> in [[], [.process(.image { image, _, _ in image })]] {
+                let destination = temporaryOutput()
+                defer { try? FileManager.default.removeItem(at: destination) }
+                let info = try await convert(source, to: destination,
+                    settings: .init(codec: .proRes422, color: color, edit: edit), skipAudio: true)
+                XCTAssertTrue(info.isHDR, name)
+                let result = AVURLAsset(url: destination)
+                let description = try await videoDescription(result)
+                XCTAssertEqual(description.transferFunction, AVVideoTransferFunction_ITU_R_2100_HLG, name)
+                pixels.append(try await decodedPixels(result))
+            }
+            let processorError = meanAbsoluteError(pixels[1], pixels[0])
+            print("\(name) ProRes HLG image-processor mean error: \(processorError)")
+            XCTAssertLessThan(processorError, 1 / Float(UInt8.max), name)
+        }
+    }
+    #endif
+
     @discardableResult
     private func checkExplicitColor(
         _ name: String,

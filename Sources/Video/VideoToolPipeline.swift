@@ -375,7 +375,13 @@ extension VideoTool {
                 #if !os(visionOS)
                 switch codecResolution.codec {
                 case .proRes422, .proRes422LT, .proRes422HQ, .proRes422Proxy, .proRes4444:
-                    pixelFormat = kCVPixelFormatType_422YpCbCr10
+                    // Core Image cannot render image-processor output into
+                    // 10-bit 4:2:2, so render those frames as half-float RGBA.
+                    if case .image = frameProcessor {
+                        pixelFormat = kCVPixelFormatType_64RGBAHalf
+                    } else {
+                        pixelFormat = kCVPixelFormatType_422YpCbCr10
+                    }
                 default:
                     pixelFormat = kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
                 }
