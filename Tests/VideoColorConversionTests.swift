@@ -299,21 +299,36 @@ final class VideoColorConversionTests: XCTestCase {
         let cases: [(String, CompressionColorPrimary?)] = [("dci-p3-hlg", nil), ("dci-p3", .itu2020_hlg)]
         for (name, color) in cases {
             let source = try fixture(name)
-            var pixels: [[Float]] = []
+            var results: [AVAsset] = []
             for edit: Set<VideoOperation> in [[], [.process(.image { image, _, _ in image })]] {
                 let destination = temporaryOutput()
-                defer { try? FileManager.default.removeItem(at: destination) }
+                addTeardownBlock { try? FileManager.default.removeItem(at: destination) }
                 let info = try await convert(source, to: destination,
                     settings: .init(codec: .proRes422, color: color, edit: edit), skipAudio: true)
                 XCTAssertTrue(info.isHDR, name)
                 let result = AVURLAsset(url: destination)
                 let description = try await videoDescription(result)
                 XCTAssertEqual(description.transferFunction, AVVideoTransferFunction_ITU_R_2100_HLG, name)
-                pixels.append(try await decodedPixels(result))
+                results.append(result)
             }
-            let processorError = meanAbsoluteError(pixels[1], pixels[0])
-            print("\(name) ProRes HLG image-processor mean error: \(processorError)")
-            XCTAssertLessThan(processorError, 1 / Float(UInt8.max), name)
+            // The encoder subsamples RGB input itself, and the result differs
+            // between macOS versions, so compare against controls rather than a
+            // fixed budget: the frame turned upside down, and with red and blue
+            // swapped as a misread pixel format would.
+            let expected = try await decodedPixels(results[0])
+            let actual = try await decodedPixels(results[1])
+            let pixels = stride(from: 0, to: expected.count, by: 3).map { Array(expected[$0..<$0 + 3]) }
+            let controls = [
+                Array(pixels.reversed().joined()),
+                Array(pixels.map { [$0[2], $0[1], $0[0]] }.joined())
+            ]
+            let processorError = meanAbsoluteError(actual, expected)
+            let minimumImprovementFactor: Float = 4
+            for control in controls {
+                let controlError = meanAbsoluteError(control, expected)
+                print("\(name) ProRes HLG image-processor mean error: export=\(processorError), control=\(controlError)")
+                XCTAssertLessThan(processorError * minimumImprovementFactor, controlError, name)
+            }
         }
     }
     #endif
